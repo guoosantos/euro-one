@@ -340,6 +340,7 @@ export default function ReportsAnalytic() {
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortState, setSortState] = useState({ key: "deviceTime", dir: "asc" });
   const [positions, setPositions] = useState([]);
   const [entries, setEntries] = useState([]);
   const [actions, setActions] = useState([]);
@@ -738,8 +739,10 @@ export default function ReportsAnalytic() {
       page: pageParam,
       limit: limitParam,
       reportEventScope,
+      sortBy: sortState.key || undefined,
+      sortDir: sortState.dir || undefined,
     }),
-    [effectivePageSize, from, reportEventScope, selectedVehicleId, to],
+    [effectivePageSize, from, reportEventScope, selectedVehicleId, sortState.dir, sortState.key, to],
   );
 
   const handleGenerate = useCallback(
@@ -795,6 +798,22 @@ export default function ReportsAnalytic() {
       })
       .catch(() => {});
   }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
+
+  useEffect(() => {
+    if (!hasGenerated || loading || !selectedVehicleId) return;
+    const filter = lastResolvedFilter || (addressQuery.trim() ? addressFilter : null);
+    const params = buildQueryParams(filter, 1, effectivePageSize);
+    baseQueryRef.current = params;
+    setPage(1);
+    fetchPage(params)
+      .then((normalized) => {
+        setPositions(normalized.positions || []);
+        setEntries(normalized.entries || []);
+        setActions(normalized.actions || []);
+        setMeta(normalized.meta);
+      })
+      .catch(() => {});
+  }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, hasGenerated, loading, lastResolvedFilter, selectedVehicleId, sortState]);
 
 
   const handlePageSizeChange = useCallback(
@@ -858,6 +877,8 @@ export default function ReportsAnalytic() {
         availableColumns: availableColumnKeys,
         columnDefinitions: columnDefinitionsPayload,
         reportEventScope,
+        sortBy: sortState.key || undefined,
+        sortDir: sortState.dir || undefined,
         addressFilter: resolvedFilter
           ? {
               lat: resolvedFilter.lat,
@@ -986,6 +1007,21 @@ export default function ReportsAnalytic() {
       return next;
     });
   };
+
+  const handleSortChange = useCallback((key) => {
+    setSortState((current) => {
+      if (current.key !== key) {
+        return { key, dir: "asc" };
+      }
+      if (current.dir === "asc") {
+        return { key, dir: "desc" };
+      }
+      if (current.dir === "desc") {
+        return { key: "", dir: "" };
+      }
+      return { key, dir: "asc" };
+    });
+  }, []);
 
   const openPdfModal = (format = "pdf") => {
     setPdfColumns(visibleColumns.map((column) => column.key));
@@ -1229,6 +1265,10 @@ export default function ReportsAnalytic() {
                 columnWidths={columnPrefs?.widths}
                 onColumnWidthChange={handleColumnWidthChange}
                 liveGeocode={false}
+                sortKey={sortState.key}
+                sortDir={sortState.dir}
+                onSortChange={handleSortChange}
+                sortableColumns={["deviceTime", "serverTime", "gpsTime"]}
               />
             ) : (
               <div className="flex min-h-[260px] flex-1 items-center justify-center p-6 text-center text-sm text-white/60">

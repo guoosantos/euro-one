@@ -465,10 +465,6 @@ function invalidateDeviceCache() {
   invalidateRegistry("devices:");
 }
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function resolveModelPrefix(model) {
   const rawPrefix = model?.prefix ?? model?.internalPrefix ?? model?.codePrefix ?? null;
   if (rawPrefix === null || rawPrefix === undefined) return null;
@@ -479,14 +475,30 @@ function resolveModelPrefix(model) {
   return normalized || null;
 }
 
-function resolveNextInternalCode({ clientId, modelId, prefix }) {
-  if (!clientId || !modelId || !prefix) return null;
+function normalizeWarrantyOrigin(value) {
+  if (!value) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (["instalacao", "instalação", "installation"].includes(normalized)) return "installation";
+  if (["producao", "produção", "production"].includes(normalized)) return "production";
+  return null;
+}
+
+function computeWarrantyEndDate({ startDate, warrantyDays }) {
+  const days = Number(warrantyDays);
+  if (!startDate || !Number.isFinite(days) || days <= 0) return null;
+  const parsed = new Date(startDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const end = new Date(parsed);
+  end.setDate(end.getDate() + days);
+  return end.toISOString().slice(0, 10);
+}
+
+function resolveNextInternalCode({ clientId, prefix }) {
+  if (!clientId || !prefix) return null;
   const devices = deps.listDevices({ clientId });
-  const regex = new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`);
+  const regex = /-(\d+)$/;
   let maxSequence = 0;
   devices.forEach((device) => {
-    const deviceModelId = device.modelId || device.attributes?.modelId;
-    if (!deviceModelId || String(deviceModelId) !== String(modelId)) return;
     const internalCode = device.attributes?.internalCode || device.internalCode;
     if (!internalCode) return;
     const match = regex.exec(String(internalCode).trim());
@@ -497,6 +509,19 @@ function resolveNextInternalCode({ clientId, modelId, prefix }) {
     }
   });
   return `${prefix}-${maxSequence + 1}`;
+}
+
+function findDeviceByInternalCode({ clientId, internalCode }) {
+  if (!clientId || !internalCode) return null;
+  const normalized = String(internalCode).trim().toLowerCase();
+  if (!normalized) return null;
+  const devices = deps.listDevices({ clientId });
+  return (
+    devices.find((device) => {
+      const candidate = device.attributes?.internalCode || device.internalCode;
+      return candidate && String(candidate).trim().toLowerCase() === normalized;
+    }) || null
+  );
 }
 
 function buildDeviceResponse(device, context) {
@@ -515,7 +540,8 @@ function buildDeviceResponse(device, context) {
   }
 
   const resolvedModelId = device.modelId || device.attributes?.modelId || null;
-  const model = resolvedModelId ? modelMap.get(resolvedModelId) : null;
+  const modelFromDevice = device.model || null;
+  const model = resolvedModelId ? modelMap.get(resolvedModelId) || modelFromDevice : modelFromDevice;
   const chip = device.chipId ? chipMap.get(device.chipId) : null;
   const vehicle = device.vehicleId ? vehicleMap.get(device.vehicleId) : null;
   const attributes = { ...(traccarDevice?.attributes || {}), ...(device.attributes || {}) };
@@ -1553,6 +1579,7 @@ router.get("/devices", async (req, res, next) => {
       try {
         devices = await prisma.device.findMany({
           where: clientId ? { clientId: String(clientId) } : {},
+          include: { model: true },
         });
       } catch (databaseError) {
         console.warn("[devices] falha ao consultar devices no banco", databaseError?.message || databaseError);
@@ -1562,6 +1589,12 @@ router.get("/devices", async (req, res, next) => {
     if (!devices.length) {
       devices = deps.listDevices({ clientId });
     }
+
+    devices.forEach((device) => {
+      if (device?.model?.id && !modelMap.has(String(device.model.id))) {
+        modelMap.set(String(device.model.id), device.model);
+      }
+    });
 
     const response = devices.map((device) =>
       buildDeviceResponse(
@@ -1627,11 +1660,17 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       }
     }
 
-    let resolvedInternalCode = internalCode;
+    let resolvedInternalCode = internalCode ? String(internalCode).trim() : null;
     if (!resolvedInternalCode && modelId) {
       const prefix = resolveModelPrefix(model);
       if (prefix) {
-        resolvedInternalCode = resolveNextInternalCode({ clientId, modelId, prefix });
+        resolvedInternalCode = resolveNextInternalCode({ clientId, prefix });
+      }
+    }
+    if (resolvedInternalCode) {
+      const existingInternal = findDeviceByInternalCode({ clientId, internalCode: resolvedInternalCode });
+      if (existingInternal && String(existingInternal.uniqueId) !== String(normalizedUniqueId)) {
+        throw createError(409, "Código interno já existe neste cliente");
       }
     }
 
@@ -1653,15 +1692,30 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       attributes.gprsCommunication = gprsCommunication;
     }
     if (warrantyFields?.productionDate) attributes.productionDate = warrantyFields.productionDate;
+    if (warrantyFields?.installationDate) attributes.installationDate = warrantyFields.installationDate;
+    if (warrantyFields?.warrantyOrigin) attributes.warrantyOrigin = warrantyFields.warrantyOrigin;
     if (warrantyFields?.warrantyDays !== undefined) attributes.warrantyDays = warrantyFields.warrantyDays;
     if (warrantyFields?.warrantyStartDate) attributes.warrantyStartDate = warrantyFields.warrantyStartDate;
     if (warrantyFields?.warrantyEndDate) attributes.warrantyEndDate = warrantyFields.warrantyEndDate;
     if (warrantyFields?.warrantyNotes) attributes.warrantyNotes = warrantyFields.warrantyNotes;
 
+    const resolvedOrigin = normalizeWarrantyOrigin(attributes.warrantyOrigin) || "production";
+    if (attributes.warrantyDays !== undefined && attributes.warrantyDays !== null && attributes.warrantyDays !== "") {
+      const startDate = resolvedOrigin === "installation" ? attributes.installationDate : attributes.productionDate;
+      const computedEnd = computeWarrantyEndDate({ startDate, warrantyDays: attributes.warrantyDays });
+      if (!computedEnd) {
+        throw createError(400, "Informe a data base para calcular a garantia");
+      }
+      attributes.warrantyOrigin = resolvedOrigin;
+      attributes.warrantyEndDate = computedEnd;
+      attributes.warrantyStartDate = startDate;
+    }
+
+    const traccarName = resolvedInternalCode || name || normalizedUniqueId;
     const traccarResult = gprsCommunication
       ? await ensureTraccarDeviceExists({
           uniqueId: normalizedUniqueId,
-          name,
+          name: traccarName,
           groupId,
           attributes,
         })
@@ -1784,6 +1838,8 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
     if (payload.attributes) {
       const warrantyFields = payload.attributes;
       if (warrantyFields.productionDate) payload.attributes.productionDate = warrantyFields.productionDate;
+      if (warrantyFields.installationDate) payload.attributes.installationDate = warrantyFields.installationDate;
+      if (warrantyFields.warrantyOrigin) payload.attributes.warrantyOrigin = warrantyFields.warrantyOrigin;
       if (warrantyFields.warrantyDays !== undefined) payload.attributes.warrantyDays = warrantyFields.warrantyDays;
       if (warrantyFields.warrantyStartDate) payload.attributes.warrantyStartDate = warrantyFields.warrantyStartDate;
       if (warrantyFields.warrantyEndDate) payload.attributes.warrantyEndDate = warrantyFields.warrantyEndDate;
@@ -1793,6 +1849,35 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
       const model = deps.getModelById(payload.modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
         throw createError(404, "Modelo informado não pertence a este cliente");
+      }
+    }
+
+    const warrantyTouched = Boolean(
+      payload.attributes &&
+        (Object.prototype.hasOwnProperty.call(payload.attributes, "productionDate") ||
+          Object.prototype.hasOwnProperty.call(payload.attributes, "installationDate") ||
+          Object.prototype.hasOwnProperty.call(payload.attributes, "warrantyOrigin") ||
+          Object.prototype.hasOwnProperty.call(payload.attributes, "warrantyDays")),
+    );
+    if (warrantyTouched) {
+      const nextAttributes = { ...(device.attributes || {}), ...(payload.attributes || {}) };
+      const resolvedOrigin = normalizeWarrantyOrigin(nextAttributes.warrantyOrigin) || "production";
+      if (nextAttributes.warrantyDays !== undefined && nextAttributes.warrantyDays !== null && nextAttributes.warrantyDays !== "") {
+        const startDate = resolvedOrigin === "installation" ? nextAttributes.installationDate : nextAttributes.productionDate;
+        const computedEnd = computeWarrantyEndDate({ startDate, warrantyDays: nextAttributes.warrantyDays });
+        if (!computedEnd) {
+          throw createError(400, "Informe a data base para calcular a garantia");
+        }
+        nextAttributes.warrantyOrigin = resolvedOrigin;
+        nextAttributes.warrantyEndDate = computedEnd;
+        nextAttributes.warrantyStartDate = startDate;
+      }
+      payload.attributes = nextAttributes;
+    }
+    if (payload.attributes?.internalCode) {
+      const existingInternal = findDeviceByInternalCode({ clientId, internalCode: payload.attributes.internalCode });
+      if (existingInternal && String(existingInternal.id) !== String(device.id)) {
+        throw createError(409, "Código interno já existe neste cliente");
       }
     }
 
@@ -1815,6 +1900,38 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
           deps.updateVehicle(previousVehicle.id, { deviceId: null });
         }
         deps.updateDevice(id, { vehicleId: null });
+      }
+    }
+
+    const gprsEnabled = updated.attributes?.gprsCommunication !== false;
+    if (gprsEnabled) {
+      const traccarName = updated.attributes?.internalCode || updated.name || updated.uniqueId;
+      const groupId = await ensureClientTraccarGroup(clientId);
+      try {
+        if (updated.traccarId) {
+          await deps.traccarProxy("put", `/devices/${updated.traccarId}`, {
+            data: {
+              id: Number(updated.traccarId),
+              name: traccarName,
+              uniqueId: updated.uniqueId,
+              groupId,
+              attributes: updated.attributes || {},
+            },
+            asAdmin: true,
+          });
+        } else {
+          const traccarResult = await ensureTraccarDeviceExists({
+            uniqueId: updated.uniqueId,
+            name: traccarName,
+            groupId,
+            attributes: updated.attributes || {},
+          });
+          if (traccarResult.device?.id) {
+            deps.updateDevice(id, { traccarId: String(traccarResult.device.id) });
+          }
+        }
+      } catch (traccarError) {
+        console.warn("[devices] falha ao sincronizar dados no Traccar", traccarError?.message || traccarError);
       }
     }
 

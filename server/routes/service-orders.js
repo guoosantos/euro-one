@@ -182,6 +182,50 @@ function normalizeSignatures(value) {
   return { value: { technician, client }, invalid: false };
 }
 
+function computeWarrantyEndDate(startDate, warrantyDays) {
+  if (!startDate || warrantyDays === null || warrantyDays === undefined || warrantyDays === "") return null;
+  const parsed = new Date(startDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const days = Number(warrantyDays);
+  if (!Number.isFinite(days) || days <= 0) return null;
+  const end = new Date(parsed);
+  end.setDate(end.getDate() + days);
+  return end.toISOString().slice(0, 10);
+}
+
+function updateInstallationWarranty({ clientId, equipmentsData, serviceDate, warrantyFromInstallation }) {
+  if (!serviceDate || !Array.isArray(equipmentsData) || equipmentsData.length === 0) {
+    return { updated: 0 };
+  }
+  const parsedDate = new Date(serviceDate);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return { updated: 0 };
+  }
+  const serviceDateStr = parsedDate.toISOString().slice(0, 10);
+  let updated = 0;
+  equipmentsData.forEach((equipment) => {
+    const equipmentId = equipment?.equipmentId || equipment?.id;
+    if (!equipmentId) return;
+    const device = getDeviceById(equipmentId);
+    if (!device || String(device.clientId) !== String(clientId)) return;
+    const attrs = { ...(device.attributes || {}) };
+    attrs.installationDate = serviceDateStr;
+    if (warrantyFromInstallation) {
+      attrs.warrantyOrigin = "installation";
+      attrs.warrantyStartDate = serviceDateStr;
+      const computedEnd = computeWarrantyEndDate(serviceDateStr, attrs.warrantyDays);
+      if (computedEnd) {
+        attrs.warrantyEndDate = computedEnd;
+      }
+    } else if (!attrs.warrantyOrigin) {
+      attrs.warrantyOrigin = "production";
+    }
+    updateDevice(device.id, { attributes: attrs });
+    updated += 1;
+  });
+  return { updated };
+}
+
 async function resolveVehicleIdByPlate({ clientId, vehiclePlate }) {
   if (!vehiclePlate) return null;
   const plate = String(vehiclePlate).trim();
@@ -245,6 +289,13 @@ router.get("/service-orders", async (req, res, next) => {
 
     return res.json({ ok: true, items });
   } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({
+        ok: false,
+        items: [],
+        error: { message: error.message || "Requisição inválida." },
+      });
+    }
     if (error?.code === "P2022") {
       console.error("[service-orders] falha ao listar OS (schema)", {
         code: error?.code,
@@ -252,7 +303,7 @@ router.get("/service-orders", async (req, res, next) => {
         meta: error?.meta,
         stack: error?.stack,
       });
-      return next(createError(500, "Banco desatualizado. Execute prisma migrate deploy."));
+      return next(createError(503, "Banco desatualizado. Execute prisma migrate deploy."));
     }
     return next(error);
   }
@@ -630,6 +681,17 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
       throw lastError;
     }
 
+    const warrantyFromInstallation = Boolean(body.warrantyFromInstallation);
+    const installationUpdates =
+      body.type === "Instalação" && body.startAt
+        ? updateInstallationWarranty({
+            clientId,
+            equipmentsData: created.equipmentsData,
+            serviceDate: body.startAt,
+            warrantyFromInstallation,
+          })
+        : { updated: 0 };
+
     const autoLinked = isFinalStatus(created?.status)
       ? autoLinkEquipmentsToVehicle({
           clientId,
@@ -638,15 +700,26 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
         })
       : { linked: 0 };
 
-    return res.status(201).json({ ok: true, item: created, equipmentsLinked: autoLinked.linked });
+    return res.status(201).json({
+      ok: true,
+      item: created,
+      equipmentsLinked: autoLinked.linked,
+      warrantyUpdated: installationUpdates.updated,
+    });
   } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({
+        ok: false,
+        error: { message: error.message || "Requisição inválida." },
+      });
+    }
     if (error?.code === "P2021" || error?.code === "P2022") {
       console.error("[service-orders] falha ao criar OS (schema)", {
         code: error?.code,
         message: error?.message,
         meta: error?.meta,
       });
-      return next(createError(500, "Falha ao criar OS. Atualize e tente novamente."));
+      return next(createError(503, "Falha ao criar OS. Atualize e tente novamente."));
     }
     return next(error);
   }

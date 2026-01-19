@@ -524,7 +524,7 @@ export default function Chips() {
       )}
 
       <div className="flex-1">
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div className="overflow-x-auto border border-white/10">
           <table className="min-w-full text-sm text-white/80">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
               <tr>
