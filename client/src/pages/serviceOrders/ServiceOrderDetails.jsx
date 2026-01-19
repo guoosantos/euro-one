@@ -5,6 +5,7 @@ import PageHeader from "../../components/ui/PageHeader.jsx";
 import DataCard from "../../components/ui/DataCard.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import api from "../../lib/api.js";
+import { usePermissionGate } from "../../lib/permissions/permission-gate.js";
 
 const STATUS_OPTIONS = [
   "SOLICITADA",
@@ -66,6 +67,8 @@ function mapPayload(formState) {
 
 export default function ServiceOrderDetails() {
   const { id } = useParams();
+  const permission = usePermissionGate({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" });
+  const canEdit = permission.isFull;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [item, setItem] = useState(null);
@@ -312,6 +315,7 @@ export default function ServiceOrderDetails() {
                 value={form.status}
                 onChange={(event) => handleChange("status", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                disabled={!canEdit}
               >
                 {STATUS_OPTIONS.map((status) => (
                   <option key={status} value={status}>
@@ -326,6 +330,7 @@ export default function ServiceOrderDetails() {
                 value={form.address}
                 onChange={(event) => handleChange("address", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                disabled={!canEdit}
               />
             </label>
             <label className="block text-xs text-white/60">
@@ -334,6 +339,7 @@ export default function ServiceOrderDetails() {
                 value={form.responsibleName}
                 onChange={(event) => handleChange("responsibleName", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                disabled={!canEdit}
               />
             </label>
             <label className="block text-xs text-white/60">
@@ -342,16 +348,19 @@ export default function ServiceOrderDetails() {
                 value={form.responsiblePhone}
                 onChange={(event) => handleChange("responsiblePhone", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                disabled={!canEdit}
               />
             </label>
-            <button
-              type="button"
-              onClick={() => save()}
-              disabled={saving}
-              className="w-full rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-60"
-            >
-              {saving ? "Salvando..." : "Salvar alterações"}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => save()}
+                disabled={saving}
+                className="w-full rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-60"
+              >
+                {saving ? "Salvando..." : "Salvar alterações"}
+              </button>
+            )}
           </DataCard>
 
           <DataCard className="space-y-3">
@@ -393,10 +402,11 @@ export default function ServiceOrderDetails() {
               onChange={(event) => handleChange("km", event.target.value)}
               className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               placeholder="KM total"
+              disabled={!canEdit}
             />
           </DataCard>
 
-          {showActions && (
+          {showActions && canEdit && (
             <DataCard className="space-y-3">
               <h2 className="text-sm font-semibold text-white">Ações rápidas</h2>
               <div className="flex flex-col gap-2">

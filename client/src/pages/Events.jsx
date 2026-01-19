@@ -256,12 +256,15 @@ export default function Events() {
   const canEditSeverity = severityPermission.isFull;
 
   const availableTabs = useMemo(
-    () => EVENT_TABS.filter((tab) => getPermission(tab.permission).hasAccess),
+    () => EVENT_TABS.filter((tab) => getPermission(tab.permission).canShow),
     [getPermission],
   );
 
   useEffect(() => {
-    if (!availableTabs.length) return;
+    if (!availableTabs.length) {
+      setActiveTab("");
+      return;
+    }
     const activeStillAvailable = availableTabs.some((tab) => tab.id === activeTab);
     if (!activeStillAvailable) {
       setActiveTab(availableTabs[0].id);
@@ -891,7 +894,13 @@ export default function Events() {
           </div>
         </div>
 
-        {activeTab === "report" && (
+        {!availableTabs.length ? (
+          <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
+            Sem acesso aos módulos de eventos.
+          </div>
+        ) : null}
+
+        {availableTabs.length > 0 && activeTab === "report" && (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
               <AutocompleteSelect
@@ -1061,7 +1070,7 @@ export default function Events() {
           </div>
         )}
 
-        {activeTab === "severity" && (
+        {availableTabs.length > 0 && activeTab === "severity" && (
           <div className="space-y-4 px-6 pb-6">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <label className="text-xs uppercase tracking-wide text-white/60">

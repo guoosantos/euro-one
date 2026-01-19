@@ -19,6 +19,7 @@ import FilterBar from "../components/ui/FilterBar";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import { useGroups } from "../lib/hooks/useGroups";
 import { formatVehicleLabel } from "../lib/hooks/useVehicles";
+import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
 
 const defaultUserAccess = {
   vehicleAccess: { mode: "all", vehicleIds: [] },
@@ -72,135 +73,7 @@ const permissionLevels = [
   { value: "full", label: "Acesso completo" },
 ];
 
-const permissionMatrix = [
-  {
-    id: "business",
-    label: "Negócios",
-    pages: [
-      { id: "dashboard", label: "Dashboard" },
-      { id: "finance", label: "Financeiro" },
-      { id: "crm", label: "CRM" },
-    ],
-  },
-  {
-    id: "primary",
-    label: "Principais",
-    pages: [
-      { id: "home", label: "Home" },
-      { id: "monitoring", label: "Monitoramento" },
-      { id: "trips", label: "Trajetos / Replay" },
-      {
-        id: "devices",
-        label: "Dispositivos",
-        subpages: [
-          { id: "devices-list", label: "Equipamentos" },
-          { id: "devices-chips", label: "Chip" },
-          { id: "devices-models", label: "Modelos & Portas" },
-          { id: "devices-stock", label: "Estoque" },
-        ],
-      },
-      {
-        id: "commands",
-        label: "Comandos",
-        subpages: [
-          { id: "list", label: "Comandos" },
-          { id: "advanced", label: "Avançado" },
-          { id: "create", label: "Criar comandos" },
-        ],
-      },
-      {
-        id: "events",
-        label: "Eventos",
-        subpages: [
-          { id: "report", label: "Relatório" },
-          { id: "severity", label: "Severidade" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "fleet",
-    label: "Frotas",
-    pages: [
-      { id: "vehicles", label: "Veículos" },
-      {
-        id: "documents",
-        label: "Documentos",
-        subpages: [
-          { id: "drivers", label: "Motorista" },
-          { id: "contracts", label: "Contratos" },
-        ],
-      },
-      {
-        id: "services",
-        label: "Serviços",
-        subpages: [
-          { id: "service-orders", label: "Ordem de Serviço" },
-          { id: "appointments", label: "Agendamentos" },
-          { id: "technicians", label: "Técnico" },
-        ],
-      },
-      { id: "routes", label: "Rotas" },
-      { id: "geofences", label: "Cercas" },
-      { id: "targets", label: "Alvos" },
-      { id: "itineraries", label: "Embarcar Itinerários" },
-      { id: "deliveries", label: "Entregas" },
-    ],
-  },
-  {
-    id: "telemetry",
-    label: "Telemetria Euro",
-    pages: [
-      {
-        id: "euro-view",
-        label: "Euro View",
-        subpages: [
-          { id: "videos", label: "Vídeos" },
-          { id: "face", label: "Reconhecimento Facial" },
-          { id: "live", label: "Live" },
-        ],
-      },
-      {
-        id: "euro-can",
-        label: "Euro CAN",
-        subpages: [
-          { id: "fuel", label: "Combustível" },
-          { id: "compliance", label: "Compliance" },
-          { id: "driver-behavior", label: "Drive Behavior" },
-          { id: "maintenance", label: "Manutenção" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "admin",
-    label: "Administração",
-    pages: [
-      {
-        id: "reports",
-        label: "Relatórios",
-        subpages: [
-          { id: "reports-positions", label: "Relatório de Posições" },
-          { id: "reports-analytic", label: "Relatório Analítico" },
-        ],
-      },
-      {
-        id: "analytics",
-        label: "Análises",
-        subpages: [
-          { id: "analytics-heatmap", label: "Mapa de Calor" },
-          { id: "ranking", label: "Ranking" },
-          { id: "dangerous-routes", label: "Rotas Perigosas" },
-          { id: "security-events", label: "Segurança" },
-        ],
-      },
-      { id: "clients", label: "Clientes" },
-      { id: "users", label: "Usuários" },
-      { id: "mirrors", label: "Espelhamento" },
-      { id: "import", label: "Importar Base (XLSX)" },
-    ],
-  },
-];
+const permissionMatrix = PERMISSION_REGISTRY;
 
 function Drawer({ open, onClose, title, description, children, eyebrow = "Usuários" }) {
   if (!open) return null;
@@ -659,16 +532,16 @@ export default function Users() {
     setPermissionForm((prev) => {
       const next = { ...prev.permissions };
       const menuPermissions = { ...(next[menuKey] || {}) };
-      const menu = permissionMatrix.find((item) => item.id === menuKey);
+      const menu = permissionMatrix.find((item) => item.menuKey === menuKey);
       menu?.pages.forEach((page) => {
         if (page.subpages?.length) {
           const subpages = {};
           page.subpages.forEach((subpage) => {
-            subpages[subpage.id] = level;
+            subpages[subpage.subKey] = level;
           });
-          menuPermissions[page.id] = { level, subpages };
+          menuPermissions[page.pageKey] = { level, subpages };
         } else {
-          menuPermissions[page.id] = level;
+          menuPermissions[page.pageKey] = level;
         }
       });
       next[menuKey] = menuPermissions;
@@ -1776,15 +1649,15 @@ export default function Users() {
 
           <div className="space-y-4">
             {permissionMatrix.map((menu) => {
-              const isOpen = openPermissionMenus[menu.id] !== false;
+              const isOpen = openPermissionMenus[menu.menuKey] !== false;
               return (
-                <div key={menu.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div key={menu.menuKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
                   <button
                     type="button"
                     onClick={() =>
                       setOpenPermissionMenus((prev) => ({
                         ...prev,
-                        [menu.id]: prev[menu.id] === false,
+                        [menu.menuKey]: prev[menu.menuKey] === false,
                       }))
                     }
                     className="flex w-full items-center justify-between text-left"
@@ -1802,11 +1675,11 @@ export default function Users() {
                         <span className="text-xs uppercase tracking-wide text-white/50">Aplicar a todos</span>
                         <div className="flex items-center gap-2">
                           <select
-                            value={bulkPermissionLevels[menu.id] || "none"}
+                            value={bulkPermissionLevels[menu.menuKey] || "none"}
                             onChange={(event) =>
                               setBulkPermissionLevels((prev) => ({
                                 ...prev,
-                                [menu.id]: event.target.value,
+                                [menu.menuKey]: event.target.value,
                               }))
                             }
                             className="rounded-lg border border-border bg-layer px-3 py-2 text-xs"
@@ -1819,7 +1692,7 @@ export default function Users() {
                           </select>
                           <button
                             type="button"
-                            onClick={() => handleApplyMenuLevel(menu.id)}
+                            onClick={() => handleApplyMenuLevel(menu.menuKey)}
                             className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
                           >
                             Aplicar
@@ -1829,7 +1702,7 @@ export default function Users() {
 
                       <div className="space-y-4">
                         {menu.pages.map((page) => (
-                          <div key={page.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                          <div key={page.pageKey} className="rounded-lg border border-white/10 bg-black/20 p-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <p className="text-xs uppercase tracking-wide text-white/60">{page.label}</p>
@@ -1838,9 +1711,9 @@ export default function Users() {
                                 )}
                               </div>
                               <select
-                                value={getPermissionValue(menu.id, page.id)}
+                                value={getPermissionValue(menu.menuKey, page.pageKey)}
                                 onChange={(event) =>
-                                  handlePermissionUpdate(menu.id, page.id, event.target.value)
+                                  handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value)
                                 }
                                 className="min-w-[220px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
                               >
@@ -1855,14 +1728,14 @@ export default function Users() {
                               <div className="mt-3 space-y-2">
                                 {page.subpages.map((subpage) => (
                                   <div
-                                    key={subpage.id}
+                                    key={subpage.subKey}
                                     className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-2"
                                   >
                                     <span className="text-xs text-white/70">{subpage.label}</span>
                                     <select
-                                      value={getPermissionValue(menu.id, page.id, subpage.id)}
+                                      value={getPermissionValue(menu.menuKey, page.pageKey, subpage.subKey)}
                                       onChange={(event) =>
-                                        handlePermissionUpdate(menu.id, page.id, event.target.value, subpage.id)
+                                        handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value, subpage.subKey)
                                       }
                                       className="min-w-[200px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
                                     >

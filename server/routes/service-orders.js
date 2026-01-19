@@ -3,6 +3,7 @@ import createError from "http-errors";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, updateDevice } from "../models/device.js";
 import { getVehicleById } from "../models/vehicle.js";
@@ -251,9 +252,14 @@ async function resolveVehicleIdByPlate({ clientId, vehiclePlate }) {
   return vehicle?.id || null;
 }
 
-router.get("/service-orders", async (req, res, next) => {
+router.get(
+  "/service-orders",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" }),
+  async (req, res, next) => {
   try {
-    ensurePrisma();
+    if (!isPrismaAvailable()) {
+      return res.json({ ok: true, items: [] });
+    }
     const hasClientFilter = Boolean(req.query?.clientId);
     const clientId =
       req.user?.role === "admin"
@@ -327,7 +333,10 @@ router.get("/service-orders", async (req, res, next) => {
   }
 });
 
-router.get("/service-orders/:id", async (req, res, next) => {
+router.get(
+  "/service-orders/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" }),
+  async (req, res, next) => {
   try {
     ensurePrisma();
     const clientId = resolveClientId(req, req.query?.clientId, { required: true });
@@ -351,7 +360,10 @@ router.get("/service-orders/:id", async (req, res, next) => {
   }
 });
 
-router.get("/service-orders/:id/pdf", async (req, res, next) => {
+router.get(
+  "/service-orders/:id/pdf",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" }),
+  async (req, res, next) => {
   try {
     ensurePrisma();
     const clientId = resolveClientId(req, req.query?.clientId, { required: true });
@@ -609,7 +621,11 @@ router.get("/service-orders/:id/pdf", async (req, res, next) => {
   }
 });
 
-router.post("/service-orders", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/service-orders",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     ensurePrisma();
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
@@ -743,7 +759,10 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
   }
 });
 
-router.patch("/service-orders/:id", async (req, res, next) => {
+router.patch(
+  "/service-orders/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true }),
+  async (req, res, next) => {
   try {
     ensurePrisma();
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
