@@ -49,6 +49,7 @@ router.post("/users", async (req, res, next) => {
     if (!name || !email || !password) {
       throw createError(400, "Nome, e-mail e senha são obrigatórios");
     }
+    const resolvedUsername = username || email;
 
     if (req.user.role !== "admin" && role !== "user") {
       throw createError(403, "Somente administradores podem criar papéis avançados");
@@ -69,7 +70,7 @@ router.post("/users", async (req, res, next) => {
     const user = await createUser({
       name,
       email,
-      username,
+      username: resolvedUsername,
       password,
       role,
       clientId: role === "admin" ? null : targetClientId,

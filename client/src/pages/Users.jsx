@@ -22,7 +22,7 @@ import { formatVehicleLabel } from "../lib/hooks/useVehicles";
 
 const defaultUserAccess = {
   vehicleAccess: { mode: "all", vehicleIds: [] },
-  vehicleGroupId: "",
+  vehicleGroupIds: [],
   schedule: { days: [], start: "", end: "" },
   ipRestriction: { mode: "all", ip: "" },
 };
@@ -69,10 +69,6 @@ const daysOfWeek = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const permissionLevels = [
   { value: "none", label: "Sem acesso" },
   { value: "view", label: "Somente visualizar" },
-  { value: "create", label: "Criar" },
-  { value: "create_edit", label: "Criar e editar" },
-  { value: "send_commands", label: "Enviar comandos" },
-  { value: "send_itinerary", label: "Enviar itinerário" },
   { value: "full", label: "Acesso completo" },
 ];
 
@@ -235,6 +231,46 @@ function uniqueList(items) {
   return Array.from(new Set(items.map((item) => String(item))));
 }
 
+function normalizePermissionLevel(level) {
+  if (level === "none" || level === "view") return level;
+  return "full";
+}
+
+function normalizePermissionPayload(permissions = {}) {
+  const normalized = {};
+  Object.entries(permissions || {}).forEach(([menuKey, pages]) => {
+    const nextPages = {};
+    Object.entries(pages || {}).forEach(([pageKey, value]) => {
+      if (typeof value === "string") {
+        nextPages[pageKey] = normalizePermissionLevel(value);
+        return;
+      }
+      if (value && typeof value === "object") {
+        const subpages = {};
+        Object.entries(value.subpages || {}).forEach(([subKey, subValue]) => {
+          subpages[subKey] = normalizePermissionLevel(subValue);
+        });
+        nextPages[pageKey] = {
+          ...value,
+          level: normalizePermissionLevel(value.level),
+          subpages,
+        };
+      }
+    });
+    normalized[menuKey] = nextPages;
+  });
+  return normalized;
+}
+
+function resolveVehicleGroupIds(userAccess) {
+  const groupIds = Array.isArray(userAccess?.vehicleGroupIds)
+    ? userAccess.vehicleGroupIds
+    : userAccess?.vehicleGroupId
+      ? [userAccess.vehicleGroupId]
+      : [];
+  return uniqueList(groupIds.filter(Boolean));
+}
+
 export default function Users() {
   const { role, tenants, tenantId, tenant, user } = useTenant();
   const [users, setUsers] = useState([]);
@@ -261,6 +297,7 @@ export default function Users() {
   const [groupQuery, setGroupQuery] = useState("");
   const [permissionQuery, setPermissionQuery] = useState("");
   const [vehiclePickId, setVehiclePickId] = useState("");
+  const [vehicleGroupPickId, setVehicleGroupPickId] = useState("");
   const [groupVehiclePickId, setGroupVehiclePickId] = useState("");
   const [detailsSearch, setDetailsSearch] = useState("");
   const [openPermissionMenus, setOpenPermissionMenus] = useState({});
@@ -401,6 +438,10 @@ export default function Users() {
     setMessage(null);
     try {
       const safeRole = allowedRoles.includes(form.role) ? form.role : "user";
+      const normalizedUserAccess = {
+        ...form.attributes.userAccess,
+        vehicleGroupIds: resolveVehicleGroupIds(form.attributes.userAccess),
+      };
       const payload = {
         name: form.name,
         email: form.email,
@@ -410,7 +451,7 @@ export default function Users() {
         clientId: selectedTenantId,
         attributes: {
           ...form.attributes,
-          userAccess: form.attributes.userAccess,
+          userAccess: normalizedUserAccess,
           permissionGroupId: form.attributes.permissionGroupId || null,
         },
       };
@@ -454,7 +495,7 @@ export default function Users() {
         attributes: {
           userAccess: {
             vehicleAccess: userAccess.vehicleAccess || defaultUserAccess.vehicleAccess,
-            vehicleGroupId: userAccess.vehicleGroupId || "",
+            vehicleGroupIds: resolveVehicleGroupIds(userAccess),
             schedule: userAccess.schedule || defaultUserAccess.schedule,
             ipRestriction: userAccess.ipRestriction || defaultUserAccess.ipRestriction,
           },
@@ -475,16 +516,16 @@ export default function Users() {
     setDetailsDrawerOpen(true);
   }
 
-  function handleGroupSelection(groupId) {
-    const group = vehicleGroups.find((entry) => entry.id === groupId);
-    if (!group) {
-      updateUserAccess("vehicleGroupId", "");
-      return;
-    }
-    const vehicleIds = Array.isArray(group.attributes?.vehicleIds) ? group.attributes.vehicleIds : [];
-    const merged = uniqueList([...(form.attributes.userAccess.vehicleAccess.vehicleIds || []), ...vehicleIds]);
-    updateVehicleAccess({ mode: "selected", vehicleIds: merged });
-    updateUserAccess("vehicleGroupId", groupId);
+  function handleVehicleGroupAdd(groupId) {
+    if (!groupId) return;
+    const nextIds = uniqueList([...selectedVehicleGroupIds, groupId]);
+    updateUserAccess("vehicleGroupIds", nextIds);
+    setVehicleGroupPickId("");
+  }
+
+  function handleVehicleGroupRemove(groupId) {
+    const nextIds = selectedVehicleGroupIds.filter((value) => String(value) !== String(groupId));
+    updateUserAccess("vehicleGroupIds", nextIds);
   }
 
   function openGroupDrawer(group = null) {
@@ -536,7 +577,7 @@ export default function Users() {
     setPermissionForm({
       name: group?.name || "",
       description: group?.description || "",
-      permissions: group?.attributes?.permissions || {},
+      permissions: normalizePermissionPayload(group?.attributes?.permissions || {}),
     });
     setPermissionDrawerOpen(true);
   }
@@ -550,7 +591,7 @@ export default function Users() {
         clientId: selectedTenantId,
         attributes: {
           kind: "PERMISSION_GROUP",
-          permissions: permissionForm.permissions,
+          permissions: normalizePermissionPayload(permissionForm.permissions),
         },
       };
       if (editingPermissionGroup) {
@@ -623,11 +664,11 @@ export default function Users() {
   function getPermissionValue(menuKey, pageKey, subKey) {
     const menuPermissions = permissionForm.permissions?.[menuKey] || {};
     if (subKey) {
-      return menuPermissions?.[pageKey]?.subpages?.[subKey] || "none";
+      return normalizePermissionLevel(menuPermissions?.[pageKey]?.subpages?.[subKey]) || "none";
     }
     const value = menuPermissions?.[pageKey];
-    if (typeof value === "string") return value;
-    if (value?.level) return value.level;
+    if (typeof value === "string") return normalizePermissionLevel(value);
+    if (value?.level) return normalizePermissionLevel(value.level);
     return "none";
   }
 
@@ -639,6 +680,14 @@ export default function Users() {
     return map;
   }, [vehicles]);
 
+  const vehicleGroupMap = useMemo(() => {
+    const map = new Map();
+    vehicleGroups.forEach((group) => {
+      map.set(String(group.id), group);
+    });
+    return map;
+  }, [vehicleGroups]);
+
   const vehicleOptions = useMemo(
     () =>
       vehicles.map((vehicle) => ({
@@ -648,6 +697,41 @@ export default function Users() {
       })),
     [vehicles],
   );
+
+  const vehicleGroupOptions = useMemo(
+    () =>
+      vehicleGroups.map((group) => ({
+        value: group.id,
+        label: group.name,
+        description: `${group.attributes?.vehicleIds?.length || 0} veículos`,
+      })),
+    [vehicleGroups],
+  );
+
+  const selectedVehicleGroupIds = useMemo(
+    () => resolveVehicleGroupIds(form.attributes.userAccess),
+    [form.attributes.userAccess],
+  );
+
+  const selectedGroupVehicleIds = useMemo(() => {
+    const ids = new Set();
+    selectedVehicleGroupIds.forEach((groupId) => {
+      const group = vehicleGroupMap.get(String(groupId));
+      (group?.attributes?.vehicleIds || []).forEach((id) => ids.add(String(id)));
+    });
+    return Array.from(ids);
+  }, [selectedVehicleGroupIds, vehicleGroupMap]);
+
+  const selectedVehicleCount = useMemo(() => {
+    if (form.attributes.userAccess.vehicleAccess.mode === "all") {
+      return vehicles.length;
+    }
+    const combined = uniqueList([
+      ...(form.attributes.userAccess.vehicleAccess.vehicleIds || []),
+      ...selectedGroupVehicleIds,
+    ]);
+    return combined.length;
+  }, [form.attributes.userAccess.vehicleAccess, selectedGroupVehicleIds, vehicles]);
 
   const filteredUsers = useMemo(() => {
     const term = normalizeText(query);
@@ -676,18 +760,23 @@ export default function Users() {
     });
   }, [permissionQuery, permissionGroups]);
 
-  const detailsVehicleGroup = useMemo(() => {
-    if (!detailsUser?.attributes?.userAccess?.vehicleGroupId) return null;
-    return vehicleGroups.find((entry) => entry.id === detailsUser.attributes.userAccess.vehicleGroupId) || null;
-  }, [detailsUser, vehicleGroups]);
+  const detailsVehicleGroups = useMemo(() => {
+    if (!detailsUser) return [];
+    const groupIds = resolveVehicleGroupIds(detailsUser.attributes?.userAccess);
+    return groupIds.map((id) => vehicleGroupMap.get(String(id))).filter(Boolean);
+  }, [detailsUser, vehicleGroupMap]);
 
   const detailsVehicles = useMemo(() => {
     if (!detailsUser) return [];
     const userAccess = detailsUser.attributes?.userAccess || defaultUserAccess;
     if (userAccess.vehicleAccess?.mode === "all") return vehicles;
     const ids = new Set((userAccess.vehicleAccess?.vehicleIds || []).map(String));
+    resolveVehicleGroupIds(userAccess).forEach((groupId) => {
+      const group = vehicleGroupMap.get(String(groupId));
+      (group?.attributes?.vehicleIds || []).forEach((vehicleId) => ids.add(String(vehicleId)));
+    });
     return vehicles.filter((vehicle) => ids.has(String(vehicle.id)));
-  }, [detailsUser, vehicles]);
+  }, [detailsUser, vehicles, vehicleGroupMap]);
 
   const filteredDetailsVehicles = useMemo(() => {
     const term = normalizeText(detailsSearch);
@@ -831,10 +920,14 @@ export default function Users() {
                 {!loading &&
                   filteredUsers.map((entry) => {
                     const userAccess = entry.attributes?.userAccess || defaultUserAccess;
+                    const groupIds = resolveVehicleGroupIds(userAccess);
+                    const groupVehicleIds = groupIds.flatMap(
+                      (groupId) => vehicleGroupMap.get(String(groupId))?.attributes?.vehicleIds || [],
+                    );
                     const vehicleCount =
                       userAccess.vehicleAccess?.mode === "all"
                         ? vehicles.length
-                        : userAccess.vehicleAccess?.vehicleIds?.length || 0;
+                        : uniqueList([...(userAccess.vehicleAccess?.vehicleIds || []), ...groupVehicleIds]).length;
                     return (
                       <tr key={entry.id} className="hover:bg-white/5">
                         <td className="px-4 py-3 text-white">
@@ -1096,27 +1189,12 @@ export default function Users() {
                 <label className="text-sm">
                   <span className="block text-xs uppercase tracking-wide text-white/60">Perfil</span>
                   <select
-                    value={allowedRoles.includes(form.role) ? form.role : "user"}
-                    onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
-                  >
-                    {allowedRoles.map((value) => (
-                      <option key={value} value={value}>
-                        {roleLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="text-sm">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">Grupo de permissões</span>
-                  <select
                     value={form.attributes.permissionGroupId || ""}
                     onChange={(event) => updateFormAttributes("permissionGroupId", event.target.value)}
                     required
                     className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
                   >
-                    <option value="">Selecionar grupo de permissões</option>
+                    <option value="">Selecionar perfil</option>
                     {permissionGroups.map((group) => (
                       <option key={group.id} value={group.id}>
                         {group.name}
@@ -1233,27 +1311,52 @@ export default function Users() {
                   <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-white/50">Grupo de veículos</p>
-                        <p className="text-xs text-white/60">Combine veículos por grupo existente.</p>
+                        <p className="text-xs uppercase tracking-wide text-white/50">Grupos de veículos</p>
+                        <p className="text-xs text-white/60">Selecione múltiplos grupos para compor o acesso.</p>
                       </div>
-                      <select
-                        value={form.attributes.userAccess.vehicleGroupId || ""}
-                        onChange={(event) => handleGroupSelection(event.target.value)}
-                        className="min-w-[220px] rounded-lg border border-border bg-layer px-3 py-2 text-sm"
-                      >
-                        <option value="">Selecionar grupo</option>
-                        {vehicleGroups.map((group) => (
-                          <option key={group.id} value={group.id}>
-                            {group.name}
-                          </option>
-                        ))}
-                      </select>
                     </div>
-                    {form.attributes.userAccess.vehicleGroupId && (
-                      <p className="mt-2 text-xs text-white/60">
-                        Este grupo contém {vehicleGroups.find((group) => group.id === form.attributes.userAccess.vehicleGroupId)?.attributes?.vehicleIds?.length || 0} veículos.
-                      </p>
-                    )}
+                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                      <AutocompleteSelect
+                        label="Buscar grupo"
+                        placeholder="Buscar grupo de veículos"
+                        value={vehicleGroupPickId}
+                        onChange={(value) => setVehicleGroupPickId(value)}
+                        options={vehicleGroupOptions}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleVehicleGroupAdd(vehicleGroupPickId)}
+                        className="mt-6 rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedVehicleGroupIds.map((id) => {
+                        const group = vehicleGroupMap.get(String(id));
+                        return (
+                          <span
+                            key={id}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/80"
+                          >
+                            {group?.name || `Grupo ${id}`}
+                            <button
+                              type="button"
+                              onClick={() => handleVehicleGroupRemove(id)}
+                              className="text-white/60 hover:text-white"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {!selectedVehicleGroupIds.length && (
+                        <span className="text-xs text-white/40">Nenhum grupo selecionado.</span>
+                      )}
+                    </div>
+                    <p className="mt-3 text-xs text-white/60">
+                      Total de veículos resultantes: <span className="text-white">{selectedVehicleCount}</span>
+                    </p>
                   </div>
                 </section>
 
@@ -1422,7 +1525,7 @@ export default function Users() {
                   <span className="text-lg font-semibold text-white">{detailsVehicles.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs uppercase tracking-wide text-white/50">Grupo de permissões</span>
+                  <span className="text-xs uppercase tracking-wide text-white/50">Perfil</span>
                   <span className="text-sm text-white/80">
                     {permissionGroups.find((group) => group.id === detailsUser.attributes?.permissionGroupId)?.name || "—"}
                   </span>
@@ -1463,10 +1566,18 @@ export default function Users() {
                     className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
                   />
                 </div>
-                {detailsVehicleGroup && (
-                  <p className="text-xs text-white/60">
-                    Grupo de veículos: <span className="text-white">{detailsVehicleGroup.name}</span> — {detailsVehicleGroup.attributes?.vehicleIds?.length || 0} veículos
-                  </p>
+                {!!detailsVehicleGroups.length && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+                    <span className="uppercase tracking-wide text-white/50">Grupos vinculados:</span>
+                    {detailsVehicleGroups.map((group) => (
+                      <span
+                        key={group.id}
+                        className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/80"
+                      >
+                        {group.name}
+                      </span>
+                    ))}
+                  </div>
                 )}
                 {detailsUser?.attributes?.userAccess?.vehicleAccess?.mode === "all" && (
                   <p className="text-xs text-emerald-200">Acesso total habilitado.</p>

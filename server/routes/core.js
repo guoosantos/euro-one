@@ -21,6 +21,7 @@ import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, getUserById, updateUser } from "../models/user.js";
 import { listMirrors } from "../models/mirror.js";
+import { listGroups } from "../models/group.js";
 import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
@@ -2546,9 +2547,24 @@ router.get("/vehicles", async (req, res, next) => {
     const { page, pageSize, start } = parsePagination(req.query);
     const isAdmin = req.user?.role === "admin";
     let mirrorOwnerIds = [];
+    const userAccess = req.user?.attributes?.userAccess || {};
+    const groupIds = Array.isArray(userAccess.vehicleGroupIds)
+      ? userAccess.vehicleGroupIds
+      : userAccess.vehicleGroupId
+        ? [userAccess.vehicleGroupId]
+        : [];
     const accessVehicleIds =
-      req.user?.attributes?.userAccess?.vehicleAccess?.mode === "selected"
-        ? new Set((req.user?.attributes?.userAccess?.vehicleAccess?.vehicleIds || []).map(String))
+      userAccess.vehicleAccess?.mode === "selected"
+        ? new Set([
+          ...(userAccess.vehicleAccess?.vehicleIds || []).map(String),
+          ...listGroups({ clientId: req.user?.clientId ?? clientId })
+            .filter(
+              (group) =>
+                groupIds.some((id) => String(id) === String(group.id))
+                && group.attributes?.kind === "VEHICLE_GROUP",
+            )
+            .flatMap((group) => (group.attributes?.vehicleIds || []).map(String)),
+        ])
         : null;
     let vehicles = deps.listVehicles({ clientId });
     if (!isAdmin && req.user?.clientId) {

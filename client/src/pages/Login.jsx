@@ -31,6 +31,12 @@ export default function Login() {
         setFormError("Usuário ou senha inválidos");
         return;
       }
+      if (status === 403) {
+        setFormError(
+          payload?.error || payload?.message || "Acesso não autorizado. Solicite permissão ao administrador.",
+        );
+        return;
+      }
       setFormError(
         payload?.error ||
           payload?.message ||

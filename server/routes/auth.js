@@ -265,7 +265,7 @@ const handleLogin = async (req, res, next) => {
         response: error?.traccar?.response || error?.details?.response || error?.response?.data || null,
       });
       if (status === 401 || status === 403) {
-        throw buildAuthError(401, "Usuário ou senha inválidos", AUTH_ERROR_CODES.invalidCredentials);
+        traccarAuth = null;
       }
       if (status === 502) {
         throw buildAuthError(502, error?.message || "Servidor Traccar indisponível", AUTH_ERROR_CODES.traccarUnavailable);
@@ -345,7 +345,7 @@ const handleLogin = async (req, res, next) => {
     const resolvedClientId = sessionPayload?.client?.id ?? sessionUser.clientId ?? null;
     if (!resolvedClientId) {
       console.warn("[auth] usuário sem tenant associado", { userId: sessionUser.id, login: userLogin });
-      const tenantError = buildAuthError(400, "Usuário sem tenant associado", AUTH_ERROR_CODES.missingTenant);
+      const tenantError = buildAuthError(403, "Usuário sem tenant associado", AUTH_ERROR_CODES.missingTenant);
       tenantError.details = { userId: sessionUser.id, login: userLogin, clientId: sessionUser.clientId ?? null };
       throw tenantError;
     }
