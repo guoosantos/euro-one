@@ -1,6 +1,6 @@
 import React from "react";
 
-const DEFAULT_PAGE_SIZES = [20, 50, 100];
+const DEFAULT_PAGE_SIZES = [5, 20, 50, 100, 500, 1000, 5000];
 
 function PaginationButton({ children, disabled, onClick }) {
   return (

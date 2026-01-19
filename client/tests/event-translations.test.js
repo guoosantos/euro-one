@@ -40,19 +40,19 @@ test("resolveEventDefinition usa rótulo de catálogo quando disponível", () =>
 test("resolveEventDefinitionFromPayload aplica fallback de posição para eventos genéricos", () => {
   const basePayload = { latitude: -23.55, longitude: -46.63, attributes: {} };
   const noEvent = resolveEventDefinitionFromPayload(basePayload, "pt-BR");
-  assert.strictEqual(noEvent.label, "Posição registrada");
+  assert.strictEqual(noEvent.label, "Posição");
 
   const defaultEvent = resolveEventDefinitionFromPayload(
     { ...basePayload, attributes: { event: "0" } },
     "pt-BR",
   );
-  assert.strictEqual(defaultEvent.label, "Posição registrada");
+  assert.strictEqual(defaultEvent.label, "Posição");
 
   const deviceEvent = resolveEventDefinitionFromPayload(
     { ...basePayload, attributes: { event: "255" } },
     "pt-BR",
   );
-  assert.strictEqual(deviceEvent.label, "Posição registrada");
+  assert.strictEqual(deviceEvent.label, "Posição");
 });
 
 test("getEventSeverity prioriza mapeamento conhecido e aplica padrão", () => {

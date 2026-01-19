@@ -1362,8 +1362,19 @@ function applyEventConfigToPosition(position, { clientId } = {}) {
   };
 }
 
-const POSITION_FALLBACK_LABEL = "Posição registrada";
+const POSITION_FALLBACK_LABEL = "Posição";
 const GENERIC_EVENT_LABELS_PT = new Set(["Evento padrão", "Evento do dispositivo"]);
+const POSITION_REGISTERED_LABELS = new Set(["posicao registrada", "position registered"]);
+
+const stripDiacritics = (value) => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const isPositionRegisteredLabel = (label) => {
+  if (!label) return false;
+  const normalized = stripDiacritics(label).toLowerCase().trim();
+  return POSITION_REGISTERED_LABELS.has(normalized);
+};
+
+const normalizePositionLabel = (label) => (isPositionRegisteredLabel(label) ? POSITION_FALLBACK_LABEL : label);
 
 function resolvePositionEventLabel(position, { clientId, eventScope = "active" } = {}) {
   if (!position) return { label: POSITION_FALLBACK_LABEL, severity: null, active: null };
@@ -1400,6 +1411,8 @@ function resolvePositionEventLabel(position, { clientId, eventScope = "active" }
     }
   }
 
+  eventLabel = normalizePositionLabel(eventLabel);
+
   const payload = {
     ...position,
     eventLabel,
@@ -1426,7 +1439,7 @@ function resolvePositionEventLabel(position, { clientId, eventScope = "active" }
       }
     : payload;
   const definition = resolveEventDefinitionFromPayload(definitionPayload, "pt-BR", null);
-  let label = definition?.label || eventLabel || POSITION_FALLBACK_LABEL;
+  let label = normalizePositionLabel(definition?.label || eventLabel || POSITION_FALLBACK_LABEL);
   if (GENERIC_EVENT_LABELS_PT.has(label)) {
     label = POSITION_FALLBACK_LABEL;
   }
@@ -4706,15 +4719,16 @@ function resolveAnalyticBlockedLabel(position, { protocol, deviceModel } = {}) {
 }
 
 function resolveAnalyticPositionDetails(position, { forcePositionLabel = false } = {}) {
-  const rawLabel = typeof position?.event === "string" ? position.event.trim() : "";
+  const rawLabel = normalizePositionLabel(typeof position?.event === "string" ? position.event.trim() : "");
   const isFallback =
     !rawLabel ||
     rawLabel === POSITION_FALLBACK_LABEL ||
-    GENERIC_EVENT_LABELS_PT.has(rawLabel);
+    GENERIC_EVENT_LABELS_PT.has(rawLabel) ||
+    isPositionRegisteredLabel(rawLabel);
   if (forcePositionLabel) {
     return {
-      event: POSITION_FALLBACK_LABEL,
-      eventType: POSITION_FALLBACK_LABEL,
+      event: ANALYTIC_EVENT_CATEGORIES.position,
+      eventType: ANALYTIC_POSITION_TYPE,
       whoSent: "—",
     };
   }
@@ -4827,7 +4841,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
     const blocked = resolveAnalyticBlockedLabel(position, { protocol, deviceModel });
     const normalizedEventSeverity = normalizeReportSeverity(
       position.eventSeverity ??
-        (details.eventType === POSITION_FALLBACK_LABEL || details.event === POSITION_FALLBACK_LABEL
+        (details.event === ANALYTIC_EVENT_CATEGORIES.position && details.eventType === ANALYTIC_POSITION_TYPE
           ? "Informativa"
           : null),
     );

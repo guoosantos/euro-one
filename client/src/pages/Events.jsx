@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Columns3 } from "lucide-react";
 
@@ -87,7 +87,7 @@ const COLUMN_WIDTHS_STORAGE_KEY = "events:columns:widths:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
 const DEFAULT_COLUMN_WIDTH = 140;
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
+const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
 const DEFAULT_PAGE_SIZE = 50;
 
 const SEVERITY_LABELS = {
@@ -237,6 +237,7 @@ export default function Events() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [reportEventScope, setReportEventScope] = useState("active");
+  const reportScopeInitializedRef = useRef(false);
 
   const [protocols, setProtocols] = useState([]);
   const [selectedProtocol, setSelectedProtocol] = useState("");
@@ -384,12 +385,15 @@ export default function Events() {
 
   useEffect(() => {
     if (loadingPreferences) return;
+    if (reportScopeInitializedRef.current) return;
     setReportEventScope(preferences?.reportEventScope || "active");
+    reportScopeInitializedRef.current = true;
   }, [loadingPreferences, preferences?.reportEventScope]);
 
   const handleReportEventScopeChange = useCallback(
     (nextScope) => {
       setReportEventScope(nextScope);
+      reportScopeInitializedRef.current = true;
       if (!loadingPreferences) {
         savePreferences({ reportEventScope: nextScope }).catch(() => {});
       }
@@ -886,11 +890,11 @@ export default function Events() {
               </label>
               <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 Eventos no relatório
-                <div className="mt-2 inline-flex w-full overflow-hidden rounded-lg border border-white/10 bg-[#0f141c] text-xs font-semibold">
+                <div className="mt-2 inline-flex h-10 w-full overflow-hidden rounded-xl border border-border bg-layer text-sm font-semibold">
                   <button
                     type="button"
                     onClick={() => handleReportEventScopeChange("all")}
-                    className={`flex-1 px-3 py-2 transition ${
+                    className={`flex-1 px-3 transition ${
                       reportEventScope === "all"
                         ? "bg-primary/20 text-white"
                         : "text-white/60 hover:text-white"
@@ -901,7 +905,7 @@ export default function Events() {
                   <button
                     type="button"
                     onClick={() => handleReportEventScopeChange("active")}
-                    className={`flex-1 px-3 py-2 transition ${
+                    className={`flex-1 px-3 transition ${
                       reportEventScope === "active"
                         ? "bg-primary/20 text-white"
                         : "text-white/60 hover:text-white"
@@ -934,95 +938,96 @@ export default function Events() {
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-white/10 bg-[#0b0f17]">
-              <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
-                <colgroup>
-                  {visibleColumns.map((column) => (
-                    <col key={column.id} style={getWidthStyle(column.id)} />
-                  ))}
-                </colgroup>
-                <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-left text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
-                  <tr>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
+                  <colgroup>
                     {visibleColumns.map((column) => (
-                      <th
-                        key={column.id}
-                        style={getWidthStyle(column.id)}
-                        className="relative border-r border-white/5 px-3 py-2 font-semibold last:border-r-0"
-                        title={column.label}
-                      >
-                        <div className="flex items-center justify-between gap-2 pr-2">
-                          <span className="truncate whitespace-nowrap" title={column.label}>
-                            {column.label}
-                          </span>
-                          <span
-                            role="separator"
-                            tabIndex={0}
-                            onMouseDown={(event) => startResize(column.id, event)}
-                            onClick={(event) => event.stopPropagation()}
-                            className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
-                            title="Redimensionar coluna"
-                          />
-                        </div>
-                      </th>
+                      <col key={column.id} style={getWidthStyle(column.id)} />
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40 text-xs">
-                  {reportLoading && (
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-left text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
                     <tr>
-                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
-                        Carregando eventos…
-                      </td>
-                    </tr>
-                  )}
-                  {!reportLoading && reportError && (
-                    <tr>
-                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-red-300">
-                        Não foi possível carregar os eventos. {reportError.message}
-                      </td>
-                    </tr>
-                  )}
-                  {!reportLoading && !reportError && reportRows.length === 0 && (
-                    <tr>
-                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
-                        Nenhum evento encontrado para o período selecionado.
-                      </td>
-                    </tr>
-                  )}
-                  {reportRows.map((row) => (
-                    <tr key={row.id} className="hover:bg-white/5">
                       {visibleColumns.map((column) => (
-                        <td
+                        <th
                           key={column.id}
                           style={getWidthStyle(column.id)}
-                          className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 last:border-r-0"
+                          className="relative border-r border-white/5 px-3 py-2 font-semibold last:border-r-0"
+                          title={column.label}
                         >
-                          {renderColumnValue(column.id, row, locale, t)}
-                        </td>
+                          <div className="flex items-center justify-between gap-2 pr-2">
+                            <span className="truncate whitespace-nowrap" title={column.label}>
+                              {column.label}
+                            </span>
+                            <span
+                              role="separator"
+                              tabIndex={0}
+                              onMouseDown={(event) => startResize(column.id, event)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                              title="Redimensionar coluna"
+                            />
+                          </div>
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border/40 text-xs">
+                    {reportLoading && (
+                      <tr>
+                        <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
+                          Carregando eventos…
+                        </td>
+                      </tr>
+                    )}
+                    {!reportLoading && reportError && (
+                      <tr>
+                        <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-red-300">
+                          Não foi possível carregar os eventos. {reportError.message}
+                        </td>
+                      </tr>
+                    )}
+                    {!reportLoading && !reportError && reportRows.length === 0 && (
+                      <tr>
+                        <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
+                          Nenhum evento encontrado para o período selecionado.
+                        </td>
+                      </tr>
+                    )}
+                    {reportRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-white/5">
+                        {visibleColumns.map((column) => (
+                          <td
+                            key={column.id}
+                            style={getWidthStyle(column.id)}
+                            className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 last:border-r-0"
+                          >
+                            {renderColumnValue(column.id, row, locale, t)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <DataTablePagination
+                pageSize={pageSize}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(value) => {
+                  const nextValue = Number(value) || DEFAULT_PAGE_SIZE;
+                  setPageSize(nextValue);
+                  setPage(1);
+                  if (reportGenerated) {
+                    fetchReport(1);
+                  }
+                }}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                onPageChange={(nextPage) => setPage(nextPage)}
+                disabled={reportLoading}
+              />
             </div>
-            <DataTablePagination
-              pageSize={pageSize}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
-              onPageSizeChange={(value) => {
-                const nextValue = Number(value) || DEFAULT_PAGE_SIZE;
-                setPageSize(nextValue);
-                setPage(1);
-                if (reportGenerated) {
-                  fetchReport(1);
-                }
-              }}
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalItems={totalItems}
-              onPageChange={(nextPage) => setPage(nextPage)}
-              disabled={reportLoading}
-              className="mt-4"
-            />
           </div>
         )}
 

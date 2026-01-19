@@ -24,7 +24,7 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { formatAddress } from "../lib/format-address.js";
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000, "all"];
+const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
 
 function parsePositionTime(position) {
   if (!position) return null;
@@ -1495,118 +1495,120 @@ export default function Devices() {
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="flex flex-1 flex-col gap-4">
-        <DataTable className="overflow-x-hidden" tableClassName="text-white/80 table-auto w-full">
-          <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
-            <tr>
-              <th className="px-3 py-3 text-left">ID / IMEI</th>
-              <th className="px-3 py-3 text-left">Modelo</th>
-              <th className="px-3 py-3 text-left">Status</th>
-              <th className="px-3 py-3 text-left">Última comunicação</th>
-              <th className="px-3 py-3 text-left">Última posição</th>
-              <th className="px-3 py-3 text-left">Vínculo</th>
-              <th className="px-3 py-3 text-left">Garantia</th>
-              <th className="px-3 py-3 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {(loading || traccarLoading) && (
+      <div className="flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+          <DataTable className="flex-1 min-h-0 overflow-auto" tableClassName="text-white/80 table-auto w-full">
+            <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
               <tr>
-                <td colSpan={tableColCount} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={tableColCount} />
-                </td>
+                <th className="px-3 py-3 text-left">ID / IMEI</th>
+                <th className="px-3 py-3 text-left">Modelo</th>
+                <th className="px-3 py-3 text-left">Status</th>
+                <th className="px-3 py-3 text-left">Última comunicação</th>
+                <th className="px-3 py-3 text-left">Última posição</th>
+                <th className="px-3 py-3 text-left">Vínculo</th>
+                <th className="px-3 py-3 text-left">Garantia</th>
+                <th className="px-3 py-3 text-right">Ações</th>
               </tr>
-            )}
-            {!loading && !traccarLoading && filteredDevices.length === 0 && (
-              <tr>
-                <td colSpan={tableColCount} className="px-4 py-8">
-                  <EmptyState
-                    title="Nenhum equipamento encontrado com os filtros atuais."
-                    subtitle="Ajuste filtros ou cadastre um novo equipamento."
-                    action={
-                      <div className="flex flex-wrap justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilters({ status: "all", link: "all", model: "" });
-                            setQuery("");
-                          }}
-                          className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
-                        >
-                          <span className="inline-flex items-center gap-2">
-                            <RefreshCw className="h-4 w-4" />
-                            Limpar filtros
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            resetDeviceForm();
-                            setEditingId(null);
-                            setDrawerTab("geral");
-                            setShowDeviceDrawer(true);
-                          }}
-                          className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                        >
-                          <span className="inline-flex items-center gap-2">
-                            <Plus className="h-4 w-4" />
-                            Cadastrar equipamento
-                          </span>
-                        </button>
-                      </div>
-                    }
-                  />
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              !traccarLoading &&
-              paginatedDevices.map((device) => {
-                const deviceModelId = device.modelId || device.attributes?.modelId || null;
-                const modelo = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
-                const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
-                const position = latestPositionByDevice.get(deviceKey(device));
-                const meta = statusMeta(device);
-                const traccarDevice = traccarDeviceFor(device);
-                const warrantyLabel = formatWarranty(device);
-                return (
-                  <DeviceRow
-                    key={device.internalId || device.id || device.uniqueId}
-                    device={device}
-                    traccarDevice={traccarDevice}
-                    model={modelo}
-                    vehicle={vehicle}
-                    position={position}
-                    status={meta}
-                    warrantyLabel={warrantyLabel}
-                    onMap={() => position && setMapTarget({ device, position })}
-                    onLink={() => {
-                      setLinkTarget(device);
-                      setLinkVehicleId(device.vehicleId || "");
-                    }}
-                    onUnlink={() => handleUnlinkFromVehicle(device)}
-                    onNavigateToMonitoring={() => handleNavigateToMonitoring(device)}
-                    onEdit={() => openEditDevice(device)}
-                    onDelete={() => handleDeleteDevice(device.id)}
-                    positionLabel={formatPositionSummary(position)}
-                    lastCommunication={formatLastCommunication(device)}
-                  />
-                );
-              })}
-          </tbody>
-        </DataTable>
-        <DataTablePagination
-          pageSize={pageSize}
-          pageSizeOptions={PAGE_SIZE_OPTIONS}
-          onPageSizeChange={(value) => {
-            setPageSize(value === "all" ? "all" : Number(value));
-            setCurrentPage(1);
-          }}
-          currentPage={resolvedPage}
-          totalPages={totalPages}
-          totalItems={filteredDevices.length}
-          onPageChange={(nextPage) => setCurrentPage(nextPage)}
-        />
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {(loading || traccarLoading) && (
+                <tr>
+                  <td colSpan={tableColCount} className="px-4 py-6">
+                    <SkeletonTable rows={6} columns={tableColCount} />
+                  </td>
+                </tr>
+              )}
+              {!loading && !traccarLoading && filteredDevices.length === 0 && (
+                <tr>
+                  <td colSpan={tableColCount} className="px-4 py-8">
+                    <EmptyState
+                      title="Nenhum equipamento encontrado com os filtros atuais."
+                      subtitle="Ajuste filtros ou cadastre um novo equipamento."
+                      action={
+                        <div className="flex flex-wrap justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilters({ status: "all", link: "all", model: "" });
+                              setQuery("");
+                            }}
+                            className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <RefreshCw className="h-4 w-4" />
+                              Limpar filtros
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              resetDeviceForm();
+                              setEditingId(null);
+                              setDrawerTab("geral");
+                              setShowDeviceDrawer(true);
+                            }}
+                            className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <Plus className="h-4 w-4" />
+                              Cadastrar equipamento
+                            </span>
+                          </button>
+                        </div>
+                      }
+                    />
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                !traccarLoading &&
+                paginatedDevices.map((device) => {
+                  const deviceModelId = device.modelId || device.attributes?.modelId || null;
+                  const modelo = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
+                  const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
+                  const position = latestPositionByDevice.get(deviceKey(device));
+                  const meta = statusMeta(device);
+                  const traccarDevice = traccarDeviceFor(device);
+                  const warrantyLabel = formatWarranty(device);
+                  return (
+                    <DeviceRow
+                      key={device.internalId || device.id || device.uniqueId}
+                      device={device}
+                      traccarDevice={traccarDevice}
+                      model={modelo}
+                      vehicle={vehicle}
+                      position={position}
+                      status={meta}
+                      warrantyLabel={warrantyLabel}
+                      onMap={() => position && setMapTarget({ device, position })}
+                      onLink={() => {
+                        setLinkTarget(device);
+                        setLinkVehicleId(device.vehicleId || "");
+                      }}
+                      onUnlink={() => handleUnlinkFromVehicle(device)}
+                      onNavigateToMonitoring={() => handleNavigateToMonitoring(device)}
+                      onEdit={() => openEditDevice(device)}
+                      onDelete={() => handleDeleteDevice(device.id)}
+                      positionLabel={formatPositionSummary(position)}
+                      lastCommunication={formatLastCommunication(device)}
+                    />
+                  );
+                })}
+            </tbody>
+          </DataTable>
+          <DataTablePagination
+            pageSize={pageSize}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            onPageSizeChange={(value) => {
+              setPageSize(value === "all" ? "all" : Number(value));
+              setCurrentPage(1);
+            }}
+            currentPage={resolvedPage}
+            totalPages={totalPages}
+            totalItems={filteredDevices.length}
+            onPageChange={(nextPage) => setCurrentPage(nextPage)}
+          />
+        </div>
       </div>
 
       <Drawer
