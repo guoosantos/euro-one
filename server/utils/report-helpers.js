@@ -104,6 +104,13 @@ export function resolveClientGroupId(req) {
   return client?.attributes?.traccarGroupId ?? null;
 }
 
+export function normalizeReportEventScope(value) {
+  if (value === undefined || value === null || value === "") return "all";
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "all" || normalized === "active") return normalized;
+  throw createError(400, "reportEventScope inválido");
+}
+
 export function enforceClientGroupInQuery(req, target = req.query) {
   const groupId = resolveClientGroupId(req);
   if (!groupId) return;

@@ -35,6 +35,7 @@ import {
   enforceDeviceFilterInBody,
   enforceDeviceFilterInQuery,
   extractDeviceIds,
+  normalizeReportEventScope,
   normalizeReportDeviceIds,
   resolveClientGroupId,
   resolveAllowedDeviceIds,
@@ -462,6 +463,7 @@ async function hydrateTraccarDevice(req, traccarId, baseDevice = null) {
 
 async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
   const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const reportEventScope = req.query?.reportEventScope ?? req.body?.reportEventScope ?? "all";
   const eventScope = normalizeReportEventScope(reportEventScope);
   const requestedVehicleId = req.body?.vehicleId || req.query?.vehicleId;
   const requestedDeviceId = req.body?.deviceId || req.query?.deviceId;
@@ -472,6 +474,7 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
     vehicleId: vehicleId || null,
     deviceId: normalizedDeviceId || null,
     clientId: clientId || null,
+    eventScope,
   };
 
   const updateVehicleContext = (value) => {
@@ -1897,6 +1900,16 @@ function normalizeEventTypeKey(value) {
   return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function normalizeReportSeverity(value) {
+  if (value === null || value === undefined) return "Informativa";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "-") return "Informativa";
+    return trimmed;
+  }
+  return value;
+}
+
 function resolveAnalyticEventCandidate(entry) {
   const attributes = entry?.attributes || {};
   return (
@@ -2322,6 +2335,7 @@ async function handleEventsReport(req, res, next) {
 
     const severityFilter = req.query?.severity;
     const resolvedFilter = req.query?.resolved;
+    const reportEventScope = normalizeReportEventScope(req.query?.reportEventScope);
 
     const vehicles = listVehicles({ clientId });
     const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
@@ -2430,7 +2444,7 @@ async function handleEventsReport(req, res, next) {
     });
 
     const filteredEvents = eventsWithAddress.filter((event) => {
-      if (event.eventActive === false) return false;
+      if (reportEventScope === "active" && event.eventActive === false) return false;
       if (resolvedFilter !== undefined) {
         const wantResolved = !["false", "0", ""].includes(String(resolvedFilter).toLowerCase());
         if (event.resolved !== wantResolved) return false;
@@ -4251,6 +4265,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   }
 
   const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const eventScope = normalizeReportEventScope(reportEventScope);
   const vehicles = listVehicles({ clientId });
   const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
   if (!vehicle) {
@@ -4387,7 +4402,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         vehicleVoltage,
 
         event: eventResolution.label,
-        eventSeverity: eventResolution.severity,
+        eventSeverity: normalizeReportSeverity(eventResolution.severity),
         eventActive: eventResolution.active,
         ...(eventResolution.active === false
           ? {
@@ -4654,16 +4669,11 @@ const ANALYTIC_EVENT_CATEGORIES = {
   alert: "Alerta",
   command: "Comando",
   signalLoss: "Perda de Sinal",
-  report: "Emissão de Relatório",
+  report: "Ação do Usuário",
 };
 const ANALYTIC_POSITION_TYPE = "Registrada";
 const ANALYTIC_SIGNAL_LOSS_TYPE = "Acima de 6 horas";
 const ANALYTIC_SIGNAL_LOSS_THRESHOLD_MS = 6 * 60 * 60 * 1000;
-
-function normalizeReportEventScope(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "all" ? "all" : "active";
-}
 
 function buildWhoSentLabel({ name, ipAddress, fallback = "Sistema" } = {}) {
   const safeName = typeof name === "string" ? name.trim() : "";
@@ -4765,14 +4775,29 @@ function buildSignalLossEntries(positions = []) {
   return entries;
 }
 
-function resolveItineraryDescription(entry) {
+const ITINERARY_ACTION_TYPES = {
+  EMBARK: "Embarcar Itinerário",
+  DISEMBARK: "Desembarcar Itinerário",
+  UPDATE: "Atualizar Itinerário",
+  CREATE: "Criar Itinerário",
+  DELETE: "Excluir Itinerário",
+};
+
+function resolveItineraryEventType(entry) {
   const action = String(entry?.action || "").toUpperCase();
-  if (action === "DISEMBARK") return "Desembarque aplicado";
-  if (action === "EMBARK") return "Embarque aplicado";
-  if (action === "UPDATE") return "Atualização aplicada";
-  if (action === "CREATE") return "Itinerário criado";
-  if (action === "DELETE") return "Itinerário removido";
-  return entry?.message || entry?.actionLabel || "Itinerário aplicado";
+  return ITINERARY_ACTION_TYPES[action] || ITINERARY_ACTION_TYPES.EMBARK;
+}
+
+function resolveItineraryDescription(entry) {
+  if (entry?.message) return entry.message;
+  if (entry?.details) {
+    try {
+      return typeof entry.details === "string" ? entry.details : JSON.stringify(entry.details);
+    } catch (_error) {
+      return String(entry.details || "");
+    }
+  }
+  return entry?.actionLabel || entry?.summary || "";
 }
 
 function resolveItineraryAddress(entry) {
@@ -4800,17 +4825,18 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
       forcePositionLabel: eventScope === "active" && position.eventActive === false,
     });
     const blocked = resolveAnalyticBlockedLabel(position, { protocol, deviceModel });
-    const normalizedEventSeverity =
+    const normalizedEventSeverity = normalizeReportSeverity(
       position.eventSeverity ??
-      (details.eventType === POSITION_FALLBACK_LABEL || details.event === POSITION_FALLBACK_LABEL
-        ? "Informativa"
-        : null);
+        (details.eventType === POSITION_FALLBACK_LABEL || details.event === POSITION_FALLBACK_LABEL
+          ? "Informativa"
+          : null),
+    );
     return {
       ...position,
       event: details.event,
       eventType: details.eventType,
       whoSent: details.whoSent,
-      eventSeverity: normalizedEventSeverity ?? position.eventSeverity ?? null,
+      eventSeverity: normalizedEventSeverity,
       blocked: blocked ?? "—",
     };
   });
@@ -4904,6 +4930,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
   const itineraryEntries = itineraryHistory.map((entry) => {
     const timestamp = entry.sentAt || entry.deviceConfirmedAt || entry.at || entry.receivedAt || null;
     const description = resolveItineraryDescription(entry);
+    const eventType = resolveItineraryEventType(entry);
     const whoSent = buildWhoSentLabel({
       name: entry.sentByName || entry.requestedByName || null,
       ipAddress: entry.ipAddress || null,
@@ -4913,10 +4940,11 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
     const row = {
       deviceTime: entry.sentAt || null,
       serverTime: entry.deviceConfirmedAt || entry.receivedAt || null,
-      event: "Itinerário",
-      eventType: description,
+      event: ANALYTIC_EVENT_CATEGORIES.report,
+      eventType,
       whoSent,
       eventSeverity: "Informativa",
+      description: description || "—",
       address,
       latitude,
       longitude,
@@ -4925,11 +4953,12 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
       id: entry.id || `itinerary-${entry.vehicleId}-${entry.itineraryId}-${timestamp}`,
       type: "itinerary",
       timestamp,
-      event: "Itinerário",
-      eventType: description,
+      event: ANALYTIC_EVENT_CATEGORIES.report,
+      eventType,
       whoSent,
       deviceTime: row.deviceTime,
       serverTime: row.serverTime,
+      description,
       row,
     };
   });

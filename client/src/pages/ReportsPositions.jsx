@@ -118,8 +118,7 @@ function formatByDescriptor(key, value) {
 }
 
 function renderSeverityBadge(value) {
-  if (!value) return "—";
-  const label = String(value);
+  const label = normalizeReportSeverity(value);
   const display = resolveSeverityLabel(label);
   return (
     <span
@@ -128,6 +127,13 @@ function renderSeverityBadge(value) {
       {display}
     </span>
   );
+}
+
+function normalizeReportSeverity(value) {
+  if (value === null || value === undefined) return "Informativa";
+  const normalized = String(value).trim();
+  if (!normalized || normalized === "-" || normalized === "—") return "Informativa";
+  return normalized;
 }
 
 function formatIgnition(value) {

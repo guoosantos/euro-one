@@ -161,7 +161,9 @@ function normalizeSeverityToken(value) {
 }
 
 function buildSeverityBadge(value) {
-  if (!value) return "—";
+  if (!value || value === "-") {
+    return '<span class="severity-badge severity-badge--info">Informativa</span>';
+  }
   const label = String(value);
   const token = normalizeSeverityToken(label);
   const labels = {
@@ -177,6 +179,11 @@ function buildSeverityBadge(value) {
 }
 
 function formatCellValue(key, value, definition, row) {
+  if (["eventSeverity", "criticality", "severity"].includes(key)) {
+    if (value === null || value === undefined || value === "" || value === "-" || value === "—") {
+      return "Informativa";
+    }
+  }
   if (value === null || value === undefined || value === "") {
     if (key === "ignition" || key === "vehicleState") return "Dado não disponível";
     return "—";

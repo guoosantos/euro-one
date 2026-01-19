@@ -49,6 +49,11 @@ function normalizeAddress(value) {
 }
 
 function formatCellValue(key, value, definition) {
+  if (["eventSeverity", "criticality", "severity"].includes(key)) {
+    if (value === null || value === undefined || value === "" || value === "-" || value === "—") {
+      return "Informativa";
+    }
+  }
   if (value === null || value === undefined || value === "") {
     if (key === "ignition" || key === "vehicleState") return "Dado não disponível";
     return "—";

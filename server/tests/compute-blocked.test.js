@@ -19,6 +19,9 @@ test("computeBlocked applies the IO rule for all combinations", () => {
   });
 });
 
-test("computeBlocked returns null when inputs are missing", () => {
-  assert.equal(computeBlocked({ input2: true, input4: false, out1: null }), null);
+test("computeBlocked returns Sim when inputs are missing", () => {
+  assert.equal(computeBlocked({ input2: true, input4: false, out1: null }), "Sim");
+  assert.equal(computeBlocked({ input2: undefined, input4: false, out1: true }), "Sim");
+  assert.equal(computeBlocked({ input2: false, input4: undefined, out1: true }), "Sim");
+  assert.equal(computeBlocked({ input2: false, input4: false, out1: undefined }), "Sim");
 });
