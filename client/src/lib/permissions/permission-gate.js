@@ -5,6 +5,11 @@ import { useGroups } from "../hooks/useGroups.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "full"]);
 const DEFAULT_LEVEL = "full";
+const UI_LEVELS = {
+  none: "NO_ACCESS",
+  view: "READ_ONLY",
+  full: "FULL",
+};
 
 function normaliseLevel(value) {
   if (typeof value !== "string") return null;
@@ -38,6 +43,10 @@ export function resolvePermissionLevel(permissions, menuKey, pageKey, subKey) {
   return baseLevel || DEFAULT_LEVEL;
 }
 
+function toUiLevel(level) {
+  return UI_LEVELS[level] || UI_LEVELS.full;
+}
+
 export function usePermissionResolver() {
   const { user, role, tenantId } = useTenant();
   const permissionGroupId = user?.attributes?.permissionGroupId || null;
@@ -58,22 +67,31 @@ export function usePermissionResolver() {
   const getPermission = useCallback(
     ({ menuKey, pageKey, subKey }) => {
       if (role === "admin") {
-        return { level: "full", hasAccess: true, canView: true, isFull: true };
+        return { level: UI_LEVELS.full, hasAccess: true, canShow: true, canView: true, isFull: true };
       }
       if (!permissionGroupId) {
-        return { level: DEFAULT_LEVEL, hasAccess: true, canView: true, isFull: true };
+        return { level: UI_LEVELS.full, hasAccess: true, canShow: true, canView: true, isFull: true };
       }
 
       if (loading) {
-        return { level: "none", hasAccess: false, canView: false, isFull: false, loading: true };
+        return {
+          level: UI_LEVELS.none,
+          hasAccess: false,
+          canShow: false,
+          canView: false,
+          isFull: false,
+          loading: true,
+        };
       }
 
-      const level = resolvePermissionLevel(permissions, menuKey, pageKey, subKey);
+      const rawLevel = resolvePermissionLevel(permissions, menuKey, pageKey, subKey);
+      const level = toUiLevel(rawLevel);
       return {
         level,
-        hasAccess: level !== "none",
-        canView: level !== "none",
-        isFull: level === "full",
+        hasAccess: level !== UI_LEVELS.none,
+        canShow: level !== UI_LEVELS.none,
+        canView: level !== UI_LEVELS.none,
+        isFull: level === UI_LEVELS.full,
       };
     },
     [loading, permissionGroupId, permissions, role],
@@ -93,6 +111,26 @@ export function usePermissionGate({ menuKey, pageKey, subKey }) {
   const { getPermission, loading } = usePermissionResolver();
   const permission = getPermission({ menuKey, pageKey, subKey });
   return { ...permission, loading };
+}
+
+export function usePermissions() {
+  const { getPermission, loading } = usePermissionResolver();
+  const canShow = useCallback(
+    (permission) => {
+      if (!permission) return true;
+      return getPermission(permission).canShow;
+    },
+    [getPermission],
+  );
+
+  return useMemo(
+    () => ({
+      getPermission,
+      canShow,
+      loading,
+    }),
+    [canShow, getPermission, loading],
+  );
 }
 
 export default usePermissionGate;

@@ -1,47 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router-dom";
-import {
-  BarChart3,
-  Banknote,
-  ChevronDown as ChevronDownIcon,
-  ChevronDown,
-  ChevronRight,
-  Boxes,
-  Camera,
-  Car,
-  Cpu,
-  Flame,
-  CalendarClock,
-  FileBarChart,
-  FileText,
-  GaugeCircle,
-  HardDrive,
-  Home,
-  Map,
-  MapPinned,
-  Medal,
-  Menu,
-  Package,
-  Radio,
-  ShieldCheck,
-  UploadCloud,
-  Target,
-  Settings,
-  Terminal,
-  User,
-  Users,
-  UserCog,
-  Video,
-  Wrench,
-  NotebookPen,
-  ChevronUp,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Menu } from "lucide-react";
 
 import { sidebarGroupIcons } from "../lib/sidebarGroupIcons";
 
 import { useTenant } from "../lib/tenant-context";
-import { usePermissionResolver } from "../lib/permissions/permission-gate";
+import { usePermissions } from "../lib/permissions/permission-gate";
+import { MENU_REGISTRY } from "../lib/permissions/registry";
 import { useUI } from "../lib/store";
 
 // Discovery note (Epic A): sidebar navigation will be reorganized into
@@ -119,7 +85,7 @@ export default function Sidebar() {
   const location = useLocation();
 
   const { tenant, role } = useTenant();
-  const { getPermission } = usePermissionResolver();
+  const { getPermission } = usePermissions();
   const accentColor = tenant?.brandColor || ACCENT_FALLBACK;
   const navLinkClass = linkClass(collapsed);
   const nestedLinkClass = linkClass(false);
@@ -137,17 +103,22 @@ export default function Sidebar() {
     (item) => {
       if (!item) return null;
       if (item.children?.length) {
-        const children = item.children.map(filterMenuItem).filter(Boolean);
+        const children = item.children
+          .map((child) => filterMenuItem(child))
+          .filter(Boolean);
         if (!children.length) return null;
         return { ...item, children };
+      }
+      if (item.isVisible && !item.isVisible({ canManageUsers, isEuroImportEnabled, role })) {
+        return null;
       }
       if (!item.permission) {
         return item;
       }
       const permission = getPermission(item.permission);
-      return permission.hasAccess ? item : null;
+      return permission.canShow ? item : null;
     },
-    [getPermission],
+    [canManageUsers, getPermission, isEuroImportEnabled, role],
   );
 
   useEffect(() => {
@@ -166,191 +137,16 @@ export default function Sidebar() {
   const currentPath = location.pathname;
   const isLinkActive = (link) => Boolean(link?.to && currentPath.startsWith(link.to));
 
-  const clientLink = {
-    to: "/clients",
-    label: "Clientes",
-    icon: Users,
-    permission: { menuKey: "admin", pageKey: "clients" },
-  };
-  const userLink = {
-    to: "/users",
-    label: "Usuários",
-    icon: User,
-    permission: { menuKey: "admin", pageKey: "users" },
-  };
-  const mirrorsReceivedLink = {
-    to: "/mirrors/received",
-    label: "Espelhamento",
-    icon: Users,
-    permission: { menuKey: "admin", pageKey: "mirrors" },
-  };
-
-  const primaryLinks = [
-    { to: "/home", label: "Home", icon: Home, permission: { menuKey: "primary", pageKey: "home" } },
-    { to: "/monitoring", label: "Monitoramento", icon: MapPinned, permission: { menuKey: "primary", pageKey: "monitoring" } },
-    { to: "/trips", label: "Trajetos / Replay", icon: MapPinned, permission: { menuKey: "primary", pageKey: "trips" } },
-  ];
-
-  const deviceLinks = [
-    { to: "/devices", label: "Equipamentos", icon: Cpu, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-    { to: "/devices/chips", label: "Chip", icon: HardDrive, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-chips" } },
-    { to: "/devices/products", label: "Modelos & Portas", icon: Boxes, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-models" } },
-    { to: "/devices/stock", label: "Estoque", icon: Map, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" } },
-    { to: "/commands", label: "Comandos", icon: Terminal, permission: { menuKey: "primary", pageKey: "commands" } },
-  ];
-
-  const businessLinks = [
-    { to: "/dashboard", label: "Dashboard", icon: Home, permission: { menuKey: "business", pageKey: "dashboard" } },
-    { to: "/finance", label: "Financeiro", icon: Banknote, permission: { menuKey: "business", pageKey: "finance" } },
-    { to: "/crm", label: "CRM", icon: NotebookPen, permission: { menuKey: "business", pageKey: "crm" } },
-  ];
-
-  const euroViewLinks = [
-    { to: "/videos", label: "Vídeos", icon: Camera, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
-    { to: "/face", label: "Reconhecimento Facial", icon: Camera, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },
-    { to: "/live", label: "Live", icon: Radio, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },
-  ];
-
-  const fleetLinks = [
-    { to: "/vehicles", label: "Veículos", icon: Car, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-    {
-      key: "documentos",
-      label: "Documentos",
-      icon: FileText,
-      children: [
-        { to: "/drivers", label: "Motorista", icon: UserCog, permission: { menuKey: "fleet", pageKey: "documents", subKey: "drivers" } },
-        { to: "/documents", label: "Contratos", icon: FileText, permission: { menuKey: "fleet", pageKey: "documents", subKey: "contracts" } },
-      ],
-    },
-    {
-      key: "servicos",
-      label: "Serviços",
-      icon: Wrench,
-      children: [
-        { to: "/services", label: "Ordem de Serviço", icon: Wrench, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
-        { to: "/appointments", label: "Agendamentos", icon: CalendarClock, permission: { menuKey: "fleet", pageKey: "services", subKey: "appointments" } },
-        { to: "/technicians", label: "Técnico", icon: UserCog, permission: { menuKey: "fleet", pageKey: "services", subKey: "technicians" } },
-      ],
-    },
-    { to: "/routes", label: "Rotas", icon: Map, permission: { menuKey: "fleet", pageKey: "routes" } },
-    { to: "/geofences", label: "Cercas", icon: Map, permission: { menuKey: "fleet", pageKey: "geofences" } },
-    { to: "/targets", label: "Alvos", icon: Target, permission: { menuKey: "fleet", pageKey: "targets" } },
-    { to: "/itineraries", label: "Embarcar Itinerários", icon: Map, permission: { menuKey: "fleet", pageKey: "itineraries" } },
-    { to: "/deliveries", label: "Entregas", icon: Package, permission: { menuKey: "fleet", pageKey: "deliveries" } },
-  ];
-
-  const importLink =
-    role === "admin" && isEuroImportEnabled
-      ? { to: "/admin/import-euro-xlsx", label: "Importar Base (XLSX)", icon: UploadCloud, permission: { menuKey: "admin", pageKey: "import" } }
-      : null;
-  const adminLinks = [
-    ...(canManageUsers ? [clientLink, userLink, mirrorsReceivedLink] : []),
-    ...(importLink ? [importLink] : []),
-  ];
-
-  const euroCanLinks = [
-    { to: "/fuel", label: "Combustível", icon: Flame, permission: { menuKey: "telemetry", pageKey: "euro-can", subKey: "fuel" } },
-    { to: "/compliance", label: "Compliance", icon: ShieldCheck, permission: { menuKey: "telemetry", pageKey: "euro-can", subKey: "compliance" } },
-    { to: "/driver-behavior", label: "Drive Behavior", icon: GaugeCircle, permission: { menuKey: "telemetry", pageKey: "euro-can", subKey: "driver-behavior" } },
-    { to: "/maintenance", label: "Manutenção", icon: Wrench, permission: { menuKey: "telemetry", pageKey: "euro-can", subKey: "maintenance" } },
-  ];
-
-  const reportLinks = [
-    { to: "/reports/positions", label: "Relatório de Posições", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
-    { to: "/reports/analytic", label: "Relatório Analítico", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
-  ];
-
-  const analysisLinks = [
-    { to: "/analytics/heatmap", label: "Mapa de Calor", icon: BarChart3, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
-    { to: "/ranking", label: "Ranking", icon: Medal, permission: { menuKey: "admin", pageKey: "analytics", subKey: "ranking" } },
-    { to: "/routes", label: "Rotas Perigosas", icon: Map, permission: { menuKey: "fleet", pageKey: "routes" } },
-    { to: "/events", label: "Segurança", icon: ShieldCheck, permission: { menuKey: "primary", pageKey: "events" } },
-  ];
-
   const menuSections = useMemo(() => {
-    const sections = [
-      {
-        key: "negocios",
-        title: "NEGÓCIOS",
-        items: businessLinks,
-      },
-      {
-        key: "principais",
-        title: "PRINCIPAIS",
-        items: [
-          ...primaryLinks,
-          {
-            key: "dispositivos",
-            label: "Dispositivos",
-            icon: Cpu,
-            children: deviceLinks,
-          },
-          { to: "/events", label: "Eventos", icon: Video, permission: { menuKey: "primary", pageKey: "events" } },
-        ],
-      },
-      {
-        key: "frotas",
-        title: "FROTAS",
-        items: fleetLinks,
-      },
-      {
-        key: "telemetria",
-        title: "TELEMETRIA EURO",
-        items: [
-          {
-            key: "euro-view",
-            label: "Euro View",
-            icon: Video,
-            children: euroViewLinks,
-          },
-          {
-            key: "euro-can",
-            label: "Euro CAN",
-            icon: Cpu,
-            children: euroCanLinks,
-          },
-        ],
-      },
-      {
-        key: "administracao",
-        title: "ADMINISTRAÇÃO",
-        items: [
-          {
-            key: "relatorios",
-            label: "Relatórios",
-            icon: FileText,
-            children: reportLinks,
-          },
-          {
-            key: "analises",
-            label: "Análises",
-            icon: BarChart3,
-            children: analysisLinks,
-          },
-          ...adminLinks,
-        ],
-      },
-    ];
-
-    return sections
-      .map((section) => {
-        const items = section.items.map(filterMenuItem).filter(Boolean);
-        if (!items.length) return null;
-        return { ...section, items };
-      })
+    const sections = MENU_REGISTRY.map((section) => ({
+      ...section,
+      items: section.items.map(filterMenuItem).filter(Boolean),
+    }))
+      .map((section) => (section.items.length ? section : null))
       .filter(Boolean);
-  }, [
-    adminLinks,
-    analysisLinks,
-    businessLinks,
-    deviceLinks,
-    euroCanLinks,
-    euroViewLinks,
-    fleetLinks,
-    filterMenuItem,
-    primaryLinks,
-    reportLinks,
-  ]);
+
+    return sections;
+  }, [filterMenuItem]);
 
   const renderNavLink = (link) => (
     <NavLink

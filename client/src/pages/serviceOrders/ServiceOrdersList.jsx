@@ -11,6 +11,7 @@ import AutocompleteSelect from "../../components/ui/AutocompleteSelect.jsx";
 import DataState from "../../ui/DataState.jsx";
 import api from "../../lib/api.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
+import { usePermissionGate, usePermissions } from "../../lib/permissions/permission-gate.js";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -25,13 +26,13 @@ const STATUS_OPTIONS = [
 ];
 
 const TYPE_CHIPS = [
-  { key: "ALL", label: "TODOS" },
-  { key: "INSTALACAO", label: "INSTALAÇÃO" },
-  { key: "MANUTENCAO", label: "MANUTENÇÃO" },
-  { key: "RETIRADA", label: "RETIRADA" },
-  { key: "SOCORRO", label: "SOCORRO" },
-  { key: "REMANEJAMENTO", label: "REMANEJAMENTO" },
-  { key: "REINSTALACAO", label: "REINSTALAÇÃO" },
+  { key: "ALL", label: "TODOS", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-all" } },
+  { key: "INSTALACAO", label: "INSTALAÇÃO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-installation" } },
+  { key: "MANUTENCAO", label: "MANUTENÇÃO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-maintenance" } },
+  { key: "RETIRADA", label: "RETIRADA", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-removal" } },
+  { key: "SOCORRO", label: "SOCORRO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-socorro" } },
+  { key: "REMANEJAMENTO", label: "REMANEJAMENTO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-remanejamento" } },
+  { key: "REINSTALACAO", label: "REINSTALAÇÃO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-reinstall" } },
 ];
 
 function formatDate(value) {
@@ -74,6 +75,8 @@ function buildEquipmentLabels(item) {
 
 export default function ServiceOrdersList() {
   const { user, tenants, hasAdminAccess } = useTenant();
+  const listPermission = usePermissionGate({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" });
+  const { getPermission } = usePermissions();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
@@ -134,9 +137,21 @@ export default function ServiceOrdersList() {
   };
 
   useEffect(() => {
+    if (!listPermission.canShow) return;
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, clientId]);
+  }, [status, clientId, listPermission.canShow]);
+
+  useEffect(() => {
+    if (!availableTypeChips.length) {
+      setActiveType("");
+      return;
+    }
+    const hasActive = availableTypeChips.some((chip) => chip.key === activeType);
+    if (!hasActive) {
+      setActiveType(availableTypeChips[0].key);
+    }
+  }, [activeType, availableTypeChips]);
 
   const baseFiltered = useMemo(() => {
     const term = q ? q.toLowerCase() : "";
@@ -182,6 +197,11 @@ export default function ServiceOrdersList() {
     return nextCounts;
   }, [baseFiltered]);
 
+  const availableTypeChips = useMemo(
+    () => TYPE_CHIPS.filter((chip) => getPermission(chip.permission).canShow),
+    [getPermission],
+  );
+
   const filtered = useMemo(() => {
     if (activeType === "ALL") return baseFiltered;
     return baseFiltered.filter((item) => normalizeType(item.type) === activeType);
@@ -209,6 +229,14 @@ export default function ServiceOrdersList() {
     return [{ value: "", label: "Todos os clientes" }, ...baseOptions];
   }, [clientOptions, hasAdminAccess]);
 
+  if (!listPermission.canShow) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
+        Sem acesso às ordens de serviço.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -216,18 +244,22 @@ export default function ServiceOrdersList() {
         subtitle="Solicitações, execução e aprovação das OS."
         actions={
           <>
-            <Link
-              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
-              to="/services/import"
-            >
-              Importar XLSX
-            </Link>
-            <Link
-              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-              to="/services/new"
-            >
-              Nova OS
-            </Link>
+            {listPermission.isFull && user?.role === "admin" && (
+              <Link
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+                to="/services/import"
+              >
+                Importar XLSX
+              </Link>
+            )}
+            {listPermission.isFull && (
+              <Link
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                to="/services/new"
+              >
+                Nova OS
+              </Link>
+            )}
           </>
         }
       />
@@ -290,7 +322,7 @@ export default function ServiceOrdersList() {
       />
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {TYPE_CHIPS.map((chip) => {
+        {availableTypeChips.map((chip) => {
           const isActive = activeType === chip.key;
           return (
             <button
@@ -309,7 +341,12 @@ export default function ServiceOrdersList() {
         })}
       </div>
 
-      <DataTable className="w-full" tableClassName="min-w-[1100px] w-full">
+      {!availableTypeChips.length ? (
+        <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
+          Sem acesso aos tipos de ordem de serviço.
+        </div>
+      ) : (
+        <DataTable className="w-full" tableClassName="min-w-[1100px] w-full">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
             <tr className="text-left">
               <th className="w-32 px-4 py-3">OS</th>
@@ -397,18 +434,23 @@ export default function ServiceOrdersList() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Link
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
-                      to={`/services/${item.id}`}
-                      aria-label="Editar OS"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Link>
+                    {listPermission.isFull ? (
+                      <Link
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+                        to={`/services/${item.id}`}
+                        aria-label="Editar OS"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-white/50">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
           </tbody>
         </DataTable>
+      )}
     </div>
   );
 }

@@ -246,12 +246,15 @@ export default function Commands() {
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingCommandId, setDeletingCommandId] = useState(null);
   const availableTabs = useMemo(
-    () => COMMAND_TABS.filter((tab) => getPermission(tab.permission).hasAccess),
+    () => COMMAND_TABS.filter((tab) => getPermission(tab.permission).canShow),
     [getPermission],
   );
 
   useEffect(() => {
-    if (!availableTabs.length) return;
+    if (!availableTabs.length) {
+      setActiveTab("");
+      return;
+    }
     const activeStillAvailable = availableTabs.some((tab) => tab.id === activeTab);
     if (!activeStillAvailable) {
       setActiveTab(availableTabs[0].id);
@@ -1332,7 +1335,12 @@ export default function Commands() {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
+        {!availableTabs.length ? (
+          <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
+            Sem acesso aos módulos de comandos.
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
           {activeTab === "list" && (
             <>
               <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
@@ -1635,7 +1643,8 @@ export default function Commands() {
               <CreateCommands readOnly={!canEditCreate} />
             </div>
           )}
-        </div>
+          </div>
+        )}
       </section>
 
       <section className="flex min-h-0 flex-col gap-4">

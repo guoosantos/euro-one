@@ -7,7 +7,7 @@ import { useTenant } from "../lib/tenant-context";
 import DataTable from "../components/ui/DataTable";
 import PageHeader from "../components/ui/PageHeader";
 import { useGroups } from "../lib/hooks/useGroups";
-import { PERMISSIONS_CATALOG } from "../lib/permissions/catalog";
+import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
 
 const documentTypeOptions = ["CPF", "CNPJ", "CI", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora", "Seguradora"];
@@ -70,7 +70,44 @@ const tabs = [
   { id: "espelhamento", label: "Espelhamento" },
 ];
 
+const permissionLevels = [
+  { value: "none", label: "Sem acesso" },
+  { value: "view", label: "Somente visualizar" },
+  { value: "full", label: "Acesso completo" },
+];
+
 const EMPTY_LIST = [];
+
+function normalizePermissionLevel(level) {
+  if (level === "none" || level === "view") return level;
+  return "full";
+}
+
+function normalizePermissionPayload(permissions = {}) {
+  const normalized = {};
+  Object.entries(permissions || {}).forEach(([menuKey, pages]) => {
+    const nextPages = {};
+    Object.entries(pages || {}).forEach(([pageKey, value]) => {
+      if (typeof value === "string") {
+        nextPages[pageKey] = normalizePermissionLevel(value);
+        return;
+      }
+      if (value && typeof value === "object") {
+        const subpages = {};
+        Object.entries(value.subpages || {}).forEach(([subKey, subValue]) => {
+          subpages[subKey] = normalizePermissionLevel(subValue);
+        });
+        nextPages[pageKey] = {
+          ...value,
+          level: normalizePermissionLevel(value.level),
+          subpages,
+        };
+      }
+    });
+    normalized[menuKey] = nextPages;
+  });
+  return normalized;
+}
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -114,7 +151,7 @@ export default function ClientDetailsPage() {
   const [vehicles, setVehicles] = useState(EMPTY_LIST);
   const [permissionDrawerOpen, setPermissionDrawerOpen] = useState(false);
   const [editingPermissionGroup, setEditingPermissionGroup] = useState(null);
-  const [permissionGroupForm, setPermissionGroupForm] = useState({ name: "", description: "", rules: {} });
+  const [permissionGroupForm, setPermissionGroupForm] = useState({ name: "", description: "", permissions: {} });
   const [mirrors, setMirrors] = useState(EMPTY_LIST);
   const [mirrorDrawerOpen, setMirrorDrawerOpen] = useState(false);
   const [editingMirror, setEditingMirror] = useState(null);
@@ -351,13 +388,18 @@ export default function ClientDetailsPage() {
     }
   };
 
-  const buildDefaultRules = () =>
-    PERMISSIONS_CATALOG.reduce((acc, menu) => {
+  const buildDefaultPermissions = () =>
+    PERMISSION_REGISTRY.reduce((acc, menu) => {
       acc[menu.menuKey] = menu.pages.reduce((pageAcc, page) => {
-        pageAcc[page.pageKey] = page.actions.reduce((actionAcc, action) => {
-          actionAcc[action] = false;
-          return actionAcc;
-        }, {});
+        if (page.subpages?.length) {
+          const subpages = page.subpages.reduce((subAcc, subpage) => {
+            subAcc[subpage.subKey] = "none";
+            return subAcc;
+          }, {});
+          pageAcc[page.pageKey] = { level: "none", subpages };
+        } else {
+          pageAcc[page.pageKey] = "none";
+        }
         return pageAcc;
       }, {});
       return acc;
@@ -368,25 +410,41 @@ export default function ClientDetailsPage() {
     setPermissionGroupForm({
       name: group?.name || "",
       description: group?.description || "",
-      rules: group?.attributes?.rules || buildDefaultRules(),
+      permissions: normalizePermissionPayload(group?.attributes?.permissions || buildDefaultPermissions()),
     });
     setPermissionDrawerOpen(true);
   };
 
-  const handlePermissionToggle = (menuKey, pageKey, action) => {
+  const handlePermissionUpdate = (menuKey, pageKey, level, subKey) => {
     setPermissionGroupForm((prev) => ({
       ...prev,
-      rules: {
-        ...prev.rules,
+      permissions: {
+        ...prev.permissions,
         [menuKey]: {
-          ...prev.rules[menuKey],
-          [pageKey]: {
-            ...prev.rules[menuKey]?.[pageKey],
-            [action]: !prev.rules?.[menuKey]?.[pageKey]?.[action],
-          },
+          ...prev.permissions[menuKey],
+          [pageKey]: subKey
+            ? {
+                ...(prev.permissions[menuKey]?.[pageKey] || {}),
+                subpages: {
+                  ...(prev.permissions[menuKey]?.[pageKey]?.subpages || {}),
+                  [subKey]: level,
+                },
+              }
+            : level,
         },
       },
     }));
+  };
+
+  const getPermissionValue = (menuKey, pageKey, subKey) => {
+    const menuPermissions = permissionGroupForm.permissions?.[menuKey] || {};
+    if (subKey) {
+      return normalizePermissionLevel(menuPermissions?.[pageKey]?.subpages?.[subKey]) || "none";
+    }
+    const value = menuPermissions?.[pageKey];
+    if (typeof value === "string") return normalizePermissionLevel(value);
+    if (value?.level) return normalizePermissionLevel(value.level);
+    return "none";
   };
 
   const handlePermissionSave = async (event) => {
@@ -398,7 +456,7 @@ export default function ClientDetailsPage() {
         clientId: client.id,
         attributes: {
           kind: "PERMISSION_GROUP",
-          rules: permissionGroupForm.rules,
+          permissions: normalizePermissionPayload(permissionGroupForm.permissions),
         },
       };
       if (editingPermissionGroup) {
@@ -1109,7 +1167,7 @@ export default function ClientDetailsPage() {
                         <td className="py-2 pr-4 text-white">{group.name}</td>
                         <td className="py-2 pr-4 text-white/70">{group.description || "—"}</td>
                         <td className="py-2 pr-4 text-white/70">
-                          {Object.keys(group.attributes?.rules || {}).length}
+                          {Object.keys(group.attributes?.permissions || {}).length}
                         </td>
                         <td className="py-2 pr-4 text-right">
                           <div className="flex justify-end gap-2">
@@ -1219,7 +1277,7 @@ export default function ClientDetailsPage() {
             open={permissionDrawerOpen}
             onClose={() => setPermissionDrawerOpen(false)}
             title={editingPermissionGroup ? "Editar grupo de permissões" : "Novo grupo de permissões"}
-            description="Selecione as ações permitidas por menu e página."
+            description="Defina níveis de acesso por menu, página e submenu."
           >
             <form onSubmit={handlePermissionSave} className="space-y-4">
               <label className="text-sm">
@@ -1246,27 +1304,58 @@ export default function ClientDetailsPage() {
                 />
               </label>
               <div className="space-y-4">
-                {PERMISSIONS_CATALOG.map((menu) => (
+                {PERMISSION_REGISTRY.map((menu) => (
                   <div key={menu.menuKey} className="rounded-xl border border-white/10 p-4">
                     <h4 className="text-sm font-semibold text-white">{menu.label}</h4>
                     <div className="mt-3 space-y-3">
                       {menu.pages.map((page) => (
-                        <div key={page.pageKey} className="flex flex-col gap-2">
-                          <span className="text-xs uppercase tracking-wide text-white/50">{page.label}</span>
-                          <div className="flex flex-wrap gap-3 text-xs text-white/70">
-                            {page.actions.map((action) => (
-                              <label key={action} className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    permissionGroupForm.rules?.[menu.menuKey]?.[page.pageKey]?.[action] || false
-                                  }
-                                  onChange={() => handlePermissionToggle(menu.menuKey, page.pageKey, action)}
-                                />
-                                {action}
-                              </label>
-                            ))}
+                        <div key={page.pageKey} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-white/60">{page.label}</p>
+                              {page.subpages?.length && (
+                                <p className="text-xs text-white/50">Configure submenus individualmente.</p>
+                              )}
+                            </div>
+                            <select
+                              value={getPermissionValue(menu.menuKey, page.pageKey)}
+                              onChange={(event) =>
+                                handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value)
+                              }
+                              className="min-w-[220px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
+                            >
+                              {permissionLevels.map((level) => (
+                                <option key={level.value} value={level.value}>
+                                  {level.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
+                          {page.subpages?.length && (
+                            <div className="mt-3 space-y-2">
+                              {page.subpages.map((subpage) => (
+                                <div
+                                  key={subpage.subKey}
+                                  className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-2"
+                                >
+                                  <span className="text-xs text-white/70">{subpage.label}</span>
+                                  <select
+                                    value={getPermissionValue(menu.menuKey, page.pageKey, subpage.subKey)}
+                                    onChange={(event) =>
+                                      handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value, subpage.subKey)
+                                    }
+                                    className="min-w-[200px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
+                                  >
+                                    {permissionLevels.map((level) => (
+                                      <option key={level.value} value={level.value}>
+                                        {level.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

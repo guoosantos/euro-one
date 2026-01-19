@@ -68,6 +68,7 @@ export default function ServiceOrderNew() {
   const navigate = useNavigate();
   const { tenantId, user, tenants } = useTenant();
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [devices, setDevices] = useState([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
@@ -381,6 +382,7 @@ export default function ServiceOrderNew() {
   };
 
   const submit = async () => {
+    if (saving) return;
     if (!form.startAt) {
       alert("Informe a data do serviço.");
       return;
@@ -403,6 +405,7 @@ export default function ServiceOrderNew() {
     }
 
     setSaving(true);
+    setSubmitError(null);
     try {
       const serviceDate = form.startAt ? new Date(form.startAt) : null;
       const hasSignatures = Boolean(technicianSignature || clientSignature);
@@ -442,7 +445,17 @@ export default function ServiceOrderNew() {
       setCreatedOrder(response.data.item || null);
     } catch (error) {
       console.error("Falha ao criar ordem de serviço", error);
-      alert("Falha ao criar OS.");
+      const statusCode = error?.response?.status ?? error?.status;
+      if (statusCode === 503) {
+        setSubmitError("Serviço indisponível no momento. Tente novamente em instantes.");
+      } else {
+        setSubmitError(
+          error?.response?.data?.error?.message
+          || error?.response?.data?.message
+          || error?.message
+          || "Falha ao criar OS.",
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -482,6 +495,11 @@ export default function ServiceOrderNew() {
       {createdOrder?.osInternalId && (
         <div className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
           <span className="font-semibold">OS:</span> {createdOrder.osInternalId}
+        </div>
+      )}
+      {submitError && (
+        <div className="rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          {submitError}
         </div>
       )}
 
