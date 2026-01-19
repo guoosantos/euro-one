@@ -97,10 +97,25 @@ const permissionMatrix = [
           { id: "devices-chips", label: "Chip" },
           { id: "devices-models", label: "Modelos & Portas" },
           { id: "devices-stock", label: "Estoque" },
-          { id: "commands", label: "Comandos" },
         ],
       },
-      { id: "events", label: "Eventos" },
+      {
+        id: "commands",
+        label: "Comandos",
+        subpages: [
+          { id: "list", label: "Comandos" },
+          { id: "advanced", label: "Avançado" },
+          { id: "create", label: "Criar comandos" },
+        ],
+      },
+      {
+        id: "events",
+        label: "Eventos",
+        subpages: [
+          { id: "report", label: "Relatório" },
+          { id: "severity", label: "Severidade" },
+        ],
+      },
     ],
   },
   {
@@ -181,7 +196,7 @@ const permissionMatrix = [
       },
       { id: "clients", label: "Clientes" },
       { id: "users", label: "Usuários" },
-      { id: "mirrors", label: "Espelhamentos recebidos" },
+      { id: "mirrors", label: "Espelhamento" },
       { id: "import", label: "Importar Base (XLSX)" },
     ],
   },
@@ -801,6 +816,7 @@ export default function Users() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6 text-white">
       <PageHeader
+        overline="Central de usuários"
         title="Usuários"
         subtitle="Cadastre operadores, defina grupos e regras avançadas de acesso."
         actions={

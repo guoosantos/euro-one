@@ -20,7 +20,7 @@ const isHexLikePayload = (value) => {
   return /^[0-9a-fA-F]+$/.test(compact) && compact.length % 2 === 0;
 };
 
-export default function CreateCommands() {
+export default function CreateCommands({ readOnly = false }) {
   const [protocols, setProtocols] = useState([]);
   const [protocolsLoading, setProtocolsLoading] = useState(false);
   const [customCommands, setCustomCommands] = useState([]);
@@ -121,6 +121,10 @@ export default function CreateCommands() {
   };
 
   const handleSave = async () => {
+    if (readOnly) {
+      showToast("Acesso somente leitura.", "warning");
+      return;
+    }
     const name = form.name.trim();
     const protocol = form.protocol.trim();
     const payload = String(form.payload ?? "");
@@ -174,6 +178,10 @@ export default function CreateCommands() {
   };
 
   const handleDelete = async (commandId) => {
+    if (readOnly) {
+      showToast("Acesso somente leitura.", "warning");
+      return;
+    }
     const confirmed = window.confirm("Deseja remover este comando personalizado?");
     if (!confirmed) return;
     setDeletingId(commandId);
@@ -213,7 +221,12 @@ export default function CreateCommands() {
             <div className="grid gap-3 md:grid-cols-2">
               <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
                 Nome
-                <Input value={form.name} onChange={(event) => handleFormChange("name", event.target.value)} className="mt-2" />
+                <Input
+                  value={form.name}
+                  onChange={(event) => handleFormChange("name", event.target.value)}
+                  className="mt-2"
+                  disabled={readOnly}
+                />
               </label>
               <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
                 Protocolo
@@ -221,6 +234,7 @@ export default function CreateCommands() {
                   value={form.protocol}
                   onChange={(event) => handleFormChange("protocol", event.target.value)}
                   className="mt-2 w-full bg-layer text-sm"
+                  disabled={readOnly}
                 >
                   <option value="">Selecione</option>
                   {protocolOptions.map((option) => (
@@ -237,6 +251,7 @@ export default function CreateCommands() {
                   value={form.description}
                   onChange={(event) => handleFormChange("description", event.target.value)}
                   className="mt-2"
+                  disabled={readOnly}
                 />
               </label>
             </div>
@@ -248,6 +263,7 @@ export default function CreateCommands() {
                 onChange={(event) => handleFormChange("payload", event.target.value)}
                 rows={4}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80"
+                disabled={readOnly}
               />
             </label>
 
@@ -257,12 +273,13 @@ export default function CreateCommands() {
                 checked={form.visible}
                 onChange={(event) => handleFormChange("visible", event.target.checked)}
                 className="h-4 w-4 rounded border-white/20 bg-transparent"
+                disabled={readOnly}
               />
               Visível em Comandos
             </label>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={handleSave} disabled={saving}>
+              <Button type="button" onClick={handleSave} disabled={saving || readOnly}>
                 {saving ? "Salvando…" : editingId ? "Atualizar" : "Criar"}
               </Button>
               <Button type="button" variant="outline" onClick={resetForm}>
@@ -317,14 +334,14 @@ export default function CreateCommands() {
                         <td className="px-3 py-2 text-[11px]">{command.visible ? "Sim" : "Não"}</td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap gap-2">
-                            <Button type="button" variant="outline" onClick={() => handleEdit(command)}>
+                            <Button type="button" variant="outline" onClick={() => handleEdit(command)} disabled={readOnly}>
                               Editar
                             </Button>
                             <Button
                               type="button"
                               variant="danger"
                               onClick={() => handleDelete(command.id)}
-                              disabled={deletingId === command.id}
+                              disabled={readOnly || deletingId === command.id}
                             >
                               {deletingId === command.id ? "Removendo…" : "Excluir"}
                             </Button>

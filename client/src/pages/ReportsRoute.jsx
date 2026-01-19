@@ -19,6 +19,7 @@ import {
 import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import {
   buildAddressWithLatLng,
   resolveReportColumnLabel,
@@ -375,6 +376,11 @@ export default function ReportsRoute() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        overline="Central de relatórios"
+        title="Relatório de rota"
+        subtitle="Extrai todos os pontos percorridos no intervalo informado."
+      />
       <div className="flex flex-col gap-2">
         {(loading || fetching || loadingPreferences) && <Loading message="Carregando rotas..." />}
         {error && <ErrorMessage error={error} fallback="Não foi possível carregar o relatório de rota." />}
@@ -382,11 +388,6 @@ export default function ReportsRoute() {
       </div>
 
       <section className="card space-y-4">
-        <header>
-          <h2 className="text-lg font-semibold">Relatório de rota</h2>
-          <p className="text-xs opacity-70">Extrai todos os pontos percorridos no intervalo informado.</p>
-        </header>
-
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
           <VehicleSelector className="text-sm md:col-span-2" />
 

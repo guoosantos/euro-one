@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 function ModelosPortas({models}){
   if (!Array.isArray(models) || !models.length) return <div className="opacity-60">Sem modelos.</div>;
@@ -86,8 +87,14 @@ export default function Equipamentos(){
   }, [models]);
 
   return (
-    <div className="p-4 text-white max-w-6xl mx-auto">
-      <div className="flex items-center gap-2 mb-3">
+    <div className="max-w-6xl mx-auto space-y-5 p-4 text-white">
+      <PageHeader
+        overline="Central de equipamentos"
+        title="Equipamentos"
+        subtitle="Cadastre equipamentos, organize modelos e configure portas."
+      />
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-4">
         <button onClick={()=>setTab("lista")} className={"px-3 py-2 rounded-lg "+(tab==="lista"?"bg-white/10":"bg-white/5")}>Lista</button>
         <button onClick={()=>setTab("cadastro")} className={"px-3 py-2 rounded-lg "+(tab==="cadastro"?"bg-white/10":"bg-white/5")}>Cadastro</button>
         <button onClick={()=>setTab("modelos")} className={"px-3 py-2 rounded-lg "+(tab==="modelos"?"bg-white/10":"bg-white/5")}>Modelos & Portas</button>

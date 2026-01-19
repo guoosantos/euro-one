@@ -4,6 +4,7 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const ALERT_TYPES = [
   { key: "noSeatbelt", label: "Sem cinto" },
@@ -87,14 +88,11 @@ export default function Face() {
 
   return (
     <div className="space-y-6">
-      <section className="card space-y-4">
-        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Reconhecimento facial e cabine</h2>
-            <p className="text-xs opacity-70">
-              Alertas provenientes das câmeras embarcadas Euro Vision (fadiga, distração, uso de cinto). Atualização contínua.
-            </p>
-          </div>
+      <PageHeader
+        overline="Central de vídeo"
+        title="Reconhecimento facial e cabine"
+        subtitle="Alertas provenientes das câmeras embarcadas Euro Vision (fadiga, distração, uso de cinto). Atualização contínua."
+        rightSlot={
           <select
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
@@ -107,7 +105,9 @@ export default function Face() {
               </option>
             ))}
           </select>
-        </header>
+        }
+      />
+      <section className="card space-y-4">
         {error && <ErrorMessage error={error} fallback="Não foi possível buscar os alertas." />}
         {infoMessage && !error && (
           <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">{infoMessage}</div>

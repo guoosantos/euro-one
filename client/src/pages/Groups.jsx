@@ -1,5 +1,6 @@
 import React from "react";
 import useGroups from "../lib/hooks/useGroups";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function Groups() {
   const { groups, loading, error, reload } = useGroups();
@@ -8,12 +9,11 @@ export default function Groups() {
 
   return (
     <div className="space-y-6">
-      <section className="card space-y-4">
-        <header className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Grupos cadastrados</h2>
-            <p className="text-xs opacity-70">Sincronizados diretamente com o Traccar.</p>
-          </div>
+      <PageHeader
+        overline="Central de grupos"
+        title="Grupos"
+        subtitle="Sincronizados diretamente com o Traccar."
+        actions={
           <button
             type="button"
             onClick={reload}
@@ -21,8 +21,9 @@ export default function Groups() {
           >
             Atualizar
           </button>
-        </header>
-
+        }
+      />
+      <section className="card space-y-4">
         {error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
             {error.message}

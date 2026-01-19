@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { getClientById } from "../models/client.js";
 import {
   createUser,
@@ -25,7 +26,10 @@ function ensureClientAccess(sessionUser, clientId) {
   }
 }
 
-router.get("/users", async (req, res, next) => {
+router.get(
+  "/users",
+  authorizePermission({ menuKey: "admin", pageKey: "users" }),
+  async (req, res, next) => {
   try {
     if (req.user.role === "admin") {
       const { clientId } = req.query;
@@ -41,9 +45,13 @@ router.get("/users", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/users", async (req, res, next) => {
+router.post(
+  "/users",
+  authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+  async (req, res, next) => {
   try {
     const { name, email, password, role = "user", username, clientId, attributes = {} } = req.body || {};
     if (!name || !email || !password) {
@@ -80,9 +88,13 @@ router.post("/users", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.put("/users/:id", async (req, res, next) => {
+router.put(
+  "/users/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = await getUserById(id, { includeSensitive: true });
@@ -122,9 +134,13 @@ router.put("/users/:id", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.delete("/users/:id", (req, res, next) => {
+router.delete(
+  "/users/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = getUserById(id, { includeSensitive: true });
@@ -142,9 +158,13 @@ router.delete("/users/:id", (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/users/:id/transfer-access", async (req, res, next) => {
+router.post(
+  "/users/:id/transfer-access",
+  authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     const { toUserId } = req.body || {};
@@ -184,6 +204,7 @@ router.post("/users/:id/transfer-access", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 export default router;

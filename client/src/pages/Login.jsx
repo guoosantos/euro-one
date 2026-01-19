@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTenant } from "../lib/tenant-context";
 import { useTranslation } from "../lib/i18n";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -50,10 +51,11 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-surface text-text">
       <div className="w-full max-w-md rounded-2xl border border-border bg-layer/80 p-8 shadow-2xl backdrop-blur">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-semibold">{t("loginTitle")}</h1>
-          <p className="mt-2 text-sm opacity-80">
-            Utilize suas credenciais do Traccar para acessar monitoramento, telemetria e dashboards.
-          </p>
+          <PageHeader
+            className="items-center text-center"
+            title={t("loginTitle")}
+            subtitle="Utilize suas credenciais do Traccar para acessar monitoramento, telemetria e dashboards."
+          />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

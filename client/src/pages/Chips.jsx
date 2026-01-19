@@ -427,7 +427,9 @@ export default function Chips() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-5">
       <PageHeader
+        overline="Central de chips"
         title="Chips"
+        subtitle="Gerencie chips ativos, vínculos e informações de conectividade."
         actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={load} icon={RefreshCw}>

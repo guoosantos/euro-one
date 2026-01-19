@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const defaultUserForm = {
   name: "",
@@ -138,29 +139,28 @@ export default function ClientUsers() {
   return (
     <div className="space-y-6">
       <section className="card space-y-4">
-        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">Usuários</h1>
-            <p className="text-xs opacity-70">
-              Cadastre operadores, motoristas ou gestores vinculados ao cliente selecionado.
-            </p>
-          </div>
-          <select
-            value={selectedTenantId}
-            onChange={(event) => {
-              const nextId = event.target.value;
-              setForm((prev) => ({ ...prev, clientId: nextId }));
-              loadUsers(nextId);
-            }}
-            className="w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm md:w-72"
-          >
-            {managedTenants.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name}
-              </option>
-            ))}
-          </select>
-        </header>
+        <PageHeader
+          overline="Central de usuários"
+          title="Usuários"
+          subtitle="Cadastre operadores, motoristas ou gestores vinculados ao cliente selecionado."
+          rightSlot={
+            <select
+              value={selectedTenantId}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                setForm((prev) => ({ ...prev, clientId: nextId }));
+                loadUsers(nextId);
+              }}
+              className="w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm md:w-72"
+            >
+              {managedTenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          }
+        />
 
         <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
           <label className="text-sm">

@@ -1,5 +1,6 @@
 import React from "react";
 import useDrivers from "../lib/hooks/useDrivers";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function Drivers() {
   const { drivers, loading, error, reload } = useDrivers();
@@ -8,12 +9,11 @@ export default function Drivers() {
 
   return (
     <div className="space-y-6">
-      <section className="card space-y-4">
-        <header className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Motoristas vinculados</h2>
-            <p className="text-xs opacity-70">Lista proveniente do cadastro do Traccar.</p>
-          </div>
+      <PageHeader
+        overline="Central de motoristas"
+        title="Motoristas"
+        subtitle="Lista proveniente do cadastro do Traccar."
+        actions={
           <button
             type="button"
             onClick={reload}
@@ -21,8 +21,9 @@ export default function Drivers() {
           >
             Atualizar
           </button>
-        </header>
-
+        }
+      />
+      <section className="card space-y-4">
         {error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
             {error.message}

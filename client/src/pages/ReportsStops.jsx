@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useReportsStops from "../lib/hooks/useReportsStops";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -68,12 +69,12 @@ export default function ReportsStops() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        overline="Central de relatórios"
+        title="Relatório de paradas"
+        subtitle="Identifica os locais onde o veículo permaneceu estacionado."
+      />
       <section className="card space-y-4">
-        <header>
-          <h2 className="text-lg font-semibold">Relatório de paradas</h2>
-          <p className="text-xs opacity-70">Identifica os locais onde o veículo permaneceu estacionado.</p>
-        </header>
-
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
           <VehicleSelector className="text-sm md:col-span-2" />
 

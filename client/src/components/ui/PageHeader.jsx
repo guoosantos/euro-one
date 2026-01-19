@@ -1,13 +1,34 @@
 import React from "react";
 
-export default function PageHeader({ title, subtitle, actions, titleClassName = "" }) {
+export default function PageHeader({
+  title,
+  subtitle,
+  description,
+  overline,
+  eyebrow,
+  actions,
+  rightSlot,
+  right,
+  className = "",
+  titleClassName = "",
+}) {
+  const resolvedSubtitle = subtitle ?? description ?? null;
+  const resolvedOverline = overline ?? eyebrow ?? null;
+  const resolvedRightSlot = rightSlot ?? right ?? null;
+
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div>
-        <h1 className={`text-2xl font-semibold text-white ${titleClassName}`.trim()}>{title}</h1>
-        {subtitle && <p className="text-sm text-white/60">{subtitle}</p>}
+    <div className={`page-header ${className}`.trim()}>
+      <div className="page-header__stack">
+        {resolvedOverline && <div className="page-header__overline">{resolvedOverline}</div>}
+        <h1 className={`page-header__title ${titleClassName}`.trim()}>{title}</h1>
+        {resolvedSubtitle && <p className="page-header__subtitle">{resolvedSubtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {(resolvedRightSlot || actions) && (
+        <div className="page-header__right">
+          {resolvedRightSlot && <div className="page-header__right-slot">{resolvedRightSlot}</div>}
+          {actions && <div className="page-header__actions">{actions}</div>}
+        </div>
+      )}
     </div>
   );
 }

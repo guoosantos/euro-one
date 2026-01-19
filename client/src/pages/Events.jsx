@@ -9,6 +9,7 @@ import AddressCell from "../ui/AddressCell.jsx";
 import Modal from "../ui/Modal.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices.js";
@@ -18,8 +19,20 @@ import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
+import { usePermissionGate, usePermissionResolver } from "../lib/permissions/permission-gate.js";
 
-const EVENT_TABS = ["Relatório", "Severidade"];
+const EVENT_TABS = [
+  {
+    id: "report",
+    label: "Relatório",
+    permission: { menuKey: "primary", pageKey: "events", subKey: "report" },
+  },
+  {
+    id: "severity",
+    label: "Severidade",
+    permission: { menuKey: "primary", pageKey: "events", subKey: "severity" },
+  },
+];
 const EVENT_TYPES = [
   "all",
   "deviceOnline",
@@ -199,7 +212,7 @@ export default function Events() {
   const { vehicles } = useVehicles();
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
-  const [activeTab, setActiveTab] = useState(EVENT_TABS[0]);
+  const [activeTab, setActiveTab] = useState(EVENT_TABS[0].id);
   const [activeCategoryTab, setActiveCategoryTab] = useState("Segurança");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [eventType, setEventType] = useState("all");
@@ -238,6 +251,22 @@ export default function Events() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [reportEventScope, setReportEventScope] = useState("active");
   const reportScopeInitializedRef = useRef(false);
+  const { getPermission } = usePermissionResolver();
+  const severityPermission = usePermissionGate({ menuKey: "primary", pageKey: "events", subKey: "severity" });
+  const canEditSeverity = severityPermission.isFull;
+
+  const availableTabs = useMemo(
+    () => EVENT_TABS.filter((tab) => getPermission(tab.permission).hasAccess),
+    [getPermission],
+  );
+
+  useEffect(() => {
+    if (!availableTabs.length) return;
+    const activeStillAvailable = availableTabs.some((tab) => tab.id === activeTab);
+    if (!activeStillAvailable) {
+      setActiveTab(availableTabs[0].id);
+    }
+  }, [activeTab, availableTabs]);
 
   const [protocols, setProtocols] = useState([]);
   const [selectedProtocol, setSelectedProtocol] = useState("");
@@ -448,7 +477,7 @@ export default function Events() {
   }, [allDeviceIds, eventType, from, page, pageSize, reportEventScope, selectedVehicle, to]);
 
   useEffect(() => {
-    if (activeTab !== "Severidade" || !selectedProtocol) return;
+    if (activeTab !== "severity" || !selectedProtocol) return;
     let mounted = true;
     async function loadProtocolEvents() {
       setConfigLoading(true);
@@ -771,31 +800,13 @@ export default function Events() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-4">
-        <header className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de eventos</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <div className="flex flex-wrap gap-2">
-              {EVENT_TABS.map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveTab(tab)}
-                  className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
-                    activeTab === tab
-                      ? "bg-primary/20 text-white border border-primary/40"
-                      : "border border-white/10 text-white/60 hover:text-white"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-            {activeTab === "Relatório" && (
-              <div className="flex flex-wrap items-center justify-end gap-2">
+        <PageHeader
+          overline="Central de eventos"
+          title="Eventos"
+          subtitle="Monitore protocolos, personalize severidades e extraia relatórios."
+          actions={
+            activeTab === "report" ? (
+              <>
                 <Button
                   type="button"
                   onClick={() => {
@@ -856,12 +867,31 @@ export default function Events() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
-        </header>
+              </>
+            ) : null
+          }
+        />
 
-        {activeTab === "Relatório" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+          <div className="flex flex-wrap gap-2">
+            {availableTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+                  activeTab === tab.id
+                    ? "bg-primary/20 text-white border border-primary/40"
+                    : "border border-white/10 text-white/60 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeTab === "report" && (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
               <AutocompleteSelect
@@ -1031,7 +1061,7 @@ export default function Events() {
           </div>
         )}
 
-        {activeTab === "Severidade" && (
+        {activeTab === "severity" && (
           <div className="space-y-4 px-6 pb-6">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <label className="text-xs uppercase tracking-wide text-white/60">
@@ -1076,7 +1106,7 @@ export default function Events() {
                       type="button"
                       variant="outline"
                       onClick={() => setBulkAction("activate")}
-                      disabled={configLoading || filteredProtocolEvents.length === 0}
+                      disabled={!canEditSeverity || configLoading || filteredProtocolEvents.length === 0}
                     >
                       Marcar todos como ativos
                     </Button>
@@ -1084,11 +1114,11 @@ export default function Events() {
                       type="button"
                       variant="outline"
                       onClick={() => setBulkAction("deactivate")}
-                      disabled={configLoading || filteredProtocolEvents.length === 0}
+                      disabled={!canEditSeverity || configLoading || filteredProtocolEvents.length === 0}
                     >
                       Desmarcar todos
                     </Button>
-                    <Button type="button" onClick={handleSaveConfig} disabled={savingConfig || configLoading}>
+                    <Button type="button" onClick={handleSaveConfig} disabled={!canEditSeverity || savingConfig || configLoading}>
                       {savingConfig ? "Salvando…" : "Salvar"}
                     </Button>
                   </div>
@@ -1137,6 +1167,7 @@ export default function Events() {
                           onChange={(evt) => handleCustomNameChange(event.id, evt.target.value)}
                           placeholder={event.defaultName || "Nome do evento"}
                           className="mt-1 h-9 bg-layer text-xs md:mt-0"
+                          disabled={!canEditSeverity}
                         />
                       </label>
                       <div className="text-xs text-white/60">
@@ -1149,6 +1180,7 @@ export default function Events() {
                           value={event.severity || "info"}
                           onChange={(evt) => handleSeverityChange(event.id, evt.target.value)}
                           className="mt-1 w-full bg-layer text-xs md:mt-0"
+                          disabled={!canEditSeverity}
                         >
                           {SEVERITY_LEVELS.map((level) => (
                             <option key={level.value} value={level.value}>
@@ -1163,6 +1195,7 @@ export default function Events() {
                           value={event.category || ""}
                           onChange={(evt) => handleCategoryChange(event.id, evt.target.value)}
                           className="mt-1 w-full bg-layer text-xs md:mt-0"
+                          disabled={!canEditSeverity}
                         >
                           <option value="">Não definida</option>
                           <option value="Segurança">Segurança</option>
@@ -1175,6 +1208,7 @@ export default function Events() {
                           value={event.requiresHandling ? "yes" : "no"}
                           onChange={(evt) => handleRequiresHandlingChange(event.id, evt.target.value === "yes")}
                           className="mt-1 w-full bg-layer text-xs md:mt-0"
+                          disabled={!canEditSeverity}
                         >
                           <option value="no">Não</option>
                           <option value="yes">Sim</option>
@@ -1186,6 +1220,7 @@ export default function Events() {
                           checked={event.active ?? true}
                           onChange={(evt) => handleActiveChange(event.id, evt.target.checked)}
                           className="rounded border-white/20 bg-transparent"
+                          disabled={!canEditSeverity}
                         />
                         Ativo
                       </label>

@@ -46,9 +46,12 @@ export function createMirror({
   targetClientId,
   targetType,
   vehicleIds = [],
+  vehicleGroupId = null,
   permissionGroupId = null,
   startAt = null,
   endAt = null,
+  createdBy = null,
+  createdByName = null,
 }) {
   if (!ownerClientId) {
     throw createError(400, "ownerClientId é obrigatório");
@@ -64,9 +67,12 @@ export function createMirror({
     targetClientId: String(targetClientId),
     targetType,
     vehicleIds: Array.isArray(vehicleIds) ? vehicleIds.map(String) : [],
+    vehicleGroupId: vehicleGroupId ? String(vehicleGroupId) : null,
     permissionGroupId: permissionGroupId ? String(permissionGroupId) : null,
     startAt,
     endAt,
+    createdBy: createdBy ? String(createdBy) : null,
+    createdByName: createdByName || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -96,6 +102,9 @@ export function updateMirror(id, updates = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(updates, "vehicleIds")) {
     record.vehicleIds = Array.isArray(updates.vehicleIds) ? updates.vehicleIds.map(String) : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "vehicleGroupId")) {
+    record.vehicleGroupId = updates.vehicleGroupId ? String(updates.vehicleGroupId) : null;
   }
   if (Object.prototype.hasOwnProperty.call(updates, "permissionGroupId")) {
     record.permissionGroupId = updates.permissionGroupId ? String(updates.permissionGroupId) : null;
