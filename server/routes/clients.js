@@ -27,6 +27,22 @@ router.get("/clients", requireRole("manager", "admin"), async (req, res, next) =
   }
 });
 
+router.get("/clients/:id", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
+      throw createError(403, "Permissão insuficiente para visualizar este cliente");
+    }
+    const client = await getClientById(id);
+    if (!client) {
+      throw createError(404, "Cliente não encontrado");
+    }
+    return res.json({ client });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/clients", requireRole("admin"), async (req, res, next) => {
   try {
     const { name, deviceLimit, userLimit, attributes = {} } = req.body || {};

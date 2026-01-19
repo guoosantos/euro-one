@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes";
 import { useTenant } from "../lib/tenant-context";
@@ -13,12 +14,12 @@ const initialForm = {
 
 export default function Clients() {
   const { role, tenant, refreshClients } = useTenant();
+  const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [form, setForm] = useState(initialForm);
-  const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState(null);
 
   const isAdmin = role === "admin";
@@ -73,15 +74,9 @@ export default function Clients() {
       if (!payload.password) {
         delete payload.password;
       }
-      if (editingId) {
-        await api.put(`/clients/${editingId}`, payload);
-        setMessage("Cliente atualizado com sucesso");
-      } else {
-        await api.post(API_ROUTES.clients, payload);
-        setMessage("Cliente criado com sucesso");
-      }
+      await api.post(API_ROUTES.clients, payload);
+      setMessage("Cliente criado com sucesso");
       setForm(initialForm);
-      setEditingId(null);
       await loadClients();
     } catch (submitError) {
       console.error("Falha ao salvar cliente", submitError);
@@ -92,14 +87,7 @@ export default function Clients() {
   }
 
   function handleEdit(client) {
-    setEditingId(client.id);
-    setForm({
-      name: client.name,
-      email: client.email,
-      password: "",
-      deviceLimit: client.deviceLimit ?? 50,
-      userLimit: client.userLimit ?? 20,
-    });
+    navigate(`/clients/${client.id}`);
   }
 
   async function handleDelete(client) {
@@ -131,13 +119,24 @@ export default function Clients() {
             <h1 className="text-xl font-semibold">Meu cliente</h1>
             <p className="text-xs opacity-70">Gestores visualizam apenas os dados da própria empresa.</p>
           </div>
-          <button
-            type="button"
-            onClick={loadClients}
-            className="rounded-lg border border-border px-3 py-2 text-xs hover:bg-white/5"
-          >
-            Atualizar
-          </button>
+          <div className="flex items-center gap-2">
+            {currentClient?.id && (
+              <button
+                type="button"
+                onClick={() => navigate(`/clients/${currentClient.id}`)}
+                className="rounded-lg border border-border px-3 py-2 text-xs hover:bg-white/5"
+              >
+                Detalhes
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={loadClients}
+              className="rounded-lg border border-border px-3 py-2 text-xs hover:bg-white/5"
+            >
+              Atualizar
+            </button>
+          </div>
         </header>
 
         {error && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{error.message}</div>}
@@ -178,7 +177,6 @@ export default function Clients() {
             type="button"
             onClick={() => {
               setForm(initialForm);
-              setEditingId(null);
             }}
             className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-white/5"
           >
@@ -214,8 +212,8 @@ export default function Clients() {
             <input
               type="password"
               value={form.password}
-              required={!editingId}
-              placeholder={editingId ? "Deixe em branco para manter" : "Senha temporária"}
+              required
+              placeholder="Senha temporária"
               onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
             />
@@ -251,7 +249,7 @@ export default function Clients() {
               disabled={saving}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
             >
-              {saving ? "Salvando…" : editingId ? "Atualizar cliente" : "Adicionar cliente"}
+              {saving ? "Salvando…" : "Adicionar cliente"}
             </button>
           </div>
         </form>
