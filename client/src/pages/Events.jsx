@@ -87,7 +87,7 @@ const COLUMN_WIDTHS_STORAGE_KEY = "events:columns:widths:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
 const DEFAULT_COLUMN_WIDTH = 140;
-const PAGE_SIZE_OPTIONS = [20, 50, 100];
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
 const DEFAULT_PAGE_SIZE = 50;
 
 const SEVERITY_LABELS = {
@@ -411,6 +411,7 @@ export default function Events() {
         deviceIds: deviceIdsToQuery.length ? deviceIdsToQuery : undefined,
         limit: pageSize,
         page: pageOverride,
+        reportEventScope,
       };
 
       const response = await api.get(API_ROUTES.events, { params });
@@ -440,7 +441,7 @@ export default function Events() {
     } finally {
       setReportLoading(false);
     }
-  }, [allDeviceIds, eventType, from, page, pageSize, selectedVehicle, to]);
+  }, [allDeviceIds, eventType, from, page, pageSize, reportEventScope, selectedVehicle, to]);
 
   useEffect(() => {
     if (activeTab !== "Severidade" || !selectedProtocol) return;

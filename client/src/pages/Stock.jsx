@@ -31,7 +31,7 @@ const CONDITION_FILTERS = [
   { value: "usado_funcionando", label: "Usados Funcionando" },
   { value: "usado_defeito", label: "Usados Defeito" },
 ];
-const PAGE_SIZE_OPTIONS = [20, 50, 100];
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;

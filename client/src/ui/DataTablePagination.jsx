@@ -8,7 +8,7 @@ function PaginationButton({ children, disabled, onClick }) {
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-8 min-w-[88px] items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition ${
+      className={`flex h-7 min-w-[88px] items-center justify-center rounded border px-2 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${
         disabled
           ? "cursor-not-allowed border-white/5 bg-white/5 text-white/30"
           : "border-white/15 bg-white/10 text-white hover:border-primary/60 hover:text-primary"
@@ -55,50 +55,54 @@ export default function DataTablePagination({
   };
 
   return (
-    <div className={`sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70 ${className}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="whitespace-nowrap">Itens por página</span>
-        <select
-          value={isAll ? "all" : String(numericPageSize)}
-          onChange={handlePageSizeChange}
-          className="rounded-md border border-white/10 bg-[#0d1117] px-2 py-1 text-xs text-white"
-          disabled={disabled}
-        >
-          {pageSizeOptions.map((option) => (
-            <option key={option} value={option} className="bg-[#0d1117] text-white">
-              {option === "all" ? "Todos" : option}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span>
-          Página {resolvedCurrentPage} de {resolvedTotalPages}
-        </span>
-        <span className="text-white/50">•</span>
-        <span>{resolvedTotalItems} itens</span>
-        {showRange && (
-          <>
-            <span className="text-white/50">•</span>
-            <span>
-              {pageStart}–{pageEnd}
+    <div className={`shrink-0 border-t border-white/10 bg-[#0f141c] px-2 py-1 text-[10px] leading-tight text-white/70 ${className}`}>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1 text-[10px] text-white/70">
+          <label className="text-[9px] uppercase tracking-[0.1em] text-white/50">
+            Itens por página
+          </label>
+          <select
+            value={isAll ? "all" : String(numericPageSize)}
+            onChange={handlePageSizeChange}
+            className="h-7 min-w-[72px] rounded border border-white/10 bg-[#0b0f17] px-1.5 py-1 text-[10px] font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
+            disabled={disabled}
+          >
+            {pageSizeOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === "all" ? "Todos" : option}
+              </option>
+            ))}
+          </select>
+
+          <span className="text-[9px] uppercase tracking-[0.1em] text-white/50">
+            Página {resolvedCurrentPage} de {resolvedTotalPages}
+          </span>
+          {showRange && (
+            <span className="text-[9px] uppercase tracking-[0.1em] text-white/50">
+              Mostrando {pageStart}–{pageEnd} de {resolvedTotalItems}
             </span>
-          </>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <PaginationButton disabled={disabled || isFirstPage} onClick={() => handlePageChange(1)}>
-          Primeira
-        </PaginationButton>
-        <PaginationButton disabled={disabled || isFirstPage} onClick={() => handlePageChange(resolvedCurrentPage - 1)}>
-          Anterior
-        </PaginationButton>
-        <PaginationButton disabled={disabled || isLastPage} onClick={() => handlePageChange(resolvedCurrentPage + 1)}>
-          Próxima
-        </PaginationButton>
-        <PaginationButton disabled={disabled || isLastPage} onClick={() => handlePageChange(resolvedTotalPages)}>
-          Última
-        </PaginationButton>
+          )}
+          {!showRange && (
+            <span className="text-[9px] uppercase tracking-[0.1em] text-white/50">
+              Total de {resolvedTotalItems} itens
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1">
+          <PaginationButton disabled={disabled || isFirstPage} onClick={() => handlePageChange(1)}>
+            Primeira
+          </PaginationButton>
+          <PaginationButton disabled={disabled || isFirstPage} onClick={() => handlePageChange(resolvedCurrentPage - 1)}>
+            Anterior
+          </PaginationButton>
+          <PaginationButton disabled={disabled || isLastPage} onClick={() => handlePageChange(resolvedCurrentPage + 1)}>
+            Próxima
+          </PaginationButton>
+          <PaginationButton disabled={disabled || isLastPage} onClick={() => handlePageChange(resolvedTotalPages)}>
+            Última
+          </PaginationButton>
+        </div>
       </div>
     </div>
   );

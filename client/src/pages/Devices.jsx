@@ -24,7 +24,7 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { formatAddress } from "../lib/format-address.js";
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000, "all"];
 
 function parsePositionTime(position) {
   if (!position) return null;

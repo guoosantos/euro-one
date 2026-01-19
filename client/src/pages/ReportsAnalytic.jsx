@@ -31,7 +31,7 @@ import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity
 const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 50;
-const PAGE_SIZE_OPTIONS = [20, 50, 100];
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
 const IO_EVENT_INPUTS = [2, 4];
 const IO_EVENT_STATUS_RESET = "Veículo voltou ao normal";
 const POSITION_FALLBACK_LABEL = "Posição registrada";
@@ -126,9 +126,18 @@ function formatIgnition(value) {
   return value ? "Ligada" : "Desligada";
 }
 
+function normalizeActionEventLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Ação do Usuário";
+  const cleaned = raw.replace(/^[-\s]+/, "").toLowerCase();
+  if (cleaned === "emissão de relatório" || cleaned === "emissao de relatorio") {
+    return "Ação do Usuário";
+  }
+  return raw;
+}
+
 function renderSeverityBadge(value) {
-  if (!value) return "—";
-  const label = String(value);
+  const label = normalizeReportSeverity(value);
   const display = resolveSeverityLabel(label);
   return (
     <span
@@ -137,6 +146,13 @@ function renderSeverityBadge(value) {
       {display}
     </span>
   );
+}
+
+function normalizeReportSeverity(value) {
+  if (value === null || value === undefined) return "Informativa";
+  const normalized = String(value).trim();
+  if (!normalized || normalized === "-" || normalized === "—") return "Informativa";
+  return normalized;
 }
 
 function formatIoState(value) {
@@ -410,12 +426,13 @@ export default function ReportsAnalytic() {
 
   const buildPositionRow = useCallback(
     (position) => {
-      const resolvedEventSeverity =
+      const resolvedEventSeverity = normalizeReportSeverity(
         position.eventSeverity ||
-        position.criticality ||
-        ((position.eventType === POSITION_FALLBACK_LABEL || position.event === POSITION_FALLBACK_LABEL)
-          ? "Informativa"
-          : null);
+          position.criticality ||
+          ((position.eventType === POSITION_FALLBACK_LABEL || position.event === POSITION_FALLBACK_LABEL)
+            ? "Informativa"
+            : null),
+      );
       const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
         deviceId: position.id ?? position.gpsTime ?? Math.random(),
@@ -448,7 +465,7 @@ export default function ReportsAnalytic() {
         deviceStatus: position.deviceStatus || "Dado não disponível",
         event: position.event || "—",
         eventType: position.eventType || "—",
-        eventSeverity: resolvedEventSeverity ?? "—",
+        eventSeverity: resolvedEventSeverity,
         whoSent: position.whoSent || "—",
         blocked: position.blocked || "—",
         digitalInput1: formatIoState(position.digitalInput1),
@@ -507,7 +524,7 @@ export default function ReportsAnalytic() {
         ipAddress: entry?.ipAddress,
         fallback: "Sistema",
       });
-    const eventLabel = entry?.event || "Emissão de Relatório";
+    const eventLabel = normalizeActionEventLabel(entry?.event || "Ação do Usuário");
     const eventType = entry?.eventType || entry?.actionLabel || entry?.details?.report || "—";
     return {
       key: entry?.id || `${entry?.timestamp || "action"}-${Math.random()}`,
@@ -527,8 +544,8 @@ export default function ReportsAnalytic() {
       entryType: "itinerary",
       deviceTime: formatDateTime(entry?.deviceTime || entry?.timestamp),
       serverTime: formatDateTime(entry?.serverTime || entry?.timestamp),
-      event: entry?.event || "Itinerário",
-      eventType: entry?.eventType || entry?.description || "Embarque aplicado",
+      event: normalizeActionEventLabel(entry?.event || "Ação do Usuário"),
+      eventType: entry?.eventType || entry?.description || "Embarcar Itinerário",
       eventSeverity: entry?.eventSeverity || "Informativa",
       whoSent: entry?.whoSent || formatWhoSentLabel({ fallback: "Sistema" }),
       address: normalizeAddressDisplay(entry?.address),
