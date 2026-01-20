@@ -310,7 +310,10 @@ router.get(
       return res.status(error.status).json({
         ok: false,
         items: [],
-        error: { message: error.message || "Requisição inválida." },
+        error: {
+          message: error.message || "Requisição inválida.",
+          code: error.code || "REQUEST_ERROR",
+        },
       });
     }
     if (
@@ -744,7 +747,10 @@ router.post(
     if (error?.status && error.status < 500) {
       return res.status(error.status).json({
         ok: false,
-        error: { message: error.message || "Requisição inválida." },
+        error: {
+          message: error.message || "Requisição inválida.",
+          code: error.code || "REQUEST_ERROR",
+        },
       });
     }
     if (error?.code === "P2021" || error?.code === "P2022") {
@@ -850,5 +856,29 @@ router.patch(
     return next(error);
   }
 });
+
+router.delete(
+  "/service-orders/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
+  try {
+    ensurePrisma();
+    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    const id = String(req.params.id);
+    const existing = await prisma.serviceOrder.findFirst({
+      where: { id, clientId },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw createError(404, "OS não encontrada");
+    }
+    await prisma.serviceOrder.delete({ where: { id } });
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
 
 export default router;

@@ -1,14 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Search,
-  X,
-} from "lucide-react";
+import { Eye, Pencil, Plus, RefreshCw, Search, X } from "lucide-react";
 
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes";
@@ -20,6 +11,13 @@ import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import { useGroups } from "../lib/hooks/useGroups";
 import { formatVehicleLabel } from "../lib/hooks/useVehicles";
 import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
+import { usePermissionGate } from "../lib/permissions/permission-gate";
+import { isAdminGeneralClientName } from "../lib/admin-general";
+import PermissionTreeEditor from "../components/permissions/PermissionTreeEditor";
+import {
+  buildPermissionEditorState,
+  normalizePermissionPayload,
+} from "../lib/permissions/permission-utils";
 
 const defaultUserAccess = {
   vehicleAccess: { mode: "all", vehicleIds: [] },
@@ -67,12 +65,6 @@ const detailsTabs = [
 
 const daysOfWeek = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-const permissionLevels = [
-  { value: "none", label: "Sem acesso" },
-  { value: "view", label: "Somente visualizar" },
-  { value: "full", label: "Acesso completo" },
-];
-
 const permissionMatrix = PERMISSION_REGISTRY;
 
 function Drawer({ open, onClose, title, description, children, eyebrow = "Usuários" }) {
@@ -119,37 +111,6 @@ function uniqueList(items) {
   return Array.from(new Set(items.map((item) => String(item))));
 }
 
-function normalizePermissionLevel(level) {
-  if (level === "none" || level === "view") return level;
-  return "full";
-}
-
-function normalizePermissionPayload(permissions = {}) {
-  const normalized = {};
-  Object.entries(permissions || {}).forEach(([menuKey, pages]) => {
-    const nextPages = {};
-    Object.entries(pages || {}).forEach(([pageKey, value]) => {
-      if (typeof value === "string") {
-        nextPages[pageKey] = normalizePermissionLevel(value);
-        return;
-      }
-      if (value && typeof value === "object") {
-        const subpages = {};
-        Object.entries(value.subpages || {}).forEach(([subKey, subValue]) => {
-          subpages[subKey] = normalizePermissionLevel(subValue);
-        });
-        nextPages[pageKey] = {
-          ...value,
-          level: normalizePermissionLevel(value.level),
-          subpages,
-        };
-      }
-    });
-    normalized[menuKey] = nextPages;
-  });
-  return normalized;
-}
-
 function resolveVehicleGroupIds(userAccess) {
   const groupIds = Array.isArray(userAccess?.vehicleGroupIds)
     ? userAccess.vehicleGroupIds
@@ -181,6 +142,7 @@ export default function Users() {
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [detailsDrawerTab, setDetailsDrawerTab] = useState("geral");
   const [detailsUser, setDetailsUser] = useState(null);
+  const [detailsUserId, setDetailsUserId] = useState(null);
   const [query, setQuery] = useState("");
   const [groupQuery, setGroupQuery] = useState("");
   const [permissionQuery, setPermissionQuery] = useState("");
@@ -188,8 +150,6 @@ export default function Users() {
   const [vehicleGroupPickId, setVehicleGroupPickId] = useState("");
   const [groupVehiclePickId, setGroupVehiclePickId] = useState("");
   const [detailsSearch, setDetailsSearch] = useState("");
-  const [openPermissionMenus, setOpenPermissionMenus] = useState({});
-  const [bulkPermissionLevels, setBulkPermissionLevels] = useState({});
 
   const canManageUsers = role === "admin" || role === "manager";
 
@@ -215,12 +175,22 @@ export default function Users() {
     tenantId || managedTenants[0]?.id || "",
   );
 
+  const selectedTenant = useMemo(
+    () =>
+      managedTenants.find((entry) => String(entry.id) === String(selectedTenantId))
+      || tenant
+      || null,
+    [managedTenants, selectedTenantId, tenant],
+  );
+  const isAdminGeneralTenant = isAdminGeneralClientName(selectedTenant?.name);
+
   const allowedRoles = role === "admin" ? Object.keys(roleLabels) : ["user", "driver", "viewer"];
   const isManager = role === "manager";
 
   const { groups, reload: reloadGroups, createGroup, updateGroup, deleteGroup } = useGroups({
     params: selectedTenantId ? { clientId: selectedTenantId } : {},
   });
+  const usersPermission = usePermissionGate({ menuKey: "admin", pageKey: "users" });
 
   const vehicleGroups = useMemo(
     () => groups.filter((entry) => entry.attributes?.kind === "VEHICLE_GROUP"),
@@ -399,10 +369,19 @@ export default function Users() {
 
   function openDetailsDrawer(entry) {
     setDetailsUser(entry);
+    setDetailsUserId(entry?.id || null);
     setDetailsDrawerTab("geral");
     setDetailsSearch("");
     setDetailsDrawerOpen(true);
   }
+
+  useEffect(() => {
+    if (!detailsUserId) return;
+    const updated = users.find((entry) => String(entry.id) === String(detailsUserId));
+    if (updated && updated !== detailsUser) {
+      setDetailsUser(updated);
+    }
+  }, [detailsUser, detailsUserId, users]);
 
   function handleVehicleGroupAdd(groupId) {
     if (!groupId) return;
@@ -461,11 +440,15 @@ export default function Users() {
   }
 
   function openPermissionDrawer(group = null) {
+    if (group?.attributes?.scope === "global" && !isAdminGeneralTenant) {
+      setMessage("Perfis globais só podem ser editados no ADMIN GERAL.");
+      return;
+    }
     setEditingPermissionGroup(group);
     setPermissionForm({
       name: group?.name || "",
       description: group?.description || "",
-      permissions: normalizePermissionPayload(group?.attributes?.permissions || {}),
+      permissions: buildPermissionEditorState(group?.attributes?.permissions || {}, permissionMatrix),
     });
     setPermissionDrawerOpen(true);
   }
@@ -497,6 +480,10 @@ export default function Users() {
   }
 
   async function handlePermissionDelete(entry) {
+    if (entry?.attributes?.scope === "global" && !isAdminGeneralTenant) {
+      setMessage("Perfis globais só podem ser removidos no ADMIN GERAL.");
+      return;
+    }
     if (!window.confirm(`Remover grupo ${entry.name}?`)) return;
     try {
       await deleteGroup(entry.id);
@@ -506,58 +493,16 @@ export default function Users() {
     }
   }
 
-  function handlePermissionUpdate(menuKey, pageKey, level, subKey) {
-    setPermissionForm((prev) => {
-      const next = { ...prev.permissions };
-      const menuPermissions = { ...(next[menuKey] || {}) };
-      if (subKey) {
-        const basePage = menuPermissions[pageKey];
-        const pagePermissions =
-          typeof basePage === "object" && basePage !== null && !Array.isArray(basePage)
-            ? basePage
-            : {};
-        const subpages = { ...(pagePermissions.subpages || {}) };
-        subpages[subKey] = level;
-        menuPermissions[pageKey] = { ...pagePermissions, subpages };
-      } else {
-        menuPermissions[pageKey] = level;
-      }
-      next[menuKey] = menuPermissions;
-      return { ...prev, permissions: next };
-    });
-  }
-
-  function handleApplyMenuLevel(menuKey) {
-    const level = bulkPermissionLevels[menuKey] || "none";
-    setPermissionForm((prev) => {
-      const next = { ...prev.permissions };
-      const menuPermissions = { ...(next[menuKey] || {}) };
-      const menu = permissionMatrix.find((item) => item.menuKey === menuKey);
-      menu?.pages.forEach((page) => {
-        if (page.subpages?.length) {
-          const subpages = {};
-          page.subpages.forEach((subpage) => {
-            subpages[subpage.subKey] = level;
-          });
-          menuPermissions[page.pageKey] = { level, subpages };
-        } else {
-          menuPermissions[page.pageKey] = level;
-        }
-      });
-      next[menuKey] = menuPermissions;
-      return { ...prev, permissions: next };
-    });
-  }
-
-  function getPermissionValue(menuKey, pageKey, subKey) {
-    const menuPermissions = permissionForm.permissions?.[menuKey] || {};
-    if (subKey) {
-      return normalizePermissionLevel(menuPermissions?.[pageKey]?.subpages?.[subKey]) || "none";
+  async function handleUserDelete(entry) {
+    if (!entry?.id) return;
+    if (!window.confirm(`Excluir usuário ${entry.name}?`)) return;
+    try {
+      await api.delete(`${API_ROUTES.users}/${entry.id}`);
+      setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));
+    } catch (deleteError) {
+      console.error("Falha ao excluir usuário", deleteError);
+      setError(deleteError);
     }
-    const value = menuPermissions?.[pageKey];
-    if (typeof value === "string") return normalizePermissionLevel(value);
-    if (value?.level) return normalizePermissionLevel(value.level);
-    return "none";
   }
 
   const vehicleMap = useMemo(() => {
@@ -827,25 +772,34 @@ export default function Users() {
                         <td className="px-4 py-3 text-white/70">{entry.username || "—"}</td>
                         <td className="px-4 py-3 text-white/70">{vehicleCount}</td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openUserDrawer(entry)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
-                            >
-                              <Pencil className="h-3.5 w-3.5" /> Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openDetailsDrawer(entry)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
-                            >
-                              <Eye className="h-3.5 w-3.5" /> Detalhes
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openUserDrawer(entry)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDetailsDrawer(entry)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> Detalhes
+                        </button>
+                        {usersPermission.isFull && (
+                          <button
+                            type="button"
+                            onClick={() => handleUserDelete(entry)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                          >
+                            Excluir
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
                   })}
               </tbody>
             </DataTable>
@@ -966,30 +920,46 @@ export default function Users() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {filteredPermissionGroups.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-white/5">
-                    <td className="px-4 py-3 text-white">{entry.name}</td>
+                {filteredPermissionGroups.map((entry) => {
+                  const isGlobal = entry.attributes?.scope === "global";
+                  return (
+                    <tr key={entry.id} className="hover:bg-white/5">
+                      <td className="px-4 py-3 text-white">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{entry.name}</span>
+                          {isGlobal && (
+                            <span className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
+                              Global
+                            </span>
+                          )}
+                        </div>
+                      </td>
                     <td className="px-4 py-3 text-white/70">{entry.description || "—"}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openPermissionDrawer(entry)}
-                          className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handlePermissionDelete(entry)}
-                          className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
-                        >
-                          Remover
-                        </button>
+                        {(!isGlobal || isAdminGeneralTenant) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openPermissionDrawer(entry)}
+                              className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handlePermissionDelete(entry)}
+                              className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                            >
+                              Remover
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!filteredPermissionGroups.length && (
                   <tr>
                     <td colSpan={3} className="px-4 py-6 text-sm text-white/60">
@@ -1087,6 +1057,7 @@ export default function Users() {
                     {permissionGroups.map((group) => (
                       <option key={group.id} value={group.id}>
                         {group.name}
+                        {group.attributes?.scope === "global" ? " (Global)" : ""}
                       </option>
                     ))}
                   </select>
@@ -1386,7 +1357,10 @@ export default function Users() {
 
       <Drawer
         open={detailsDrawerOpen}
-        onClose={() => setDetailsDrawerOpen(false)}
+        onClose={() => {
+          setDetailsDrawerOpen(false);
+          setDetailsUserId(null);
+        }}
         title={`Detalhes - ${detailsUser?.name || "Usuário"}`}
         description="Resumo de acesso, permissões e veículos vinculados."
       >
@@ -1416,7 +1390,13 @@ export default function Users() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase tracking-wide text-white/50">Perfil</span>
                   <span className="text-sm text-white/80">
-                    {permissionGroups.find((group) => group.id === detailsUser.attributes?.permissionGroupId)?.name || "—"}
+                    {(() => {
+                      const group = permissionGroups.find(
+                        (entry) => entry.id === detailsUser.attributes?.permissionGroupId,
+                      );
+                      if (!group) return "—";
+                      return `${group.name}${group.attributes?.scope === "global" ? " (Global)" : ""}`;
+                    })()}
                   </span>
                 </div>
                 <div>
@@ -1627,6 +1607,11 @@ export default function Users() {
         eyebrow="Grupos de permissões"
       >
         <form onSubmit={handlePermissionSubmit} className="space-y-4">
+          {isAdminGeneralTenant && !editingPermissionGroup && (
+            <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-xs text-sky-100">
+              Perfis criados no ADMIN GERAL ficam disponíveis para todos os clientes.
+            </div>
+          )}
           <label className="text-sm">
             <span className="block text-xs uppercase tracking-wide text-white/60">Nome do grupo</span>
             <input
@@ -1647,117 +1632,12 @@ export default function Users() {
             />
           </label>
 
-          <div className="space-y-4">
-            {permissionMatrix.map((menu) => {
-              const isOpen = openPermissionMenus[menu.menuKey] !== false;
-              return (
-                <div key={menu.menuKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOpenPermissionMenus((prev) => ({
-                        ...prev,
-                        [menu.menuKey]: prev[menu.menuKey] === false,
-                      }))
-                    }
-                    className="flex w-full items-center justify-between text-left"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-white">{menu.label}</p>
-                      <p className="text-xs text-white/60">Permissões por página e submenu.</p>
-                    </div>
-                    <span className="text-white/60">{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
-                  </button>
-
-                  {isOpen && (
-                    <div className="mt-4 space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <span className="text-xs uppercase tracking-wide text-white/50">Aplicar a todos</span>
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={bulkPermissionLevels[menu.menuKey] || "none"}
-                            onChange={(event) =>
-                              setBulkPermissionLevels((prev) => ({
-                                ...prev,
-                                [menu.menuKey]: event.target.value,
-                              }))
-                            }
-                            className="rounded-lg border border-border bg-layer px-3 py-2 text-xs"
-                          >
-                            {permissionLevels.map((level) => (
-                              <option key={level.value} value={level.value}>
-                                {level.label}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleApplyMenuLevel(menu.menuKey)}
-                            className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
-                          >
-                            Aplicar
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        {menu.pages.map((page) => (
-                          <div key={page.pageKey} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div>
-                                <p className="text-xs uppercase tracking-wide text-white/60">{page.label}</p>
-                                {page.subpages?.length && (
-                                  <p className="text-xs text-white/50">Configure submenus individualmente.</p>
-                                )}
-                              </div>
-                              <select
-                                value={getPermissionValue(menu.menuKey, page.pageKey)}
-                                onChange={(event) =>
-                                  handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value)
-                                }
-                                className="min-w-[220px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
-                              >
-                                {permissionLevels.map((level) => (
-                                  <option key={level.value} value={level.value}>
-                                    {level.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            {page.subpages?.length && (
-                              <div className="mt-3 space-y-2">
-                                {page.subpages.map((subpage) => (
-                                  <div
-                                    key={subpage.subKey}
-                                    className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-2"
-                                  >
-                                    <span className="text-xs text-white/70">{subpage.label}</span>
-                                    <select
-                                      value={getPermissionValue(menu.menuKey, page.pageKey, subpage.subKey)}
-                                      onChange={(event) =>
-                                        handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value, subpage.subKey)
-                                      }
-                                      className="min-w-[200px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
-                                    >
-                                      {permissionLevels.map((level) => (
-                                        <option key={level.value} value={level.value}>
-                                          {level.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <PermissionTreeEditor
+            permissions={permissionForm.permissions}
+            onChange={(nextPermissions) =>
+              setPermissionForm((prev) => ({ ...prev, permissions: nextPermissions }))
+            }
+          />
 
           <div className="flex items-center justify-end gap-3">
             <button

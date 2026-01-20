@@ -9,6 +9,7 @@ import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 
 const STATUS_OPTIONS = [
   { value: "ativo", label: "Ativo" },
@@ -147,6 +148,11 @@ function buildEquipmentLabels(item) {
 export default function Technicians() {
   const navigate = useNavigate();
   const { tenantId, tenants, hasAdminAccess, user } = useTenant();
+  const techniciansPermission = usePermissionGate({
+    menuKey: "fleet",
+    pageKey: "services",
+    subKey: "technicians",
+  });
   const [items, setItems] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -542,6 +548,18 @@ export default function Technicians() {
     setDrawerOpen(true);
   };
 
+  const handleDelete = async (technician) => {
+    if (!technician?.id) return;
+    if (!window.confirm(`Excluir técnico ${technician.name}?`)) return;
+    try {
+      await api.delete(`core/technicians/${technician.id}`);
+      setItems((prev) => prev.filter((entry) => String(entry.id) !== String(technician.id)));
+    } catch (deleteError) {
+      console.error("Falha ao excluir técnico", deleteError);
+      setError(deleteError);
+    }
+  };
+
   const handleSelectAddress = (option) => {
     if (!option) return;
     const address = option.raw?.address || {};
@@ -667,13 +685,24 @@ export default function Technicians() {
                       {equipmentSummaryByTechnician.get(String(technician.id)) || "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(technician)}
-                        className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white transition hover:border-white/30"
-                      >
-                        Editar
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(technician)}
+                          className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white transition hover:border-white/30"
+                        >
+                          Editar
+                        </button>
+                        {techniciansPermission.isFull && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(technician)}
+                            className="rounded-xl border border-red-500/40 px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/10"
+                          >
+                            Excluir
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

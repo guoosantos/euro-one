@@ -5,7 +5,7 @@ import { getGroupById } from "../models/group.js";
 import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "full"]);
-const DEFAULT_LEVEL = "full";
+const DEFAULT_LEVEL = "none";
 
 function normaliseLevel(value) {
   if (typeof value !== "string") return null;
@@ -59,7 +59,7 @@ async function resolvePermissionContext(req) {
 
   const permissionGroupId = user?.attributes?.permissionGroupId;
   if (!permissionGroupId) {
-    return { permissions: null, level: DEFAULT_LEVEL, isFull: true };
+    return { permissions: null, level: "full", isFull: true };
   }
 
   const permissionGroup = getGroupById(permissionGroupId);

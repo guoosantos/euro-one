@@ -10,6 +10,7 @@ import PageHeader from "../components/ui/PageHeader";
 import FilterBar from "../components/ui/FilterBar";
 import DataTable from "../components/ui/DataTable";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect";
+import MultiSelectChips from "../components/ui/MultiSelectChips";
 import { usePermissions } from "../lib/permissions/permission-gate";
 
 const EMPTY_LIST = [];
@@ -90,6 +91,7 @@ export default function MirrorReceivers() {
   const [formError, setFormError] = useState(null);
   const [formMode, setFormMode] = useState("group");
   const [form, setForm] = useState({
+    ownerClientId: "",
     targetClientIds: [],
     vehicleGroupId: "",
     vehicleIds: [],
@@ -161,6 +163,7 @@ export default function MirrorReceivers() {
       value: String(client.id),
       label: client.name,
       description: resolveClientType(client),
+      searchText: [client.name, resolveClientType(client)].filter(Boolean).join(" "),
     }));
   }, [context]);
 
@@ -216,6 +219,14 @@ export default function MirrorReceivers() {
     loadMirrors();
   }, [context, loadMirrors]);
 
+  useEffect(() => {
+    if (!activeMirror) return;
+    const updated = mirrors.find((mirror) => mirror.id === activeMirror.id);
+    if (updated && updated !== activeMirror) {
+      setActiveMirror(updated);
+    }
+  }, [activeMirror, mirrors]);
+
   const isReceiverMode = context?.mode === "target";
   const isOwnerMode = !isReceiverMode;
   const isReceiverEditing = isReceiverMode && Boolean(activeMirror);
@@ -266,6 +277,7 @@ export default function MirrorReceivers() {
     setFormError(null);
     setActiveMirror(null);
     setForm({
+      ownerClientId: resolvedClientId ? String(resolvedClientId) : "",
       targetClientIds: [],
       vehicleGroupId: "",
       vehicleIds: [],
@@ -281,6 +293,7 @@ export default function MirrorReceivers() {
     setActiveMirror(mirror);
     setFormMode(mirror.vehicleGroupId ? "group" : "single");
     setForm({
+      ownerClientId: mirror.ownerClientId ? String(mirror.ownerClientId) : "",
       targetClientIds: mirror.targetClientId ? [String(mirror.targetClientId)] : [],
       vehicleGroupId: mirror.vehicleGroupId ? String(mirror.vehicleGroupId) : "",
       vehicleIds: (mirror.vehicleIds || []).map(String),
@@ -297,6 +310,13 @@ export default function MirrorReceivers() {
     setVehicleSearch("");
     setDetailsDrawerOpen(true);
   };
+
+  useEffect(() => {
+    if (!drawerOpen || isReceiverEditing) return;
+    if (!form.ownerClientId && resolvedClientId) {
+      setForm((prev) => ({ ...prev, ownerClientId: String(resolvedClientId) }));
+    }
+  }, [drawerOpen, form.ownerClientId, isReceiverEditing, resolvedClientId]);
 
   const saveMirror = async (event) => {
     event.preventDefault();
@@ -315,6 +335,12 @@ export default function MirrorReceivers() {
           setSaving(false);
           return;
         }
+        const ownerClientId = form.ownerClientId || resolvedClientId || "";
+        if (!ownerClientId) {
+          setFormError("Selecione o cliente de origem.");
+          setSaving(false);
+          return;
+        }
         if (formMode === "group" && !form.vehicleGroupId) {
           setFormError("Selecione o grupo de veículos.");
           setSaving(false);
@@ -330,12 +356,25 @@ export default function MirrorReceivers() {
           setSaving(false);
           return;
         }
+        const startDate = new Date(form.startAt);
+        const endDate = new Date(form.endAt);
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+          setFormError("Informe um período válido.");
+          setSaving(false);
+          return;
+        }
+        if (endDate < startDate) {
+          setFormError("A data final precisa ser maior que a data inicial.");
+          setSaving(false);
+          return;
+        }
         const payloadBase = {
+          ownerClientId,
           vehicleGroupId: formMode === "group" ? form.vehicleGroupId : null,
           vehicleIds: formMode === "single" ? form.vehicleIds : [],
           permissionGroupId: form.permissionGroupId || null,
-          startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
-          endAt: form.endAt ? new Date(form.endAt).toISOString() : null,
+          startAt: startDate.toISOString(),
+          endAt: endDate.toISOString(),
         };
 
         await Promise.all(
@@ -352,7 +391,12 @@ export default function MirrorReceivers() {
       await loadMirrors();
     } catch (saveError) {
       console.error("Erro ao salvar espelhamento", saveError);
-      setFormError(saveError?.response?.data?.message || saveError?.message || "Erro ao salvar espelhamento.");
+      setFormError(
+        saveError?.response?.data?.message
+        || saveError?.response?.data?.error?.message
+        || saveError?.message
+        || "Erro ao salvar espelhamento.",
+      );
     } finally {
       setSaving(false);
     }
@@ -580,27 +624,37 @@ export default function MirrorReceivers() {
         description="Defina destinos, veículos e período."
       >
         <form onSubmit={saveMirror} className="space-y-4">
-          {isOwnerMode && (
+          {isOwnerMode && context?.mode === "admin" && (
             <label className="text-sm">
-              <span className="block text-xs uppercase tracking-wide text-white/60">Destinos</span>
+              <span className="block text-xs uppercase tracking-wide text-white/60">Cliente de origem</span>
               <select
-                multiple
-                value={form.targetClientIds}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    targetClientIds: Array.from(event.target.selectedOptions).map((option) => option.value),
-                  }))
-                }
-                className="mt-1 h-32 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+                value={form.ownerClientId}
+                onChange={(event) => setForm((prev) => ({ ...prev, ownerClientId: event.target.value }))}
+                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+                disabled={Boolean(activeMirror)}
               >
-                {targetOptions.map((option) => (
+                <option value="">Selecionar cliente</option>
+                {ownerOptions.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label} {option.description ? `(${option.description})` : ""}
+                    {option.label}
                   </option>
                 ))}
               </select>
             </label>
+          )}
+          {isOwnerMode && (
+            <MultiSelectChips
+              label="Destinos"
+              placeholder="Buscar destinos"
+              options={targetOptions}
+              values={form.targetClientIds}
+              onChange={(nextValues) =>
+                setForm((prev) => ({
+                  ...prev,
+                  targetClientIds: nextValues,
+                }))
+              }
+            />
           )}
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -709,6 +763,7 @@ export default function MirrorReceivers() {
               {permissionGroups.map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.name}
+                  {group.attributes?.scope === "global" ? " (Global)" : ""}
                 </option>
               ))}
             </select>

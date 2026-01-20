@@ -383,7 +383,8 @@ export default function ServiceOrderNew() {
 
   const submit = async () => {
     if (saving) return;
-    if (!form.startAt) {
+    const serviceDate = form.startAt ? new Date(form.startAt) : null;
+    if (!form.startAt || !serviceDate || Number.isNaN(serviceDate.getTime())) {
       alert("Informe a data do serviço.");
       return;
     }
@@ -393,8 +394,18 @@ export default function ServiceOrderNew() {
       return;
     }
 
+    if (!form.vehicleId && !form.vehiclePlate) {
+      alert("Selecione o veículo da OS.");
+      return;
+    }
+
     if (!technicianId) {
       alert("Selecione o técnico.");
+      return;
+    }
+
+    if (!form.responsibleName) {
+      alert("Informe o nome do responsável.");
       return;
     }
 
@@ -407,7 +418,6 @@ export default function ServiceOrderNew() {
     setSaving(true);
     setSubmitError(null);
     try {
-      const serviceDate = form.startAt ? new Date(form.startAt) : null;
       const hasSignatures = Boolean(technicianSignature || clientSignature);
       const payload = {
         clientId: canManageAll ? clientSelection || null : resolvedClientId,
@@ -443,6 +453,9 @@ export default function ServiceOrderNew() {
       }
 
       setCreatedOrder(response.data.item || null);
+      if (response?.data?.item) {
+        sessionStorage.setItem("serviceOrders:created", JSON.stringify(response.data.item));
+      }
     } catch (error) {
       console.error("Falha ao criar ordem de serviço", error);
       const statusCode = error?.response?.status ?? error?.status;

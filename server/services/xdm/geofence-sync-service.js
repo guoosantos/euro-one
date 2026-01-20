@@ -160,7 +160,7 @@ function buildXdmName({
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const resolvedGeofence = sanitizeFriendlyName(name) || "Geofence";
-    const parts = ["EURO ST", resolvedClient];
+    const parts = ["EURO ONE", resolvedClient];
     if (geozoneNameMode === "client_itinerary_geofence" && itineraryName) {
       const resolvedItinerary = sanitizeFriendlyName(itineraryName);
       if (resolvedItinerary) {
@@ -178,7 +178,7 @@ function buildXdmName({
   const safeType = sanitizeName(type) || "GEOFENCE";
   const safeName = sanitizeName(name) || "GEOFENCE";
   const safeRole = suffixLabel || roleLabel ? sanitizeName(suffixLabel || roleLabel) : "";
-  return `EURO_ST_${safeClient}_${scopeId}_${safeType}_${safeName}${safeRole ? `_${safeRole}` : ""}`;
+  return `EURO_ONE_${safeClient}_${scopeId}_${safeType}_${safeName}${safeRole ? `_${safeRole}` : ""}`;
 }
 
 function buildGeofenceDescription({ clientId, geofenceId, itineraryId, geometryHash, roleKey }) {
