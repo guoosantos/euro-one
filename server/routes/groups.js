@@ -5,6 +5,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { getClientById } from "../models/client.js";
 import { createGroup, deleteGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
+import { isAdminGeneralClient } from "../utils/admin-general.js";
 
 const router = express.Router();
 
@@ -43,9 +44,32 @@ function ensureClientAccess(sessionUser, targetClientId) {
   }
 }
 
+function isGlobalPermissionGroup(group) {
+  return group?.attributes?.scope === "global" || group?.attributes?.isGlobal;
+}
+
+async function isAdminGeneralUser(sessionUser) {
+  if (sessionUser?.role !== "admin") return false;
+  if (!sessionUser?.clientId) return false;
+  const client = await getClientById(sessionUser.clientId);
+  return isAdminGeneralClient(client);
+}
+
+function mergeGroups(primary = [], secondary = []) {
+  const map = new Map(primary.map((group) => [group.id, group]));
+  secondary.forEach((group) => {
+    if (!map.has(group.id)) {
+      map.set(group.id, group);
+    }
+  });
+  return Array.from(map.values());
+}
+
 router.get("/groups", (req, res, next) => {
   try {
     const scope = req.user.role === "admin" ? "admin" : "user";
+    const globalPermissionGroups = listGroups()
+      .filter((group) => group.attributes?.kind === "PERMISSION_GROUP" && isGlobalPermissionGroup(group));
     if (req.user.role === "admin") {
       const { clientId } = req.query;
       const filterClientId = clientId === "" || typeof clientId === "undefined" ? undefined : clientId;
@@ -54,7 +78,9 @@ router.get("/groups", (req, res, next) => {
       if (cached) {
         return res.json(cached);
       }
-      const groups = listGroups({ clientId: filterClientId });
+      const groups = filterClientId === undefined
+        ? listGroups()
+        : mergeGroups(listGroups({ clientId: filterClientId }), globalPermissionGroups);
       const payload = { groups };
       cacheGroups(cacheKey, payload);
       return res.json(payload);
@@ -69,7 +95,7 @@ router.get("/groups", (req, res, next) => {
     if (cached) {
       return res.json(cached);
     }
-    const groups = listGroups({ clientId: req.user.clientId });
+    const groups = mergeGroups(listGroups({ clientId: req.user.clientId }), globalPermissionGroups);
     const payload = { groups };
     cacheGroups(cacheKey, payload);
     return res.json(payload);
@@ -78,7 +104,7 @@ router.get("/groups", (req, res, next) => {
   }
 });
 
-router.post("/groups", requireRole("manager", "admin"), (req, res, next) => {
+router.post("/groups", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const { name, description = null, attributes = {}, clientId } = req.body || {};
     if (!name) {
@@ -93,15 +119,27 @@ router.post("/groups", requireRole("manager", "admin"), (req, res, next) => {
       throw createError(400, "clientId é obrigatório");
     }
 
-    const client = getClientById(targetClientId);
+    const client = await getClientById(targetClientId);
     if (!client) {
       throw createError(404, "Cliente associado não encontrado");
+    }
+
+    const nextAttributes = { ...attributes };
+    if (
+      nextAttributes.kind === "PERMISSION_GROUP"
+      && (await isAdminGeneralUser(req.user))
+      && isAdminGeneralClient(client)
+    ) {
+      nextAttributes.scope = "global";
+    } else {
+      delete nextAttributes.scope;
+      delete nextAttributes.isGlobal;
     }
 
     const group = createGroup({
       name,
       description,
-      attributes,
+      attributes: nextAttributes,
       clientId: targetClientId,
     });
 
@@ -112,12 +150,16 @@ router.post("/groups", requireRole("manager", "admin"), (req, res, next) => {
   }
 });
 
-router.put("/groups/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.put("/groups/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = getGroupById(id);
     if (!existing) {
       throw createError(404, "Grupo não encontrado");
+    }
+
+    if (isGlobalPermissionGroup(existing) && !(await isAdminGeneralUser(req.user))) {
+      throw createError(403, "Perfis globais só podem ser alterados pelo ADMIN GERAL");
     }
 
     if (req.user.role !== "admin") {
@@ -129,7 +171,7 @@ router.put("/groups/:id", requireRole("manager", "admin"), (req, res, next) => {
       if (!req.body.clientId) {
         throw createError(400, "clientId é obrigatório");
       }
-      const client = getClientById(req.body.clientId);
+      const client = await getClientById(req.body.clientId);
       if (!client) {
         throw createError(404, "Cliente associado não encontrado");
       }
@@ -142,6 +184,12 @@ router.put("/groups/:id", requireRole("manager", "admin"), (req, res, next) => {
     if (req.user.role === "admin" && Object.prototype.hasOwnProperty.call(req.body || {}, "clientId")) {
       updates.clientId = req.body.clientId;
     }
+    if (Object.prototype.hasOwnProperty.call(updates, "attributes")) {
+      if (!isGlobalPermissionGroup(existing)) {
+        delete updates.attributes?.scope;
+        delete updates.attributes?.isGlobal;
+      }
+    }
 
     const group = updateGroup(id, updates);
     invalidateGroupCache();
@@ -151,12 +199,15 @@ router.put("/groups/:id", requireRole("manager", "admin"), (req, res, next) => {
   }
 });
 
-router.delete("/groups/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.delete("/groups/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = getGroupById(id);
     if (!existing) {
       throw createError(404, "Grupo não encontrado");
+    }
+    if (isGlobalPermissionGroup(existing) && !(await isAdminGeneralUser(req.user))) {
+      throw createError(403, "Perfis globais só podem ser removidos pelo ADMIN GERAL");
     }
     if (req.user.role !== "admin") {
       ensureClientAccess(req.user, existing.clientId);

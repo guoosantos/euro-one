@@ -8,6 +8,13 @@ import DataTable from "../components/ui/DataTable";
 import PageHeader from "../components/ui/PageHeader";
 import { useGroups } from "../lib/hooks/useGroups";
 import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
+import { isAdminGeneralClientName } from "../lib/admin-general";
+import PermissionTreeEditor from "../components/permissions/PermissionTreeEditor";
+import MultiSelectChips from "../components/ui/MultiSelectChips";
+import {
+  buildPermissionEditorState,
+  normalizePermissionPayload,
+} from "../lib/permissions/permission-utils";
 
 const documentTypeOptions = ["CPF", "CNPJ", "CI", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora", "Seguradora"];
@@ -70,44 +77,7 @@ const tabs = [
   { id: "espelhamento", label: "Espelhamento" },
 ];
 
-const permissionLevels = [
-  { value: "none", label: "Sem acesso" },
-  { value: "view", label: "Somente visualizar" },
-  { value: "full", label: "Acesso completo" },
-];
-
 const EMPTY_LIST = [];
-
-function normalizePermissionLevel(level) {
-  if (level === "none" || level === "view") return level;
-  return "full";
-}
-
-function normalizePermissionPayload(permissions = {}) {
-  const normalized = {};
-  Object.entries(permissions || {}).forEach(([menuKey, pages]) => {
-    const nextPages = {};
-    Object.entries(pages || {}).forEach(([pageKey, value]) => {
-      if (typeof value === "string") {
-        nextPages[pageKey] = normalizePermissionLevel(value);
-        return;
-      }
-      if (value && typeof value === "object") {
-        const subpages = {};
-        Object.entries(value.subpages || {}).forEach(([subKey, subValue]) => {
-          subpages[subKey] = normalizePermissionLevel(subValue);
-        });
-        nextPages[pageKey] = {
-          ...value,
-          level: normalizePermissionLevel(value.level),
-          subpages,
-        };
-      }
-    });
-    normalized[menuKey] = nextPages;
-  });
-  return normalized;
-}
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -165,6 +135,19 @@ export default function ClientDetailsPage() {
   const [clients, setClients] = useState(EMPTY_LIST);
 
   const isAdmin = role === "admin";
+  const isAdminGeneralClient = isAdminGeneralClientName(client?.name);
+
+  const mirrorTargetOptions = useMemo(
+    () =>
+      clients
+        .filter((entry) => entry.id !== client?.id)
+        .map((entry) => ({
+          value: entry.id,
+          label: entry.name,
+          searchText: entry.name,
+        })),
+    [client?.id, clients],
+  );
 
   const isCpf = form.profile.documentType === "CPF";
   const isCnpj = form.profile.documentType === "CNPJ";
@@ -388,63 +371,18 @@ export default function ClientDetailsPage() {
     }
   };
 
-  const buildDefaultPermissions = () =>
-    PERMISSION_REGISTRY.reduce((acc, menu) => {
-      acc[menu.menuKey] = menu.pages.reduce((pageAcc, page) => {
-        if (page.subpages?.length) {
-          const subpages = page.subpages.reduce((subAcc, subpage) => {
-            subAcc[subpage.subKey] = "none";
-            return subAcc;
-          }, {});
-          pageAcc[page.pageKey] = { level: "none", subpages };
-        } else {
-          pageAcc[page.pageKey] = "none";
-        }
-        return pageAcc;
-      }, {});
-      return acc;
-    }, {});
-
   const openPermissionDrawer = (group = null) => {
+    if (group?.attributes?.scope === "global" && !isAdminGeneralClient) {
+      setMessage("Perfis globais só podem ser editados no ADMIN GERAL.");
+      return;
+    }
     setEditingPermissionGroup(group);
     setPermissionGroupForm({
       name: group?.name || "",
       description: group?.description || "",
-      permissions: normalizePermissionPayload(group?.attributes?.permissions || buildDefaultPermissions()),
+      permissions: buildPermissionEditorState(group?.attributes?.permissions || {}, PERMISSION_REGISTRY),
     });
     setPermissionDrawerOpen(true);
-  };
-
-  const handlePermissionUpdate = (menuKey, pageKey, level, subKey) => {
-    setPermissionGroupForm((prev) => ({
-      ...prev,
-      permissions: {
-        ...prev.permissions,
-        [menuKey]: {
-          ...prev.permissions[menuKey],
-          [pageKey]: subKey
-            ? {
-                ...(prev.permissions[menuKey]?.[pageKey] || {}),
-                subpages: {
-                  ...(prev.permissions[menuKey]?.[pageKey]?.subpages || {}),
-                  [subKey]: level,
-                },
-              }
-            : level,
-        },
-      },
-    }));
-  };
-
-  const getPermissionValue = (menuKey, pageKey, subKey) => {
-    const menuPermissions = permissionGroupForm.permissions?.[menuKey] || {};
-    if (subKey) {
-      return normalizePermissionLevel(menuPermissions?.[pageKey]?.subpages?.[subKey]) || "none";
-    }
-    const value = menuPermissions?.[pageKey];
-    if (typeof value === "string") return normalizePermissionLevel(value);
-    if (value?.level) return normalizePermissionLevel(value.level);
-    return "none";
   };
 
   const handlePermissionSave = async (event) => {
@@ -473,6 +411,10 @@ export default function ClientDetailsPage() {
   };
 
   const handlePermissionDelete = async (group) => {
+    if (group?.attributes?.scope === "global" && !isAdminGeneralClient) {
+      setMessage("Perfis globais só podem ser removidos no ADMIN GERAL.");
+      return;
+    }
     if (!window.confirm(`Remover grupo ${group.name}?`)) return;
     try {
       await deleteGroup(group.id);
@@ -1162,33 +1104,49 @@ export default function ClientDetailsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/10">
-                    {permissionGroups.map((group) => (
-                      <tr key={group.id} className="hover:bg-white/5">
-                        <td className="py-2 pr-4 text-white">{group.name}</td>
+                    {permissionGroups.map((group) => {
+                      const isGlobal = group.attributes?.scope === "global";
+                      return (
+                        <tr key={group.id} className="hover:bg-white/5">
+                          <td className="py-2 pr-4 text-white">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span>{group.name}</span>
+                              {isGlobal && (
+                                <span className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
+                                  Global
+                                </span>
+                              )}
+                            </div>
+                          </td>
                         <td className="py-2 pr-4 text-white/70">{group.description || "—"}</td>
                         <td className="py-2 pr-4 text-white/70">
                           {Object.keys(group.attributes?.permissions || {}).length}
                         </td>
                         <td className="py-2 pr-4 text-right">
                           <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openPermissionDrawer(group)}
-                              className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-white/5"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handlePermissionDelete(group)}
-                              className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
-                            >
-                              Remover
-                            </button>
+                            {(!isGlobal || isAdminGeneralClient) && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => openPermissionDrawer(group)}
+                                  className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-white/5"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePermissionDelete(group)}
+                                  className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                                >
+                                  Remover
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {!permissionGroups.length && (
                       <tr>
                         <td colSpan={4} className="py-4 text-center text-sm text-white/60">
@@ -1280,6 +1238,11 @@ export default function ClientDetailsPage() {
             description="Defina níveis de acesso por menu, página e submenu."
           >
             <form onSubmit={handlePermissionSave} className="space-y-4">
+              {isAdminGeneralClient && !editingPermissionGroup && (
+                <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-xs text-sky-100">
+                  Perfis criados no ADMIN GERAL ficam disponíveis para todos os clientes.
+                </div>
+              )}
               <label className="text-sm">
                 <span className="block text-xs uppercase tracking-wide text-white/60">Nome</span>
                 <input
@@ -1303,65 +1266,12 @@ export default function ClientDetailsPage() {
                   className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
                 />
               </label>
-              <div className="space-y-4">
-                {PERMISSION_REGISTRY.map((menu) => (
-                  <div key={menu.menuKey} className="rounded-xl border border-white/10 p-4">
-                    <h4 className="text-sm font-semibold text-white">{menu.label}</h4>
-                    <div className="mt-3 space-y-3">
-                      {menu.pages.map((page) => (
-                        <div key={page.pageKey} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <p className="text-xs uppercase tracking-wide text-white/60">{page.label}</p>
-                              {page.subpages?.length && (
-                                <p className="text-xs text-white/50">Configure submenus individualmente.</p>
-                              )}
-                            </div>
-                            <select
-                              value={getPermissionValue(menu.menuKey, page.pageKey)}
-                              onChange={(event) =>
-                                handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value)
-                              }
-                              className="min-w-[220px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
-                            >
-                              {permissionLevels.map((level) => (
-                                <option key={level.value} value={level.value}>
-                                  {level.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          {page.subpages?.length && (
-                            <div className="mt-3 space-y-2">
-                              {page.subpages.map((subpage) => (
-                                <div
-                                  key={subpage.subKey}
-                                  className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-2"
-                                >
-                                  <span className="text-xs text-white/70">{subpage.label}</span>
-                                  <select
-                                    value={getPermissionValue(menu.menuKey, page.pageKey, subpage.subKey)}
-                                    onChange={(event) =>
-                                      handlePermissionUpdate(menu.menuKey, page.pageKey, event.target.value, subpage.subKey)
-                                    }
-                                    className="min-w-[200px] rounded-lg border border-border bg-layer px-3 py-2 text-xs"
-                                  >
-                                    {permissionLevels.map((level) => (
-                                      <option key={level.value} value={level.value}>
-                                        {level.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <PermissionTreeEditor
+                permissions={permissionGroupForm.permissions}
+                onChange={(nextPermissions) =>
+                  setPermissionGroupForm((prev) => ({ ...prev, permissions: nextPermissions }))
+                }
+              />
               <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -1387,28 +1297,18 @@ export default function ClientDetailsPage() {
             description="Defina veículos, recebedores, período e permissões."
           >
             <form onSubmit={handleMirrorSave} className="space-y-4">
-              <label className="text-sm">
-                <span className="block text-xs uppercase tracking-wide text-white/60">Recebedores</span>
-                <select
-                  multiple
-                  value={mirrorForm.targetClientIds}
-                  onChange={(event) =>
-                    setMirrorForm((prev) => ({
-                      ...prev,
-                      targetClientIds: Array.from(event.target.selectedOptions).map((option) => option.value),
-                    }))
-                  }
-                  className="mt-1 h-32 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
-                >
-                  {clients
-                    .filter((entry) => entry.id !== client?.id)
-                    .map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              <MultiSelectChips
+                label="Recebedores"
+                placeholder="Buscar recebedores"
+                options={mirrorTargetOptions}
+                values={mirrorForm.targetClientIds}
+                onChange={(nextValues) =>
+                  setMirrorForm((prev) => ({
+                    ...prev,
+                    targetClientIds: nextValues,
+                  }))
+                }
+              />
               <label className="text-sm">
                 <span className="block text-xs uppercase tracking-wide text-white/60">Grupo de permissões</span>
                 <select
@@ -1422,6 +1322,7 @@ export default function ClientDetailsPage() {
                   {permissionGroups.map((group) => (
                     <option key={group.id} value={group.id}>
                       {group.name}
+                      {group.attributes?.scope === "global" ? " (Global)" : ""}
                     </option>
                   ))}
                 </select>

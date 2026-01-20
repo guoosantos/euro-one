@@ -4,7 +4,7 @@ import { useTenant } from "../tenant-context.jsx";
 import { useGroups } from "../hooks/useGroups.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "full"]);
-const DEFAULT_LEVEL = "full";
+const DEFAULT_LEVEL = "none";
 const UI_LEVELS = {
   none: "NO_ACCESS",
   view: "READ_ONLY",

@@ -6,7 +6,9 @@ import "leaflet/dist/leaflet.css";
 
 import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
+import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
@@ -161,6 +163,11 @@ function resolveDeviceTechnicianReference(device) {
 
 export default function Stock() {
   const { tenantId, user, tenants, hasAdminAccess } = useTenant();
+  const stockPermission = usePermissionGate({
+    menuKey: "primary",
+    pageKey: "devices",
+    subKey: "devices-stock",
+  });
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -648,6 +655,18 @@ export default function Stock() {
     transferAddressState.setQuery(resolvedAddress || "");
   }, [technicianOptions, transferAddressState, transferForm.destinationTechnicianId, transferForm.destinationType]);
 
+  const handleDeleteDevice = async (device) => {
+    if (!device?.id) return;
+    if (!window.confirm(`Excluir equipamento ${device.uniqueId || device.id}?`)) return;
+    try {
+      await api.delete(`${API_ROUTES.core.devices}/${device.id}`);
+      setDevices((prev) => prev.filter((entry) => String(entry.id) !== String(device.id)));
+    } catch (deleteError) {
+      console.error("Erro ao excluir equipamento", deleteError);
+      setError(deleteError);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -803,19 +822,20 @@ export default function Stock() {
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Localização</th>
                     <th className="px-4 py-3">Vínculo</th>
+                    <th className="px-4 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
                   {loading && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-6">
-                        <SkeletonTable rows={6} columns={8} />
+                      <td colSpan={9} className="px-4 py-6">
+                        <SkeletonTable rows={6} columns={9} />
                       </td>
                     </tr>
                   )}
                   {!loading && filteredDevices.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8">
+                      <td colSpan={9} className="px-4 py-8">
                         <EmptyState title="Nenhum equipamento encontrado." subtitle="Refine os filtros para o estoque." />
                       </td>
                     </tr>
@@ -850,6 +870,19 @@ export default function Stock() {
                           <td className="px-4 py-3 text-white/70">{location}</td>
                           <td className="px-4 py-3 text-white/70">
                             {device.vehicle?.plate || device.vehicleId || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {stockPermission.isFull ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDevice(device)}
+                                className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                              >
+                                Excluir
+                              </button>
+                            ) : (
+                              <span className="text-xs text-white/50">—</span>
+                            )}
                           </td>
                         </tr>
                       );

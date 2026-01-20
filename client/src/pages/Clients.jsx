@@ -4,6 +4,7 @@ import { Plus, RefreshCw, Search, Pencil, Eye } from "lucide-react";
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes";
 import { useTenant } from "../lib/tenant-context";
+import { usePermissionGate } from "../lib/permissions/permission-gate";
 import PageHeader from "../components/ui/PageHeader";
 import FilterBar from "../components/ui/FilterBar";
 import DataTable from "../components/ui/DataTable";
@@ -122,6 +123,7 @@ export default function Clients() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsClient, setDetailsClient] = useState(null);
+  const [detailsClientId, setDetailsClientId] = useState(null);
   const [detailsTab, setDetailsTab] = useState("Geral");
   const [detailsSearch, setDetailsSearch] = useState({ vehicles: "", users: "", mirrors: "" });
   const [detailsData, setDetailsData] = useState({
@@ -134,6 +136,7 @@ export default function Clients() {
 
   const isAdmin = role === "admin";
   const isManager = role === "manager";
+  const clientsPermission = usePermissionGate({ menuKey: "admin", pageKey: "clients" });
 
   useEffect(() => {
     if (isAdmin || isManager) {
@@ -150,6 +153,12 @@ export default function Clients() {
       const normalized = Array.isArray(list) ? list : [];
       const filtered = isAdmin || !tenant ? normalized : normalized.filter((entry) => entry.id === tenant.id);
       setClients(filtered);
+      if (detailsClientId) {
+        const refreshed = filtered.find((entry) => String(entry.id) === String(detailsClientId));
+        if (refreshed) {
+          setDetailsClient(refreshed);
+        }
+      }
       if (isAdmin) {
         refreshClients();
       }
@@ -161,6 +170,14 @@ export default function Clients() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!detailsClientId) return;
+    const refreshed = clients.find((entry) => String(entry.id) === String(detailsClientId));
+    if (refreshed && refreshed !== detailsClient) {
+      setDetailsClient(refreshed);
+    }
+  }, [clients, detailsClient, detailsClientId]);
 
   const filteredClients = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -318,6 +335,7 @@ export default function Clients() {
 
   async function openDetailsDrawer(client) {
     setDetailsClient(client);
+    setDetailsClientId(client?.id || null);
     setDetailsOpen(true);
     setDetailsTab("Geral");
     setDetailsSearch({ vehicles: "", users: "", mirrors: "" });
@@ -345,9 +363,25 @@ export default function Clients() {
     }
   }
 
+  async function handleDeleteClient(client) {
+    if (!client?.id) return;
+    if (!window.confirm(`Excluir cliente ${client.name}?`)) return;
+    try {
+      await api.delete(`${API_ROUTES.clients}/${client.id}`);
+      setClients((prev) => prev.filter((entry) => String(entry.id) !== String(client.id)));
+      if (detailsClientId && String(detailsClientId) === String(client.id)) {
+        closeDetailsDrawer();
+      }
+    } catch (deleteError) {
+      console.error("Erro ao excluir cliente", deleteError);
+      setError(deleteError);
+    }
+  }
+
   function closeDetailsDrawer() {
     setDetailsOpen(false);
     setDetailsClient(null);
+    setDetailsClientId(null);
     setDetailsData({
       summary: { vehiclesCount: 0, usersCount: 0, equipmentModelsSummary: [] },
       vehicles: EMPTY_LIST,
@@ -535,6 +569,16 @@ export default function Clients() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
+                      {clientsPermission.isFull && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteClient(client)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
+                          aria-label="Excluir cliente"
+                        >
+                          ×
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

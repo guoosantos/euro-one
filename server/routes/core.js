@@ -20,7 +20,7 @@ import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
-import { createUser, getUserById, updateUser } from "../models/user.js";
+import { createUser, deleteUser, getUserById, updateUser } from "../models/user.js";
 import { listMirrors } from "../models/mirror.js";
 import { listGroups } from "../models/group.js";
 import { config } from "../config.js";
@@ -2513,6 +2513,33 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
     next(error);
   }
 });
+
+router.delete(
+  "/technicians/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "technicians", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  async (req, res, next) => {
+  try {
+    if (!isPrismaAvailable()) {
+      throw createError(503, "Banco de dados indisponível");
+    }
+    const existing = await getUserById(req.params.id, { includeSensitive: true });
+    if (!existing || existing.role !== TECHNICIAN_ROLE) {
+      throw createError(404, "Técnico não encontrado");
+    }
+    if (req.user?.role !== "admin") {
+      const clientId = deps.resolveClientId(req, existing.clientId, { required: true });
+      if (String(clientId) !== String(existing.clientId)) {
+        throw createError(403, "Operação não permitida para este cliente");
+      }
+    }
+    deleteUser(existing.id);
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
 
 router.post("/technicians/:id/login", deps.requireRole("manager", "admin"), async (req, res, next) => {
   try {

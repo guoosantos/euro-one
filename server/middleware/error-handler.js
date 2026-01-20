@@ -143,7 +143,7 @@ export function errorHandler(err, req, res, _next) {
     response: err?.response?.data,
   });
 
-  const payload = { message, errorCode };
+  const payload = { message, errorCode, code: code || errorCode };
   payload.error = code || err?.code || message;
   if (code) payload.code = code;
 

@@ -13,6 +13,7 @@ import api, {
   setStoredSession,
 } from "./api.js";
 import { API_ROUTES } from "./api-routes.js";
+import { normalizeAdminClientName } from "./admin-general.js";
 
 const TenantContext = createContext(null);
 
@@ -45,7 +46,7 @@ function normaliseClients(payload, currentUser) {
 
   return list.map((client) => ({
     id: client.id,
-    name: client.companyName || client.name,
+    name: normalizeAdminClientName(client.companyName || client.name),
     segment: client.attributes?.segment || "Frota",
     deviceLimit: client.deviceLimit,
     userLimit: client.userLimit,

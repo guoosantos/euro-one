@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Pencil, RefreshCw } from "lucide-react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import FilterBar from "../../components/ui/FilterBar.jsx";
@@ -80,6 +80,7 @@ export default function ServiceOrdersList() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
@@ -106,6 +107,7 @@ export default function ServiceOrdersList() {
     }
     setLoading(true);
     setError(null);
+    setActionError(null);
     const params = new URLSearchParams();
     try {
       if (status) params.set("status", status);
@@ -136,22 +138,25 @@ export default function ServiceOrdersList() {
     }
   };
 
+  const handleDelete = async (item) => {
+    if (!item?.id) return;
+    if (!window.confirm("Excluir esta ordem de serviço?")) return;
+    try {
+      const params = clientId ? { clientId } : undefined;
+      await api.delete(`core/service-orders/${item.id}`, { params });
+      setItems((prev) => prev.filter((entry) => entry.id !== item.id));
+      setActionError(null);
+    } catch (deleteError) {
+      console.error("Falha ao excluir ordem de serviço", deleteError);
+      setActionError("Não foi possível excluir a OS no momento.");
+    }
+  };
+
   useEffect(() => {
     if (!listPermission.canShow) return;
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, clientId, listPermission.canShow]);
-
-  useEffect(() => {
-    if (!availableTypeChips.length) {
-      setActiveType("");
-      return;
-    }
-    const hasActive = availableTypeChips.some((chip) => chip.key === activeType);
-    if (!hasActive) {
-      setActiveType(availableTypeChips[0].key);
-    }
-  }, [activeType, availableTypeChips]);
 
   const baseFiltered = useMemo(() => {
     const term = q ? q.toLowerCase() : "";
@@ -201,6 +206,36 @@ export default function ServiceOrdersList() {
     () => TYPE_CHIPS.filter((chip) => getPermission(chip.permission).canShow),
     [getPermission],
   );
+
+  useEffect(() => {
+    if (!availableTypeChips.length) {
+      setActiveType("");
+      return;
+    }
+    const hasActive = availableTypeChips.some((chip) => chip.key === activeType);
+    if (!hasActive) {
+      setActiveType(availableTypeChips[0].key);
+    }
+  }, [activeType, availableTypeChips]);
+
+  useEffect(() => {
+    if (loading) return;
+    const raw = sessionStorage.getItem("serviceOrders:created");
+    if (!raw) return;
+    sessionStorage.removeItem("serviceOrders:created");
+    try {
+      const created = JSON.parse(raw);
+      if (!created?.id) return;
+      if (clientId && String(created.clientId) !== String(clientId)) return;
+      if (status && String(created.status) !== String(status)) return;
+      setItems((prev) => {
+        if (prev.some((entry) => entry.id === created.id)) return prev;
+        return [created, ...prev];
+      });
+    } catch {
+      // ignore malformed payload
+    }
+  }, [clientId, loading, status]);
 
   const filtered = useMemo(() => {
     if (activeType === "ALL") return baseFiltered;
@@ -379,6 +414,15 @@ export default function ServiceOrdersList() {
                 </td>
               </tr>
             )}
+            {!loading && !error && actionError && (
+              <tr>
+                <td colSpan={8} className="px-4 py-4">
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                    {actionError}
+                  </div>
+                </td>
+              </tr>
+            )}
             {!loading && !error && filtered.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-8">
@@ -435,13 +479,23 @@ export default function ServiceOrdersList() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     {listPermission.isFull ? (
-                      <Link
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
-                        to={`/services/${item.id}`}
-                        aria-label="Editar OS"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
+                      <div className="inline-flex items-center justify-end gap-2">
+                        <Link
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+                          to={`/services/${item.id}`}
+                          aria-label="Editar OS"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
+                          aria-label="Excluir OS"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     ) : (
                       <span className="text-xs text-white/50">—</span>
                     )}

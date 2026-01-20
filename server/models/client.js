@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { getFallbackClient, isFallbackEnabled } from "../services/fallback-data.js";
+import { normalizeAdminClientName } from "../utils/admin-general.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -11,7 +12,7 @@ function toNumber(value, fallback = 0) {
 
 function clone(record) {
   if (!record) return null;
-  return { ...record };
+  return { ...record, name: normalizeAdminClientName(record.name) };
 }
 
 export async function listClients() {
