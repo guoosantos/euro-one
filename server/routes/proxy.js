@@ -7,10 +7,10 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
-import { listVehicles } from "../models/vehicle.js";
 import { getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
+import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
@@ -1959,9 +1959,40 @@ function parsePositiveNumber(value, fallback) {
   return parsed;
 }
 
-function resolveDeviceIdsToQuery(req) {
+function mergeById(primary = [], secondary = []) {
+  const map = new Map(primary.map((item) => [String(item.id), item]));
+  secondary.forEach((item) => {
+    const key = String(item.id);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
+async function resolveAccessibleDeviceContext(req) {
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-  const devices = listDevices({ clientId });
+  const access = await getAccessibleVehicles({
+    user: req.user,
+    clientId,
+    includeMirrorsForNonReceivers: false,
+  });
+  const vehicles = access.vehicles;
+  const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+  let devices = listDevices({ clientId });
+  if (access.mirrorOwnerIds.length) {
+    const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
+    devices = mergeById(devices, extraDevices);
+  }
+  const filteredDevices = devices.filter((device) => {
+    if (!device?.vehicleId) return false;
+    return vehicleIds.has(String(device.vehicleId));
+  });
+  return { clientId, vehicles, devices: filteredDevices, access };
+}
+
+async function resolveDeviceIdsToQuery(req) {
+  const { clientId, devices, vehicles } = await resolveAccessibleDeviceContext(req);
   const allowedDeviceIds = devices
     .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
     .filter(Boolean);
@@ -1979,7 +2010,7 @@ function resolveDeviceIdsToQuery(req) {
     throw createError(404, "Dispositivo não encontrado para este cliente.");
   }
 
-  return { clientId, deviceIdsToQuery };
+  return { clientId, deviceIdsToQuery, devices, vehicles };
 }
 
 function buildDeviceLookup(clientDevices = [], metadata = []) {
@@ -2316,7 +2347,7 @@ async function handleEventsReport(req, res, next) {
   }
 
   try {
-    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
+    const { clientId, deviceIdsToQuery, devices, vehicles } = await resolveDeviceIdsToQuery(req);
     const now = new Date();
     const from = parseDateOrThrow(
       req.query?.from ?? new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
@@ -2327,7 +2358,6 @@ async function handleEventsReport(req, res, next) {
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
     const pageSize = Number.isFinite(limit) && limit > 0 ? limit : 50;
 
-    const devices = listDevices({ clientId });
     const metadata = await fetchDevicesMetadata();
     const lookup = buildDeviceLookup(devices, metadata);
 
@@ -2351,7 +2381,6 @@ async function handleEventsReport(req, res, next) {
     const resolvedFilter = req.query?.resolved;
     const reportEventScope = normalizeReportEventScope(req.query?.reportEventScope);
 
-    const vehicles = listVehicles({ clientId });
     const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
 
     const eventsWithAddress = combinedEvents.map((event) => {
@@ -2527,9 +2556,7 @@ function isTraccarUserRequest(req) {
 
 router.get("/telemetry", async (req, res) => {
   try {
-    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
-
-
+    const { clientId, deviceIdsToQuery } = await resolveDeviceIdsToQuery(req);
 
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
     const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
@@ -2727,8 +2754,7 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/positions", async (req, res, next) => {
   try {
-    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
-    const devices = listDevices({ clientId });
+    const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
     const metadata = await fetchDevicesMetadata();
     const lookup = buildDeviceLookup(devices, metadata);
 
@@ -2781,8 +2807,7 @@ router.get("/positions/last", async (req, res) => {
   }
 
   try {
-    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
-    const devices = listDevices({ clientId });
+    const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
     const metadata = await fetchDevicesMetadata();
     const lookup = buildDeviceLookup(devices, metadata);
     if (requestedIds.length && !deviceIdsToQuery.length) {
@@ -2817,13 +2842,12 @@ router.get("/positions/last", async (req, res) => {
 
 router.get("/home/critical-vehicles", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const { clientId, devices, vehicles } = await resolveAccessibleDeviceContext(req);
     const windowHours = parsePositiveNumber(req.query?.windowHours, 3);
     const minEvents = Math.max(2, Math.floor(parsePositiveNumber(req.query?.minEvents, 2)));
     const includeResolved = ["true", "1", "yes"].includes(String(req.query?.includeResolved || "").toLowerCase());
     const limit = Math.min(2000, Math.floor(parsePositiveNumber(req.query?.limit, 500)));
 
-    const devices = listDevices({ clientId });
     const deviceByTraccarId = new Map(
       devices
         .filter((device) => device?.traccarId != null)
@@ -2839,7 +2863,6 @@ router.get("/home/critical-vehicles", async (req, res, next) => {
     const to = now.toISOString();
 
     const events = await fetchEventsWithFallback(deviceIds, from, to, limit);
-    const vehicles = listVehicles({ clientId });
     const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
 
     const enrichedEvents = events.map((event) => {
@@ -4351,15 +4374,13 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     throw createError(400, "from/to são obrigatórios");
   }
 
-  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const { clientId, vehicles, devices } = await resolveAccessibleDeviceContext(req);
   const eventScope = normalizeReportEventScope(reportEventScope);
-  const vehicles = listVehicles({ clientId });
   const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
   if (!vehicle) {
     throw createError(404, "Veículo não encontrado");
   }
 
-  const devices = listDevices({ clientId });
   const device = devices.find((item) => String(item.vehicleId) === String(vehicleId));
   if (!device?.traccarId) {
     throw createError(409, "Equipamento vinculado sem traccarId");
@@ -6271,7 +6292,7 @@ router.get("/reports/trips", async (req, res) => {
 
   try {
     const auditSentAt = new Date().toISOString();
-    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
+    const { clientId, deviceIdsToQuery } = await resolveDeviceIdsToQuery(req);
     const from = parseDateOrThrow(req.query?.from, "from");
     const to = parseDateOrThrow(req.query?.to, "to");
 

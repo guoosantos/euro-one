@@ -3,6 +3,36 @@ import createError from "http-errors";
 import { listDevices } from "../models/device.js";
 import { listVehicles } from "../models/vehicle.js";
 import { getClientById } from "../models/client.js";
+import { listMirrors } from "../models/mirror.js";
+
+const RECEIVER_TYPES = new Set([
+  "GERENCIADORA",
+  "SEGURADORA",
+  "GERENCIADORA DE RISCO",
+  "COMPANHIA DE SEGURO",
+]);
+
+function isMirrorActive(mirror, now = new Date()) {
+  if (!mirror) return false;
+  const start = mirror.startAt ? new Date(mirror.startAt) : null;
+  const end = mirror.endAt ? new Date(mirror.endAt) : null;
+  if (start && Number.isNaN(start.getTime())) return false;
+  if (end && Number.isNaN(end.getTime())) return false;
+  if (start && now < start) return false;
+  if (end && now > end) return false;
+  return true;
+}
+
+function mergeById(primary = [], secondary = []) {
+  const map = new Map(primary.map((item) => [String(item.id), item]));
+  secondary.forEach((item) => {
+    const key = String(item.id);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+}
 
 export function resolveAllowedDeviceIds(req) {
   if (req.user?.role === "admin") return null;
@@ -10,9 +40,32 @@ export function resolveAllowedDeviceIds(req) {
   if (!req.user?.clientId) {
     throw createError(403, "Usuário não vinculado a um cliente");
   }
-  const devices = listDevices({ clientId: req.user.clientId });
+  const clientId = req.user.clientId;
+  const clientType =
+    req.user?.attributes?.clientProfile?.clientType || req.user?.attributes?.clientType || "";
+  const isReceiver = RECEIVER_TYPES.has(String(clientType).toUpperCase());
+  const mirrors = listMirrors({ targetClientId: clientId }).filter((mirror) => isMirrorActive(mirror));
+  const mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
+  const mirroredVehicles = mirrors.flatMap((mirror) => {
+    const ownerVehicles = listVehicles({ clientId: mirror.ownerClientId });
+    const allowedIds = new Set((mirror.vehicleIds || []).map(String));
+    return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
+  });
+  let vehicles = listVehicles({ clientId });
+  if (mirrors.length) {
+    vehicles = isReceiver ? mirroredVehicles : vehicles;
+  } else if (isReceiver) {
+    vehicles = [];
+  }
+  const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+  let devices = listDevices({ clientId });
+  if (mirrorOwnerIds.length) {
+    const extraDevices = mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
+    devices = mergeById(devices, extraDevices);
+  }
   const traccarIds = devices
-    .map((d) => (d?.traccarId ? String(d.traccarId) : null))
+    .filter((device) => device?.vehicleId && vehicleIds.has(String(device.vehicleId)))
+    .map((device) => (device?.traccarId ? String(device.traccarId) : null))
     .filter(Boolean);
 
   if (!traccarIds.length) {

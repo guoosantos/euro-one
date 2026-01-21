@@ -35,6 +35,7 @@ import Ranking from "./pages/Ranking";
 import ReportsPositions from "./pages/ReportsPositions.jsx";
 import ReportsAnalytic from "./pages/ReportsAnalytic.jsx";
 import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
+import RiskArea from "./pages/Analytics/RiskArea.jsx";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
@@ -113,6 +114,7 @@ export const routeConfig = [
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },
   { path: "/ranking", element: Ranking, title: "Ranking", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "ranking" } },
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
+  { path: "/analytics/risk-area", element: RiskArea, title: "Área de Risco", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },

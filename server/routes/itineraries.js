@@ -7,7 +7,7 @@ import { resolveClientId } from "../middleware/client.js";
 import { buildItineraryKml } from "../utils/kml.js";
 import { listGeofences } from "../models/geofence.js";
 import { getRouteById, listRoutes, updateRoute } from "../models/route.js";
-import { getVehicleById, listVehicles } from "../models/vehicle.js";
+import { getVehicleById } from "../models/vehicle.js";
 import { getDeviceById } from "../models/device.js";
 import { listEmbarkHistory, addEmbarkEntries } from "../models/itinerary-embark.js";
 import {
@@ -45,6 +45,7 @@ import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS, buildItineraryGroupS
 import { buildItinerarySnapshot } from "../services/xdm/itinerary-snapshot.js";
 import { fetchLatestPositionsWithFallback } from "../services/traccar-db.js";
 import { listVehicleEmbarkHistory, normalizeHistoryEntry, resolveActionLabel } from "../services/embark-history.js";
+import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 
 const router = express.Router();
 
@@ -77,6 +78,15 @@ function resolveRequestIp(req) {
     return forwarded[0];
   }
   return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
+}
+
+async function resolveAccessibleVehicleList(req, clientId) {
+  const access = await getAccessibleVehicles({
+    user: req.user,
+    clientId,
+    includeMirrorsForNonReceivers: false,
+  });
+  return access.vehicles;
 }
 
 
@@ -313,6 +323,7 @@ async function resolveBlockingEmbarkDeployments({
   itinerary,
   latestDeployments,
   correlationId,
+  vehiclesById,
 } = {}) {
   const blocking = __resolveBlockingEmbarkDeployments(latestDeployments);
   if (!blocking.length) return [];
@@ -335,10 +346,7 @@ async function resolveBlockingEmbarkDeployments({
   const hasAnyGroup = GEOZONE_GROUP_ROLE_LIST.some((role) => targetGroupIds[role.key]);
   if (!hasAnyGroup) return blocking;
 
-  const vehicles = listVehicles({ clientId: itinerary.clientId }).reduce((acc, vehicle) => {
-    acc.set(String(vehicle.id), vehicle);
-    return acc;
-  }, new Map());
+  const vehicles = vehiclesById || new Map();
 
   const verified = [];
 
@@ -684,7 +692,7 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
     const deployments = listDeployments({ clientId }).filter(
       (deployment) => String(deployment.itineraryId) === String(updated.id),
     );
-    const vehicles = listVehicles({ clientId }).reduce((acc, vehicle) => {
+    const vehicles = (await resolveAccessibleVehicleList(req, clientId)).reduce((acc, vehicle) => {
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());
@@ -813,10 +821,15 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       itineraryId: existing.id,
     });
     const correlationId = req.headers["x-correlation-id"] || null;
+    const vehiclesById = (await resolveAccessibleVehicleList(req, existing.clientId)).reduce((acc, vehicle) => {
+      acc.set(String(vehicle.id), vehicle);
+      return acc;
+    }, new Map());
     const blockingDeployments = await resolveBlockingEmbarkDeployments({
       itinerary: existing,
       latestDeployments,
       correlationId,
+      vehiclesById,
     });
     if (blockingDeployments.length) {
       throw createError(409, "Há dispositivos embarcados neste itinerário. Faça o desembarque antes de excluir.");
@@ -959,7 +972,7 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const deployments = listDeployments(clientId ? { clientId } : {});
-    const vehicles = listVehicles(clientId ? { clientId } : {}).reduce((acc, vehicle) => {
+    const vehicles = (await resolveAccessibleVehicleList(req, clientId)).reduce((acc, vehicle) => {
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());
@@ -989,7 +1002,7 @@ router.get("/itineraries/embark/vehicles", async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const correlationId = req.headers["x-correlation-id"] || null;
-    const vehicles = listVehicles(clientId ? { clientId } : {});
+    const vehicles = await resolveAccessibleVehicleList(req, clientId);
     const deployments = listDeployments(clientId ? { clientId } : {});
     const itineraries = listItineraries(clientId ? { clientId } : {});
     const geofences = await listGeofences(clientId ? { clientId } : {});
@@ -1145,7 +1158,7 @@ router.get("/itineraries/:id/embark/history", async (req, res, next) => {
     const deployments = listDeployments({ clientId: itinerary.clientId }).filter(
       (deployment) => String(deployment.itineraryId) === String(itinerary.id),
     );
-    const vehicles = listVehicles({ clientId: itinerary.clientId }).reduce((acc, vehicle) => {
+    const vehicles = (await resolveAccessibleVehicleList(req, itinerary.clientId)).reduce((acc, vehicle) => {
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());
@@ -1481,7 +1494,7 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
     const ipAddress = resolveRequestIp(req);
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
 
-    const vehicles = listVehicles(clientId ? { clientId } : {}).reduce((acc, vehicle) => {
+    const vehicles = (await resolveAccessibleVehicleList(req, clientId)).reduce((acc, vehicle) => {
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());

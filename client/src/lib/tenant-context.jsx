@@ -40,18 +40,20 @@ function normaliseClients(payload, currentUser) {
         segment: currentUser.attributes?.segment || "Operação",
         deviceLimit: currentUser.attributes?.deviceLimit,
         userLimit: currentUser.attributes?.userLimit,
+        attributes: currentUser.attributes || {},
       },
     ];
   }
 
-  return list.map((client) => ({
-    id: client.id,
-    name: normalizeAdminClientName(client.companyName || client.name),
-    segment: client.attributes?.segment || "Frota",
-    deviceLimit: client.deviceLimit,
-    userLimit: client.userLimit,
-  }));
-}
+    return list.map((client) => ({
+      id: client.id,
+      name: normalizeAdminClientName(client.companyName || client.name),
+      segment: client.attributes?.segment || "Frota",
+      deviceLimit: client.deviceLimit,
+      userLimit: client.userLimit,
+      attributes: client.attributes || {},
+    }));
+  }
 
 export function TenantProvider({ children }) {
   const stored = useMemo(() => getStoredSession(), []);

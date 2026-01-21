@@ -5,7 +5,6 @@ import { authenticate } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { resolveClientId } from "../middleware/client.js";
 import { listDevices, listDevicesFromDb } from "../models/device.js";
-import { listVehicles } from "../models/vehicle.js";
 import {
   fetchEventsWithFallback,
   fetchPositions,
@@ -14,6 +13,7 @@ import {
 } from "../services/traccar-db.js";
 import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
+import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 
 const router = express.Router();
 
@@ -112,10 +112,44 @@ function dedupeDevices(devices = []) {
   return result;
 }
 
-async function resolveAllowedDevices(clientId, { vehicleIds = [], deviceIds = [] } = {}) {
-  const devices = listDevices({ clientId });
-  const persistedDevices = await listDevicesFromDb({ clientId });
+function mergeById(primary = [], secondary = []) {
+  const map = new Map(primary.map((item) => [String(item.id), item]));
+  secondary.forEach((item) => {
+    const key = String(item.id);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
+async function resolveAccessibleContext(req, clientId) {
+  const access = await getAccessibleVehicles({
+    user: req.user,
+    clientId,
+    includeMirrorsForNonReceivers: false,
+  });
+  const vehicles = access.vehicles;
+  const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+  let devices = listDevices({ clientId });
+  let persistedDevices = await listDevicesFromDb({ clientId });
+  if (access.mirrorOwnerIds.length) {
+    const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
+    const extraPersisted = await Promise.all(
+      access.mirrorOwnerIds.map((ownerId) => listDevicesFromDb({ clientId: ownerId })),
+    );
+    devices = mergeById(devices, extraDevices);
+    persistedDevices = mergeById(persistedDevices, extraPersisted.flat());
+  }
   const combined = dedupeDevices([...devices, ...persistedDevices]);
+  const filteredDevices = combined.filter(
+    (device) => device?.vehicleId && vehicleIds.has(String(device.vehicleId)),
+  );
+  return { vehicles, devices: filteredDevices, access, clientId };
+}
+
+async function resolveAllowedDevices(devices, { vehicleIds = [], deviceIds = [] } = {}) {
+  const combined = dedupeDevices(devices);
 
   const byVehicle = vehicleIds.length
     ? combined.filter((device) => device?.vehicleId && vehicleIds.includes(String(device.vehicleId)))
@@ -185,7 +219,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const vehicles = listVehicles({ clientId });
+    const { vehicles, devices } = await resolveAccessibleContext(req, clientId);
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
     const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
     const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
@@ -202,7 +236,10 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     }
 
     const vehicleMap = new Map(vehicles.map((item) => [String(item.id), item]));
-    const { allowedDevices, allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
+    const { allowedDevices, allowedIds } = await resolveAllowedDevices(devices, {
+      vehicleIds: resolvedVehicleIds,
+      deviceIds,
+    });
 
     if (!allowedIds.length) {
       return res.json({
@@ -251,7 +288,7 @@ router.get("/traccar/reports/route", resolveClientIdMiddleware, async (req, res,
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const vehicles = listVehicles({ clientId });
+    const { vehicles, devices } = await resolveAccessibleContext(req, clientId);
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
     const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
     const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
@@ -264,7 +301,7 @@ router.get("/traccar/reports/route", resolveClientIdMiddleware, async (req, res,
       });
     }
 
-    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
+    const { allowedIds } = await resolveAllowedDevices(devices, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
       return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, positions: [] }, error: null });
@@ -300,7 +337,7 @@ router.get("/traccar/reports/stops", resolveClientIdMiddleware, async (req, res,
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const vehicles = listVehicles({ clientId });
+    const { vehicles, devices } = await resolveAccessibleContext(req, clientId);
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
     const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
     const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
@@ -313,7 +350,7 @@ router.get("/traccar/reports/stops", resolveClientIdMiddleware, async (req, res,
       });
     }
 
-    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
+    const { allowedIds } = await resolveAllowedDevices(devices, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
       return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, stops: [] }, error: null });
@@ -346,7 +383,7 @@ router.get("/traccar/reports/summary", resolveClientIdMiddleware, async (req, re
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const vehicles = listVehicles({ clientId });
+    const { vehicles, devices } = await resolveAccessibleContext(req, clientId);
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
     const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
     const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
@@ -359,7 +396,7 @@ router.get("/traccar/reports/summary", resolveClientIdMiddleware, async (req, re
       });
     }
 
-    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
+    const { allowedIds } = await resolveAllowedDevices(devices, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
       return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, summary: [] }, error: null });
@@ -402,7 +439,7 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
       ? [req.query.deviceId]
       : [];
 
-    const vehicles = listVehicles({ clientId });
+    const { vehicles, devices } = await resolveAccessibleContext(req, clientId);
     const requestedVehicles = Array.isArray(req.query.vehicleIds)
       ? req.query.vehicleIds
       : typeof req.query.vehicleIds === "string"
@@ -421,21 +458,9 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
       new Set([...requestedVehicles.map((value) => String(value).trim()).filter(Boolean), ...plateVehicles]),
     );
 
-    const storedDevices = listDevices({ clientId });
-    const persistedDevices = await listDevicesFromDb({ clientId });
-
-    const allowedDevices = [...storedDevices, ...persistedDevices].reduce((list, device) => {
-      if (!device?.traccarId) return list;
-      const traccarId = String(device.traccarId);
-      if (!list.some((item) => String(item.traccarId) === traccarId)) {
-        list.push(device);
-      }
-      return list;
-    }, []);
-
     const filteredByVehicle = vehicleIds.length
-      ? allowedDevices.filter((device) => device?.vehicleId && vehicleIds.includes(String(device.vehicleId)))
-      : allowedDevices;
+      ? devices.filter((device) => device?.vehicleId && vehicleIds.includes(String(device.vehicleId)))
+      : devices;
 
     const allowedIds = filteredByVehicle.map((device) => String(device.traccarId));
 

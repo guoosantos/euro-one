@@ -21,10 +21,10 @@ import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, deleteUser, getUserById, updateUser } from "../models/user.js";
-import { listMirrors } from "../models/mirror.js";
 import { listGroups } from "../models/group.js";
 import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { importEuroXlsx } from "../services/euro-xlsx-import.js";
@@ -110,63 +110,15 @@ function parsePagination(query) {
   return { page, pageSize, start };
 }
 
-function isMirrorActive(mirror, now = new Date()) {
-  if (!mirror) return false;
-  const start = mirror.startAt ? new Date(mirror.startAt) : null;
-  const end = mirror.endAt ? new Date(mirror.endAt) : null;
-  if (start && Number.isNaN(start.getTime())) return false;
-  if (end && Number.isNaN(end.getTime())) return false;
-  if (start && now < start) return false;
-  if (end && now > end) return false;
-  return true;
-}
-
-function mergeVehicles(primary = [], secondary = []) {
-  const map = new Map(primary.map((vehicle) => [String(vehicle.id), vehicle]));
-  secondary.forEach((vehicle) => {
-    const key = String(vehicle.id);
+function mergeById(primary = [], secondary = []) {
+  const map = new Map(primary.map((item) => [String(item.id), item]));
+  secondary.forEach((item) => {
+    const key = String(item.id);
     if (!map.has(key)) {
-      map.set(key, vehicle);
+      map.set(key, item);
     }
   });
   return Array.from(map.values());
-}
-
-async function resolveAccessibleVehicles(req, { clientId, includeMirrorsForNonReceivers = true } = {}) {
-  const isAdmin = req.user?.role === "admin";
-  let vehicles = deps.listVehicles({ clientId });
-  let mirrorOwnerIds = [];
-  let isReceiver = false;
-  let hasMirrors = false;
-
-  if (!isAdmin && req.user?.clientId) {
-    const client = await deps.getClientById(req.user.clientId).catch(() => null);
-    const clientType = client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
-    isReceiver = ["GERENCIADORA", "SEGURADORA", "GERENCIADORA DE RISCO", "COMPANHIA DE SEGURO"]
-      .includes(String(clientType).toUpperCase());
-
-    const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) =>
-      isMirrorActive(mirror),
-    );
-    hasMirrors = mirrors.length > 0;
-    if (mirrors.length) {
-      mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
-      const mirroredVehicles = mirrors.flatMap((mirror) => {
-        const ownerVehicles = deps.listVehicles({ clientId: mirror.ownerClientId });
-        const allowedIds = new Set((mirror.vehicleIds || []).map(String));
-        return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
-      });
-      if (isReceiver) {
-        vehicles = mirroredVehicles;
-      } else if (includeMirrorsForNonReceivers) {
-        vehicles = mergeVehicles(vehicles, mirroredVehicles);
-      }
-    } else if (isReceiver) {
-      vehicles = [];
-    }
-  }
-
-  return { vehicles, mirrorOwnerIds, isReceiver, hasMirrors };
 }
 
 function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
@@ -1264,7 +1216,8 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       .filter(Boolean);
     const hasVehicleFilter = requestedVehicleIds.length > 0 || requestedPlates.length > 0;
 
-    const access = await resolveAccessibleVehicles(req, {
+    const access = await getAccessibleVehicles({
+      user: req.user,
       clientId,
       includeMirrorsForNonReceivers: false,
     });
@@ -1272,7 +1225,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     let deviceRegistry = deps.listDevices({ clientId });
     if (access.mirrorOwnerIds.length) {
       const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));
-      deviceRegistry = mergeVehicles(deviceRegistry, extraDevices);
+      deviceRegistry = mergeById(deviceRegistry, extraDevices);
     }
     const deviceById = new Map(deviceRegistry.map((device) => [String(device.id), device]));
     const devicesByVehicleId = new Map();
@@ -2724,7 +2677,8 @@ router.get(
             .flatMap((group) => (group.attributes?.vehicleIds || []).map(String)),
         ])
         : null;
-    const access = await resolveAccessibleVehicles(req, {
+    const access = await getAccessibleVehicles({
+      user: req.user,
       clientId,
       includeMirrorsForNonReceivers: !accessibleOnly,
     });
@@ -2737,7 +2691,7 @@ router.get(
     let devices = deps.listDevices({ clientId });
     if (mirrorOwnerIds.length) {
       const extraDevices = mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));
-      devices = mergeVehicles(devices, extraDevices);
+      devices = mergeById(devices, extraDevices);
     }
     const monitoringDevices = devices.filter((device) => device?.attributes?.gprsCommunication !== false);
     console.info("[vehicles] listagem para API", { clientId: clientId || null, vehicles: vehicles.length, devices: devices.length });
@@ -2926,13 +2880,14 @@ router.get(
   try {
     const { id } = req.params;
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const access = await getAccessibleVehicles({ user: req.user, clientId });
+    const isAccessible = access.vehicles.some((vehicle) => String(vehicle.id) === String(id));
+    if (!isAccessible) {
+      throw createError(404, "Veículo não encontrado");
+    }
     const vehicle = deps.getVehicleById(id);
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
-    }
-    const resolvedClientId = resolveLinkClientId(clientId, vehicle);
-    if (resolvedClientId != null) {
-      ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
     }
 
     if (!vehicle.deviceId) {
@@ -2942,9 +2897,6 @@ router.get(
     const device = deps.getDeviceById(vehicle.deviceId);
     if (!device) {
       throw createError(404, "Equipamento vinculado não encontrado");
-    }
-    if (resolvedClientId != null) {
-      ensureSameClient(device, resolvedClientId, "Equipamento não encontrado");
     }
 
     const traccarDeviceId = device.traccarId ? String(device.traccarId).trim() : null;
