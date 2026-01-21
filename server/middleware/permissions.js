@@ -23,8 +23,14 @@ function normalizeEntry(value) {
   if (value && typeof value === "object") {
     if (Object.prototype.hasOwnProperty.call(value, "visible")) {
       const visible = Boolean(value.visible);
-      const access = normaliseLevel(value.access) || "read";
-      return { visible, access: visible ? access : null };
+      if (!visible) {
+        return { visible: false, access: null };
+      }
+      const access = normaliseLevel(value.access);
+      if (access === "none") {
+        return { visible: true, access: "none" };
+      }
+      return { visible: true, access: access || "read" };
     }
     const legacyLevel = normaliseLevel(value?.level) || DEFAULT_LEVEL;
     if (legacyLevel === "none") return { visible: false, access: null };
@@ -100,7 +106,7 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
           ? { visible: true, access: context.level }
           : resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
 
-      if (!resolved.visible) {
+      if (!resolved.visible || resolved.access === "none") {
         return next(createError(403, "Sem permissão para acessar este recurso"));
       }
 

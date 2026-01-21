@@ -13,6 +13,9 @@ import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import MultiSelectChips from "../components/ui/MultiSelectChips";
 import { usePermissions } from "../lib/permissions/permission-gate";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const EMPTY_LIST = [];
 
@@ -89,6 +92,8 @@ export default function MirrorReceivers() {
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [vehiclePickId, setVehiclePickId] = useState("");
   const { confirmDelete } = useConfirmDialog();
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { toast, showToast } = usePageToast();
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formMode, setFormMode] = useState("group");
@@ -405,13 +410,29 @@ export default function MirrorReceivers() {
   };
 
   const handleRemove = async (mirror) => {
+    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Remover espelhamento",
       message: "Remover espelhamento? Esta ação não pode ser desfeita.",
       confirmLabel: "Remover",
       onConfirm: async () => {
-        await api.delete(`${API_ROUTES.mirrors}/${mirror.id}`);
-        await loadMirrors();
+        try {
+          await api.delete(`${API_ROUTES.mirrors}/${mirror.id}`);
+          if (activeMirror && String(activeMirror.id) === String(mirror.id)) {
+            setDetailsDrawerOpen(false);
+            setActiveMirror(null);
+          }
+          await loadMirrors();
+          showToast("Espelhamento removido com sucesso.");
+        } catch (requestError) {
+          showToast(
+            requestError?.response?.data?.message
+              || requestError?.message
+              || "Não foi possível remover o espelhamento.",
+            "error",
+          );
+          throw requestError;
+        }
       },
     });
   };
@@ -561,7 +582,7 @@ export default function MirrorReceivers() {
                         >
                           Detalhes
                         </button>
-                        {isOwnerMode && mirrorsPermission.isFull && (
+                        {isOwnerMode && mirrorsPermission.isFull && isAdminGeneral && (
                           <button
                             type="button"
                             onClick={() => handleRemove(mirror)}
@@ -842,6 +863,16 @@ export default function MirrorReceivers() {
             ))}
           </div>
 
+          {isAdminGeneral && mirrorsPermission.isFull && activeMirror && (
+            <button
+              type="button"
+              onClick={() => handleRemove(activeMirror)}
+              className="w-fit rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
+            >
+              Remover espelhamento
+            </button>
+          )}
+
           {detailsTab === "geral" && activeMirror && (
             <div className="space-y-3 text-sm text-white/70">
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -904,6 +935,7 @@ export default function MirrorReceivers() {
           )}
         </div>
       </Drawer>
+      <PageToast toast={toast} />
     </div>
   );
 }

@@ -12,6 +12,7 @@ function normalizeAccess(level) {
   const normalized = normalizePermissionLevel(level);
   if (normalized === "full") return "full";
   if (normalized === "read" || normalized === "view") return "read";
+  if (normalized === "none") return "none";
   return null;
 }
 
@@ -25,10 +26,13 @@ function normalizeEntry(value) {
     if (Object.prototype.hasOwnProperty.call(value, "visible")) {
       const visible = Boolean(value.visible);
       const access = normalizeAccess(value.access);
-      if (access === null && String(value.access || "").trim().toLowerCase() === "none") {
+      if (!visible) {
         return { visible: false, access: null };
       }
-      return { visible, access: visible ? access || "read" : null };
+      if (access === "none") {
+        return { visible: true, access: "none" };
+      }
+      return { visible: true, access: access || "read" };
     }
     const legacyLevel = normalizePermissionLevel(value.level);
     if (legacyLevel === "none") {
