@@ -154,7 +154,7 @@ export const PERMISSION_REGISTRY = [
         subpages: [
           { subKey: "analytics-heatmap", label: "Mapa de Calor" },
           { subKey: "ranking", label: "Ranking" },
-          { subKey: "dangerous-routes", label: "Rotas Perigosas" },
+          { subKey: "risk-area", label: "Área de Risco" },
           { subKey: "security-events", label: "Segurança" },
         ],
       },
@@ -283,7 +283,7 @@ export const MENU_REGISTRY = [
         children: [
           { to: "/analytics/heatmap", label: "Mapa de Calor", icon: BarChart3, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
           { to: "/ranking", label: "Ranking", icon: Medal, permission: { menuKey: "admin", pageKey: "analytics", subKey: "ranking" } },
-          { to: "/routes", label: "Rotas Perigosas", icon: Map, permission: { menuKey: "fleet", pageKey: "routes" } },
+          { to: "/analytics/risk-area", label: "Área de Risco", icon: Map, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
           { to: "/events", label: "Segurança", icon: ShieldCheck, permission: { menuKey: "primary", pageKey: "events" } },
         ],
       },

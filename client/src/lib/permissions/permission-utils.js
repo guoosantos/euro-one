@@ -24,8 +24,11 @@ function normalizeEntry(value) {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     if (Object.prototype.hasOwnProperty.call(value, "visible")) {
       const visible = Boolean(value.visible);
-      const access = normalizeAccess(value.access) || "read";
-      return { visible, access: visible ? access : null };
+      const access = normalizeAccess(value.access);
+      if (access === null && String(value.access || "").trim().toLowerCase() === "none") {
+        return { visible: false, access: null };
+      }
+      return { visible, access: visible ? access || "read" : null };
     }
     const legacyLevel = normalizePermissionLevel(value.level);
     if (legacyLevel === "none") {

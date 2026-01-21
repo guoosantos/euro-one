@@ -27,7 +27,11 @@ function normalizeEntry(value) {
   if (value && typeof value === "object") {
     if (Object.prototype.hasOwnProperty.call(value, "visible")) {
       const visible = Boolean(value.visible);
-      const access = normaliseLevel(value.access) || "read";
+      const normalizedAccess = normaliseLevel(value.access);
+      if (normalizedAccess === "none") {
+        return { visible: false, access: null };
+      }
+      const access = normalizedAccess || "read";
       return { visible, access: visible ? access : null };
     }
     const legacyLevel = normaliseLevel(value?.level) || DEFAULT_LEVEL;
@@ -99,12 +103,12 @@ export function usePermissionResolver() {
       }
       if (!permissionGroupId) {
         return {
-          level: UI_LEVELS.full,
-          hasAccess: true,
-          canShow: true,
-          canView: true,
-          canRead: true,
-          isFull: true,
+          level: UI_LEVELS.none,
+          hasAccess: false,
+          canShow: false,
+          canView: false,
+          canRead: false,
+          isFull: false,
         };
       }
 

@@ -192,7 +192,7 @@ const mergeHistoryItems = (items = []) => {
 const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export default function Commands() {
-  const { tenantId } = useTenant();
+  const { tenantId, tenant, user } = useTenant();
   const { getPermission } = usePermissionResolver();
   const listPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "list" });
   const advancedPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "advanced" });
@@ -250,6 +250,25 @@ export default function Commands() {
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingCommandId, setDeletingCommandId] = useState(null);
+  const isMasterTenant = useMemo(() => {
+    const candidate =
+      tenant?.attributes?.isMasterAdmin ||
+      tenant?.attributes?.clientProfile?.clientType ||
+      tenant?.attributes?.clientType ||
+      user?.attributes?.isMasterAdmin ||
+      user?.attributes?.clientProfile?.clientType ||
+      user?.attributes?.clientType ||
+      null;
+    if (candidate === true) return true;
+    if (typeof candidate === "string") {
+      return candidate.trim().toUpperCase() === "ADMIN_MASTER";
+    }
+    return false;
+  }, [tenant, user]);
+  const historyColumns = useMemo(
+    () => HISTORY_COLUMNS.filter((column) => column.id !== "result" || isMasterTenant),
+    [isMasterTenant],
+  );
   const availableTabs = useMemo(
     () => COMMAND_TABS.filter((tab) => getPermission(tab.permission).canShow),
     [getPermission],
@@ -1118,7 +1137,7 @@ export default function Commands() {
   const startResize = useCallback(
     (columnId, event) => {
       event.preventDefault();
-      const column = HISTORY_COLUMNS.find((item) => item.id === columnId);
+      const column = historyColumns.find((item) => item.id === columnId);
       if (!column) return;
       const startX = event.clientX;
       const startWidth = columnWidths[columnId] || column.width;
@@ -1148,17 +1167,17 @@ export default function Commands() {
       window.addEventListener("mousemove", handleMove);
       window.addEventListener("mouseup", handleUp);
     },
-    [columnWidths],
+    [columnWidths, historyColumns],
   );
 
   const totalHistoryWidth = useMemo(
     () =>
-      HISTORY_COLUMNS.reduce((total, column) => total + (columnWidths[column.id] || column.width), 0),
-    [columnWidths],
+      historyColumns.reduce((total, column) => total + (columnWidths[column.id] || column.width), 0),
+    [columnWidths, historyColumns],
   );
 
   const getWidthStyle = (columnId) => {
-    const column = HISTORY_COLUMNS.find((item) => item.id === columnId);
+    const column = historyColumns.find((item) => item.id === columnId);
     if (!column) return undefined;
     const width = columnWidths[columnId] || column.width;
     const ratio = totalHistoryWidth ? (width / totalHistoryWidth) * 100 : 0;
@@ -1700,13 +1719,13 @@ export default function Commands() {
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
           <table className="w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
-              {HISTORY_COLUMNS.map((column) => (
+              {historyColumns.map((column) => (
                 <col key={column.id} style={getWidthStyle(column.id)} />
               ))}
             </colgroup>
             <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-left text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
               <tr>
-                {HISTORY_COLUMNS.map((column) => (
+                {historyColumns.map((column) => (
                   <th
                     key={column.id}
                     style={getWidthStyle(column.id)}
@@ -1732,21 +1751,21 @@ export default function Commands() {
             <tbody className="divide-y divide-border/40 text-xs">
               {historyLoading && history.length === 0 && (
                 <tr>
-                  <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
+                  <td colSpan={historyColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
                     Carregando histórico…
                   </td>
                 </tr>
               )}
               {!historyLoading && historyError && history.length === 0 && (
                 <tr>
-                  <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-red-300">
+                  <td colSpan={historyColumns.length} className="px-3 py-4 text-center text-sm text-red-300">
                     Não foi possível carregar o histórico. {historyError.message}
                   </td>
                 </tr>
               )}
               {!historyLoading && !historyError && historyTotal === 0 && history.length === 0 && (
                 <tr>
-                  <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
+                  <td colSpan={historyColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
                     Nenhum comando encontrado.
                   </td>
                 </tr>
@@ -1773,30 +1792,72 @@ export default function Commands() {
                     `${sentAt || responseAt}-${commandLabel}`;
                   return (
                     <tr key={correlationKey} className="hover:bg-white/5">
-                      <td
-                        style={getWidthStyle("sentAt")}
-                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
-                      >
-                        {formatDateTime(sentAt)}
-                      </td>
-                      <td
-                        style={getWidthStyle("responseAt")}
-                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
-                      >
-                        {formatDateTime(responseAt)}
-                      </td>
-                      <td style={getWidthStyle("command")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
-                        {commandLabel}
-                      </td>
-                      <td style={getWidthStyle("requestedBy")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
-                        {requestedBy}
-                      </td>
-                      <td style={getWidthStyle("status")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
-                        {statusLabel}
-                      </td>
-                      <td style={getWidthStyle("result")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
-                        {resultText}
-                      </td>
+                      {historyColumns.map((column) => {
+                        switch (column.id) {
+                          case "sentAt":
+                            return (
+                              <td
+                                key={column.id}
+                                style={getWidthStyle(column.id)}
+                                className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
+                              >
+                                {formatDateTime(sentAt)}
+                              </td>
+                            );
+                          case "responseAt":
+                            return (
+                              <td
+                                key={column.id}
+                                style={getWidthStyle(column.id)}
+                                className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
+                              >
+                                {formatDateTime(responseAt)}
+                              </td>
+                            );
+                          case "command":
+                            return (
+                              <td
+                                key={column.id}
+                                style={getWidthStyle(column.id)}
+                                className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
+                              >
+                                {commandLabel}
+                              </td>
+                            );
+                          case "requestedBy":
+                            return (
+                              <td
+                                key={column.id}
+                                style={getWidthStyle(column.id)}
+                                className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
+                              >
+                                {requestedBy}
+                              </td>
+                            );
+                          case "status":
+                            return (
+                              <td
+                                key={column.id}
+                                style={getWidthStyle(column.id)}
+                                className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
+                              >
+                                {statusLabel}
+                              </td>
+                            );
+                          case "result":
+                            return (
+                              <td
+                                key={column.id}
+                                style={getWidthStyle(column.id)}
+                                className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
+                              >
+                                {resultText}
+                              </td>
+                            );
+                          default:
+                            return null;
+                        }
+                      })}
                     </tr>
                   );
                 })}
