@@ -19,6 +19,9 @@ import AddressSearchInput, { useAddressSearchState } from "../components/shared/
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 const FILTER_OPTIONS = [
@@ -181,6 +184,8 @@ export default function Stock() {
     availability: "both",
   });
   const { confirmDelete } = useConfirmDialog();
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { toast, showToast } = usePageToast();
   const [draftFilters, setDraftFilters] = useState({
     clientId: "",
     deviceId: "",
@@ -659,13 +664,25 @@ export default function Stock() {
 
   const handleDeleteDevice = async (device) => {
     if (!device?.id) return;
+    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir equipamento",
       message: `Excluir equipamento ${device.uniqueId || device.id}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`${API_ROUTES.core.devices}/${device.id}`);
-        setDevices((prev) => prev.filter((entry) => String(entry.id) !== String(device.id)));
+        try {
+          await api.delete(`${API_ROUTES.core.devices}/${device.id}`);
+          setDevices((prev) => prev.filter((entry) => String(entry.id) !== String(device.id)));
+          showToast("Equipamento removido com sucesso.");
+        } catch (requestError) {
+          showToast(
+            requestError?.response?.data?.message
+              || requestError?.message
+              || "Não foi possível excluir o equipamento.",
+            "error",
+          );
+          throw requestError;
+        }
       },
     });
   };
@@ -875,7 +892,7 @@ export default function Stock() {
                             {device.vehicle?.plate || device.vehicleId || "—"}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            {stockPermission.isFull ? (
+                            {stockPermission.isFull && isAdminGeneral ? (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteDevice(device)}
@@ -1316,6 +1333,7 @@ export default function Stock() {
           </div>
         </div>
       </Drawer>
+      <PageToast toast={toast} />
     </div>
   );
 }

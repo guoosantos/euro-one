@@ -19,6 +19,7 @@ import DataTablePagination from "../ui/DataTablePagination.jsx";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -71,6 +72,7 @@ function DeviceRow({
   onNavigateToMonitoring,
   onEdit,
   onDelete,
+  canDelete,
   positionLabel,
   lastCommunication,
 }) {
@@ -158,14 +160,16 @@ function DeviceRow({
           >
             <MapPin className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 text-red-200 hover:border-red-300"
-            onClick={onDelete}
-            aria-label="Remover"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 text-red-200 hover:border-red-300"
+              onClick={onDelete}
+              aria-label="Remover"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -236,6 +240,7 @@ export default function Devices() {
   const [linkVehicleId, setLinkVehicleId] = useState("");
   const [linkQuery, setLinkQuery] = useState("");
   const { confirmDelete } = useConfirmDialog();
+  const { isAdminGeneral } = useAdminGeneralAccess();
   const [filters, setFilters] = useState({
     status: "all",
     link: "all",
@@ -1210,6 +1215,7 @@ export default function Devices() {
 
   async function handleDeleteDevice(id) {
     if (!id) return;
+    if (!isAdminGeneral) return;
     const clientId = tenantId || user?.clientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
@@ -1229,6 +1235,7 @@ export default function Devices() {
 
   async function handleDeleteConflictDevice() {
     if (!conflictDevice?.deviceId) return;
+    if (!isAdminGeneral) return;
     const clientId = tenantId || user?.clientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
@@ -1702,6 +1709,7 @@ export default function Devices() {
                       onNavigateToMonitoring={() => handleNavigateToMonitoring(device)}
                       onEdit={() => openEditDevice(device)}
                       onDelete={() => handleDeleteDevice(device.id)}
+                      canDelete={isAdminGeneral}
                       positionLabel={formatPositionSummary(position)}
                       lastCommunication={formatLastCommunication(device)}
                     />
@@ -2161,15 +2169,17 @@ export default function Devices() {
               <Unlink className="h-4 w-4" />
               Desvincular chip
             </Button>
-            <Button
-              variant="ghost"
-              className="inline-flex items-center gap-2 text-red-200 hover:text-white"
-              onClick={() => handleDeleteDevice(editingId)}
-              disabled={!editingId}
-            >
-              <Trash2 className="h-4 w-4" />
-              Remover equipamento
-            </Button>
+            {isAdminGeneral && (
+              <Button
+                variant="ghost"
+                className="inline-flex items-center gap-2 text-red-200 hover:text-white"
+                onClick={() => handleDeleteDevice(editingId)}
+                disabled={!editingId}
+              >
+                <Trash2 className="h-4 w-4" />
+                Remover equipamento
+              </Button>
+            )}
           </div>
         )}
       </Drawer>
@@ -2274,7 +2284,7 @@ export default function Devices() {
             <Button variant="ghost" onClick={() => setConflictDevice(null)}>
               Fechar
             </Button>
-            {conflictDevice?.deviceId && (
+            {conflictDevice?.deviceId && isAdminGeneral && (
               <Button variant="ghost" className="text-red-100 hover:text-white" onClick={handleDeleteConflictDevice}>
                 Excluir equipamento
               </Button>

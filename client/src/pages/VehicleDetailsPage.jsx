@@ -15,6 +15,8 @@ import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -215,6 +217,9 @@ export default function VehicleDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { tenantId, user } = useTenant();
+  const { confirmDelete } = useConfirmDialog();
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { toast, showToast } = usePageToast();
   const [vehicle, setVehicle] = useState(null);
   const [devices, setDevices] = useState([]);
   const [chips, setChips] = useState([]);
@@ -592,6 +597,19 @@ export default function VehicleDetailsPage() {
     }
   };
 
+  const handleDeleteVehicle = async () => {
+    if (!vehicle?.id || !isAdminGeneral) return;
+    await confirmDelete({
+      title: "Excluir veículo",
+      message: `Excluir veículo ${vehicle.plate || vehicle.name || ""}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await CoreApi.deleteVehicle(vehicle.id);
+        navigate("/vehicles");
+      },
+    });
+  };
+
   const handleBindChip = async ({ chipId, deviceId, clientId }) => {
     const resolved = clientId || vehicle?.clientId || resolvedClientId;
     if (!resolved) {
@@ -660,12 +678,23 @@ export default function VehicleDetailsPage() {
           .filter(Boolean)
           .join(" • ")}
         actions={
-          <Link
-            to="/services/new"
-            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-          >
-            Nova OS
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/services/new"
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            >
+              Nova OS
+            </Link>
+            {isAdminGeneral && vehicle && (
+              <button
+                type="button"
+                onClick={handleDeleteVehicle}
+                className="rounded-xl border border-red-500/40 px-4 py-2 text-sm text-red-300 hover:bg-red-500/10"
+              >
+                Excluir
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -978,6 +1007,7 @@ export default function VehicleDetailsPage() {
           )}
         </>
       )}
+      <PageToast toast={toast} />
     </div>
   );
 }

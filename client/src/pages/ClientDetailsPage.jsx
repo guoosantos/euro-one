@@ -7,10 +7,14 @@ import { useTenant } from "../lib/tenant-context";
 import DataTable from "../components/ui/DataTable";
 import PageHeader from "../components/ui/PageHeader";
 import { useGroups } from "../lib/hooks/useGroups";
+import { usePermissions } from "../lib/permissions/permission-gate.js";
 import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
 import { isAdminGeneralClientName } from "../lib/admin-general";
 import PermissionTreeEditor from "../components/permissions/PermissionTreeEditor";
 import MultiSelectChips from "../components/ui/MultiSelectChips";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 import {
   buildPermissionEditorState,
   normalizePermissionPayload,
@@ -71,11 +75,31 @@ const baseFormState = {
 };
 
 const tabs = [
-  { id: "informacoes", label: "Informações" },
-  { id: "usuarios", label: "Usuários" },
-  { id: "veiculos", label: "Veículos" },
-  { id: "permissoes", label: "Grupo de Permissões" },
-  { id: "espelhamento", label: "Espelhamento" },
+  {
+    id: "informacoes",
+    label: "Informações",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-general" },
+  },
+  {
+    id: "usuarios",
+    label: "Usuários",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-users" },
+  },
+  {
+    id: "veiculos",
+    label: "Veículos",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-vehicles" },
+  },
+  {
+    id: "permissoes",
+    label: "Grupo de Permissões",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-permissions" },
+  },
+  {
+    id: "espelhamento",
+    label: "Espelhamento",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-mirrors" },
+  },
 ];
 
 const EMPTY_LIST = [];
@@ -135,6 +159,14 @@ export default function ClientDetailsPage() {
     endAt: "",
   });
   const [clients, setClients] = useState(EMPTY_LIST);
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { toast, showToast } = usePageToast();
+  const { getPermission } = usePermissions();
+  const availableTabs = useMemo(() => tabs.filter((tab) => getPermission(tab.permission).canShow), [getPermission]);
+  const activeTabPermission = useMemo(() => {
+    const tab = tabs.find((entry) => entry.id === activeTab);
+    return tab ? getPermission(tab.permission) : null;
+  }, [activeTab, getPermission]);
 
   const isAdmin = role === "admin";
   const isAdminGeneralClient = isAdminGeneralClientName(client?.name);
@@ -221,6 +253,12 @@ export default function ClientDetailsPage() {
       isMounted = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!availableTabs.length) return;
+    if (availableTabs.some((tab) => tab.id === activeTab)) return;
+    setActiveTab(availableTabs[0].id);
+  }, [activeTab, availableTabs]);
 
   useEffect(() => {
     if (activeTab !== "usuarios" || !client?.id) return;
@@ -427,6 +465,28 @@ export default function ClientDetailsPage() {
     });
   };
 
+  const handleDeleteClient = async () => {
+    if (!client?.id || !isAdminGeneral) return;
+    await confirmDelete({
+      title: "Excluir cliente",
+      message: `Excluir cliente ${client.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        try {
+          await api.delete(`${API_ROUTES.clients}/${client.id}`);
+          showToast("Cliente removido com sucesso.");
+          navigate("/clients");
+        } catch (requestError) {
+          showToast(
+            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o cliente.",
+            "error",
+          );
+          throw requestError;
+        }
+      },
+    });
+  };
+
   const openMirrorDrawer = (mirror = null) => {
     setEditingMirror(mirror);
     setMirrorForm({
@@ -520,6 +580,15 @@ export default function ClientDetailsPage() {
             >
               Última página
             </button>
+            {isAdminGeneral && client && (
+              <button
+                type="button"
+                onClick={handleDeleteClient}
+                className="rounded-xl border border-red-500/40 px-4 py-2 text-sm text-red-300 hover:bg-red-500/10"
+              >
+                Excluir
+              </button>
+            )}
           </>
         }
       />
@@ -540,7 +609,7 @@ export default function ClientDetailsPage() {
       {!loading && client && (
         <>
           <div className="flex flex-wrap gap-2">
-            {tabs.map((tab) => (
+            {availableTabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -554,7 +623,14 @@ export default function ClientDetailsPage() {
             ))}
           </div>
 
-          {activeTab === "informacoes" && (
+          {activeTabPermission && !activeTabPermission.canRead && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
+              <h2 className="text-lg font-semibold">Sem acesso</h2>
+              <p className="mt-2 text-sm text-white/60">Seu perfil não possui acesso a esta seção.</p>
+            </div>
+          )}
+
+          {activeTabPermission?.canRead && activeTab === "informacoes" && (
             <form onSubmit={handleSubmit} className="space-y-6">
               <section className="border border-white/10 p-6">
                 <div className="space-y-6">
@@ -990,7 +1066,7 @@ export default function ClientDetailsPage() {
             </form>
           )}
 
-          {activeTab === "usuarios" && (
+          {activeTabPermission?.canRead && activeTab === "usuarios" && (
             <section className="border border-white/10 p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -1035,7 +1111,7 @@ export default function ClientDetailsPage() {
             </section>
           )}
 
-          {activeTab === "veiculos" && (
+          {activeTabPermission?.canRead && activeTab === "veiculos" && (
             <section className="border border-white/10 p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -1080,7 +1156,7 @@ export default function ClientDetailsPage() {
             </section>
           )}
 
-          {activeTab === "permissoes" && (
+          {activeTabPermission?.canRead && activeTab === "permissoes" && (
             <section className="border border-white/10 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1164,7 +1240,7 @@ export default function ClientDetailsPage() {
             </section>
           )}
 
-          {activeTab === "espelhamento" && (
+          {activeTabPermission?.canRead && activeTab === "espelhamento" && (
             <section className="border border-white/10 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1394,6 +1470,7 @@ export default function ClientDetailsPage() {
           </Drawer>
         </>
       )}
+      <PageToast toast={toast} />
     </div>
   );
 }

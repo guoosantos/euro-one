@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { createClient, deleteClient, getClientById, listClients, updateClient } from "../models/client.js";
 import { listDevices } from "../models/device.js";
@@ -221,6 +222,7 @@ router.delete(
   "/clients/:id",
   authorizePermission({ menuKey: "admin", pageKey: "clients", requireFull: true }),
   requireRole("admin"),
+  requireAdminGeneral,
   (req, res, next) => {
   try {
     const { id } = req.params;

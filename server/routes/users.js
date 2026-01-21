@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { getClientById } from "../models/client.js";
 import {
@@ -140,6 +141,7 @@ router.put(
 router.delete(
   "/users/:id",
   authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+  requireAdminGeneral,
   (req, res, next) => {
   try {
     const { id } = req.params;

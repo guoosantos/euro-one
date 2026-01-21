@@ -11,6 +11,9 @@ import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const STATUS_OPTIONS = [
   { value: "ativo", label: "Ativo" },
@@ -164,6 +167,8 @@ export default function Technicians() {
   const [message, setMessage] = useState(null);
   const [profileFilter, setProfileFilter] = useState("all");
   const { confirmDelete } = useConfirmDialog();
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { toast, showToast } = usePageToast();
   const [addressFilter, setAddressFilter] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -552,13 +557,27 @@ export default function Technicians() {
 
   const handleDelete = async (technician) => {
     if (!technician?.id) return;
+    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir técnico",
       message: `Excluir técnico ${technician.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`core/technicians/${technician.id}`);
-        setItems((prev) => prev.filter((entry) => String(entry.id) !== String(technician.id)));
+        try {
+          await api.delete(`core/technicians/${technician.id}`);
+          setItems((prev) => prev.filter((entry) => String(entry.id) !== String(technician.id)));
+          if (editingId && String(editingId) === String(technician.id)) {
+            setDrawerOpen(false);
+            setEditingId(null);
+          }
+          showToast("Técnico removido com sucesso.");
+        } catch (requestError) {
+          showToast(
+            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o técnico.",
+            "error",
+          );
+          throw requestError;
+        }
       },
     });
   };
@@ -696,7 +715,7 @@ export default function Technicians() {
                         >
                           Editar
                         </button>
-                        {techniciansPermission.isFull && (
+                        {techniciansPermission.isFull && isAdminGeneral && (
                           <button
                             type="button"
                             onClick={() => handleDelete(technician)}
@@ -740,6 +759,16 @@ export default function Technicians() {
             </button>
           ))}
         </div>
+
+        {editingId && techniciansPermission.isFull && isAdminGeneral && (
+          <button
+            type="button"
+            onClick={() => handleDelete({ id: editingId, name: form.name })}
+            className="w-fit rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
+          >
+            Excluir técnico
+          </button>
+        )}
 
         {drawerTab === "cadastro" && (
           <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
@@ -1176,6 +1205,7 @@ export default function Technicians() {
           </div>
         )}
       </Drawer>
+      <PageToast toast={toast} />
     </div>
   );
 }

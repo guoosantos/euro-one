@@ -11,14 +11,17 @@ import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import { useGroups } from "../lib/hooks/useGroups";
 import { formatVehicleLabel } from "../lib/hooks/useVehicles";
 import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
-import { usePermissionGate } from "../lib/permissions/permission-gate";
+import { usePermissionGate, usePermissions } from "../lib/permissions/permission-gate";
 import { isAdminGeneralClientName } from "../lib/admin-general";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess";
 import PermissionTreeEditor from "../components/permissions/PermissionTreeEditor";
+import PageToast from "../components/ui/PageToast.jsx";
 import {
   buildPermissionEditorState,
   normalizePermissionPayload,
 } from "../lib/permissions/permission-utils";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
 
 const defaultUserAccess = {
   vehicleAccess: { mode: "all", vehicleIds: [] },
@@ -49,9 +52,17 @@ const roleLabels = {
 };
 
 const tabs = [
-  { id: "users", label: "Usuários" },
-  { id: "vehicle-groups", label: "Grupos de veículos" },
-  { id: "permission-groups", label: "Grupos de permissões" },
+  { id: "users", label: "Usuários", permission: { menuKey: "admin", pageKey: "users", subKey: "users-list" } },
+  {
+    id: "vehicle-groups",
+    label: "Grupos de veículos",
+    permission: { menuKey: "admin", pageKey: "users", subKey: "users-vehicle-groups" },
+  },
+  {
+    id: "permission-groups",
+    label: "Grupos de permissões",
+    permission: { menuKey: "admin", pageKey: "users", subKey: "users-permission-groups" },
+  },
 ];
 
 const accessTabs = [
@@ -152,6 +163,8 @@ export default function Users() {
   const [vehicleGroupPickId, setVehicleGroupPickId] = useState("");
   const [groupVehiclePickId, setGroupVehiclePickId] = useState("");
   const [detailsSearch, setDetailsSearch] = useState("");
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { toast, showToast } = usePageToast();
 
   const canManageUsers = role === "admin" || role === "manager";
 
@@ -193,6 +206,15 @@ export default function Users() {
     params: selectedTenantId ? { clientId: selectedTenantId } : {},
   });
   const usersPermission = usePermissionGate({ menuKey: "admin", pageKey: "users" });
+  const { getPermission } = usePermissions();
+  const availableTabs = useMemo(
+    () => tabs.filter((tab) => getPermission(tab.permission).canShow),
+    [getPermission],
+  );
+  const activeTabPermission = useMemo(() => {
+    const tab = tabs.find((entry) => entry.id === activeTab);
+    return tab ? getPermission(tab.permission) : null;
+  }, [activeTab, getPermission]);
 
   const vehicleGroups = useMemo(
     () => groups.filter((entry) => entry.attributes?.kind === "VEHICLE_GROUP"),
@@ -208,6 +230,12 @@ export default function Users() {
       setSelectedTenantId(managedTenants[0].id);
     }
   }, [managedTenants, selectedTenantId]);
+
+  useEffect(() => {
+    if (!availableTabs.length) return;
+    if (availableTabs.some((tab) => tab.id === activeTab)) return;
+    setActiveTab(availableTabs[0].id);
+  }, [activeTab, availableTabs]);
 
   useEffect(() => {
     if (selectedTenantId && canManageUsers) {
@@ -499,13 +527,28 @@ export default function Users() {
 
   async function handleUserDelete(entry) {
     if (!entry?.id) return;
+    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir usuário",
       message: `Excluir usuário ${entry.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`${API_ROUTES.users}/${entry.id}`);
-        setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));
+        try {
+          await api.delete(`${API_ROUTES.users}/${entry.id}`);
+          setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));
+          if (detailsUserId && String(detailsUserId) === String(entry.id)) {
+            setDetailsDrawerOpen(false);
+            setDetailsUserId(null);
+            setDetailsUser(null);
+          }
+          showToast("Usuário removido com sucesso.");
+        } catch (requestError) {
+          showToast(
+            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o usuário.",
+            "error",
+          );
+          throw requestError;
+        }
       },
     });
   }
@@ -680,7 +723,7 @@ export default function Users() {
       {message && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{message}</div>}
 
       <div className="flex flex-wrap gap-2">
-        {tabs.map((tab) => (
+        {availableTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -694,7 +737,14 @@ export default function Users() {
         ))}
       </div>
 
-      {activeTab === "users" && (
+      {activeTabPermission && !activeTabPermission.canRead && (
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
+          <h2 className="text-lg font-semibold">Sem acesso</h2>
+          <p className="mt-2 text-sm text-white/60">Seu perfil não possui acesso a esta seção.</p>
+        </div>
+      )}
+
+      {activeTabPermission?.canRead && activeTab === "users" && (
         <div className="space-y-4">
           <FilterBar
             left={
@@ -792,7 +842,7 @@ export default function Users() {
                         >
                           <Eye className="h-3.5 w-3.5" /> Detalhes
                         </button>
-                        {usersPermission.isFull && (
+                        {usersPermission.isFull && isAdminGeneral && (
                           <button
                             type="button"
                             onClick={() => handleUserDelete(entry)}
@@ -812,7 +862,7 @@ export default function Users() {
         </div>
       )}
 
-      {activeTab === "vehicle-groups" && (
+      {activeTabPermission?.canRead && activeTab === "vehicle-groups" && (
         <div className="space-y-4">
           <FilterBar
             left={
@@ -888,7 +938,7 @@ export default function Users() {
         </div>
       )}
 
-      {activeTab === "permission-groups" && (
+      {activeTabPermission?.canRead && activeTab === "permission-groups" && (
         <div className="space-y-4">
           <FilterBar
             left={
@@ -1385,6 +1435,16 @@ export default function Users() {
             ))}
           </div>
 
+          {usersPermission.isFull && isAdminGeneral && detailsUser && (
+            <button
+              type="button"
+              onClick={() => handleUserDelete(detailsUser)}
+              className="w-fit rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
+            >
+              Excluir usuário
+            </button>
+          )}
+
           {detailsDrawerTab === "geral" && detailsUser && (
             <div className="space-y-4">
               <div className="grid gap-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -1661,6 +1721,7 @@ export default function Users() {
           </div>
         </form>
       </Drawer>
+      <PageToast toast={toast} />
     </div>
   );
 }
