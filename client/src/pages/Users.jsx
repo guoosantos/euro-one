@@ -18,6 +18,7 @@ import {
   buildPermissionEditorState,
   normalizePermissionPayload,
 } from "../lib/permissions/permission-utils";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const defaultUserAccess = {
   vehicleAccess: { mode: "all", vehicleIds: [] },
@@ -147,6 +148,7 @@ export default function Users() {
   const [groupQuery, setGroupQuery] = useState("");
   const [permissionQuery, setPermissionQuery] = useState("");
   const [vehiclePickId, setVehiclePickId] = useState("");
+  const { confirmDelete } = useConfirmDialog();
   const [vehicleGroupPickId, setVehicleGroupPickId] = useState("");
   const [groupVehiclePickId, setGroupVehiclePickId] = useState("");
   const [detailsSearch, setDetailsSearch] = useState("");
@@ -430,13 +432,14 @@ export default function Users() {
   }
 
   async function handleGroupDelete(entry) {
-    if (!window.confirm(`Remover grupo ${entry.name}?`)) return;
-    try {
-      await deleteGroup(entry.id);
-    } catch (groupError) {
-      console.error("Falha ao remover grupo", groupError);
-      setError(groupError);
-    }
+    await confirmDelete({
+      title: "Remover grupo",
+      message: `Remover grupo ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await deleteGroup(entry.id);
+      },
+    });
   }
 
   function openPermissionDrawer(group = null) {
@@ -484,25 +487,27 @@ export default function Users() {
       setMessage("Perfis globais só podem ser removidos no ADMIN GERAL.");
       return;
     }
-    if (!window.confirm(`Remover grupo ${entry.name}?`)) return;
-    try {
-      await deleteGroup(entry.id);
-    } catch (permissionError) {
-      console.error("Falha ao remover grupo de permissões", permissionError);
-      setError(permissionError);
-    }
+    await confirmDelete({
+      title: "Remover grupo de permissões",
+      message: `Remover grupo ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await deleteGroup(entry.id);
+      },
+    });
   }
 
   async function handleUserDelete(entry) {
     if (!entry?.id) return;
-    if (!window.confirm(`Excluir usuário ${entry.name}?`)) return;
-    try {
-      await api.delete(`${API_ROUTES.users}/${entry.id}`);
-      setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));
-    } catch (deleteError) {
-      console.error("Falha ao excluir usuário", deleteError);
-      setError(deleteError);
-    }
+    await confirmDelete({
+      title: "Excluir usuário",
+      message: `Excluir usuário ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await api.delete(`${API_ROUTES.users}/${entry.id}`);
+        setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));
+      },
+    });
   }
 
   const vehicleMap = useMemo(() => {

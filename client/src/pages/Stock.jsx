@@ -18,6 +18,7 @@ import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 const FILTER_OPTIONS = [
@@ -179,6 +180,7 @@ export default function Stock() {
     address: null,
     availability: "both",
   });
+  const { confirmDelete } = useConfirmDialog();
   const [draftFilters, setDraftFilters] = useState({
     clientId: "",
     deviceId: "",
@@ -657,14 +659,15 @@ export default function Stock() {
 
   const handleDeleteDevice = async (device) => {
     if (!device?.id) return;
-    if (!window.confirm(`Excluir equipamento ${device.uniqueId || device.id}?`)) return;
-    try {
-      await api.delete(`${API_ROUTES.core.devices}/${device.id}`);
-      setDevices((prev) => prev.filter((entry) => String(entry.id) !== String(device.id)));
-    } catch (deleteError) {
-      console.error("Erro ao excluir equipamento", deleteError);
-      setError(deleteError);
-    }
+    await confirmDelete({
+      title: "Excluir equipamento",
+      message: `Excluir equipamento ${device.uniqueId || device.id}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await api.delete(`${API_ROUTES.core.devices}/${device.id}`);
+        setDevices((prev) => prev.filter((entry) => String(entry.id) !== String(device.id)));
+      },
+    });
   };
 
   return (

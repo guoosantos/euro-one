@@ -56,6 +56,14 @@ export const CoreApi = {
     const data = await http("vehicles", { params });
     return normaliseListPayload(data);
   },
+  listAccessibleVehicles: async (params) => {
+    const response = await api.request({
+      method: "GET",
+      url: `${CORE_BASE}/vehicles`,
+      params: { ...(params || {}), accessible: true },
+    });
+    return response?.data ?? null;
+  },
   searchVehicles: (params) => http("vehicles", { params }),
   listVehicleAttributes: async (params) => {
     const data = await http("vehicle-attributes", { params });

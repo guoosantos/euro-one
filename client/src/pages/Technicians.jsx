@@ -10,6 +10,7 @@ import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const STATUS_OPTIONS = [
   { value: "ativo", label: "Ativo" },
@@ -162,6 +163,7 @@ export default function Technicians() {
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
   const [profileFilter, setProfileFilter] = useState("all");
+  const { confirmDelete } = useConfirmDialog();
   const [addressFilter, setAddressFilter] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -550,14 +552,15 @@ export default function Technicians() {
 
   const handleDelete = async (technician) => {
     if (!technician?.id) return;
-    if (!window.confirm(`Excluir técnico ${technician.name}?`)) return;
-    try {
-      await api.delete(`core/technicians/${technician.id}`);
-      setItems((prev) => prev.filter((entry) => String(entry.id) !== String(technician.id)));
-    } catch (deleteError) {
-      console.error("Falha ao excluir técnico", deleteError);
-      setError(deleteError);
-    }
+    await confirmDelete({
+      title: "Excluir técnico",
+      message: `Excluir técnico ${technician.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await api.delete(`core/technicians/${technician.id}`);
+        setItems((prev) => prev.filter((entry) => String(entry.id) !== String(technician.id)));
+      },
+    });
   };
 
   const handleSelectAddress = (option) => {

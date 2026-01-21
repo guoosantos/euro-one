@@ -17,6 +17,7 @@ import AppMap from "../components/map/AppMap.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 
@@ -85,6 +86,7 @@ export default function Fences() {
     deleteGroup,
     updateGroupGeofences,
   } = useGeofenceGroups({ includeGeofences: true });
+  const { confirmDelete } = useConfirmDialog();
 
   const [layers, setLayers] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -314,13 +316,14 @@ export default function Fences() {
   };
 
   const handleDeleteGroup = async (id) => {
-    if (!window.confirm("Deseja remover este grupo?")) return;
-    try {
-      await deleteGroup(id);
-    } catch (err) {
-      console.error("Erro ao remover grupo", err);
-      alert("Falha ao remover grupo");
-    }
+    await confirmDelete({
+      title: "Remover grupo",
+      message: "Deseja remover este grupo? Essa ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await deleteGroup(id);
+      },
+    });
   };
 
   const toggleLayerGroup = (layerId, groupId, enabled) => {

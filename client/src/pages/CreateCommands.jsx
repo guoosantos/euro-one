@@ -5,6 +5,7 @@ import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const EMPTY_FORM = {
   name: "",
@@ -33,6 +34,7 @@ export default function CreateCommands({ readOnly = false }) {
   const [filterProtocol, setFilterProtocol] = useState("");
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
+  const { confirmDelete } = useConfirmDialog();
 
   const showToast = useCallback((message, type = "success") => {
     if (toastTimeoutRef.current) {
@@ -182,21 +184,24 @@ export default function CreateCommands({ readOnly = false }) {
       showToast("Acesso somente leitura.", "warning");
       return;
     }
-    const confirmed = window.confirm("Deseja remover este comando personalizado?");
-    if (!confirmed) return;
-    setDeletingId(commandId);
-    try {
-      await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
-      showToast("Comando removido.");
-      await fetchCustomCommands();
-      if (editingId === commandId) {
-        resetForm();
-      }
-    } catch (error) {
-      showToast(error?.response?.data?.message || error?.message || "Erro ao remover comando", "error");
-    } finally {
-      setDeletingId(null);
-    }
+    await confirmDelete({
+      title: "Remover comando personalizado",
+      message: "Deseja remover este comando personalizado? Esta ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        setDeletingId(commandId);
+        try {
+          await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
+          showToast("Comando removido.");
+          await fetchCustomCommands();
+          if (editingId === commandId) {
+            resetForm();
+          }
+        } finally {
+          setDeletingId(null);
+        }
+      },
+    });
   };
 
   const toastClassName =

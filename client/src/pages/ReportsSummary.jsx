@@ -5,8 +5,11 @@ import useReportsSummary from "../lib/hooks/useReportsSummary";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
+import DataState from "../ui/DataState.jsx";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
 export default function ReportsSummary() {
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const {
     vehicles,
     vehicleOptions,
@@ -38,6 +41,19 @@ export default function ReportsSummary() {
     });
     return map;
   }, [vehicles]);
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
 
   const summary = Array.isArray(data?.summary) ? data.summary : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;

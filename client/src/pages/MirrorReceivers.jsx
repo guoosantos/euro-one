@@ -12,6 +12,7 @@ import DataTable from "../components/ui/DataTable";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import MultiSelectChips from "../components/ui/MultiSelectChips";
 import { usePermissions } from "../lib/permissions/permission-gate";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const EMPTY_LIST = [];
 
@@ -87,6 +88,7 @@ export default function MirrorReceivers() {
   const [detailsTab, setDetailsTab] = useState("geral");
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [vehiclePickId, setVehiclePickId] = useState("");
+  const { confirmDelete } = useConfirmDialog();
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formMode, setFormMode] = useState("group");
@@ -403,14 +405,15 @@ export default function MirrorReceivers() {
   };
 
   const handleRemove = async (mirror) => {
-    if (!window.confirm("Remover espelhamento?")) return;
-    try {
-      await api.delete(`${API_ROUTES.mirrors}/${mirror.id}`);
-      await loadMirrors();
-    } catch (removeError) {
-      console.error("Erro ao remover espelhamento", removeError);
-      setError(removeError);
-    }
+    await confirmDelete({
+      title: "Remover espelhamento",
+      message: "Remover espelhamento? Esta ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await api.delete(`${API_ROUTES.mirrors}/${mirror.id}`);
+        await loadMirrors();
+      },
+    });
   };
 
   return (

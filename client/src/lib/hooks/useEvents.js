@@ -6,6 +6,7 @@ import { useTenant } from "../tenant-context.jsx";
 import { buildParams } from "./events-helpers.js";
 import { useSharedPollingResource } from "./useSharedPollingResource.js";
 import { useEventsContext } from "../../contexts/EventsContext.jsx";
+import { useVehicleAccess } from "../../contexts/VehicleAccessContext.jsx";
 
 export function useEvents({
   deviceId,
@@ -26,6 +27,7 @@ export function useEvents({
   const resolvedInterval = autoRefreshMs ?? refreshInterval;
   const { events: cachedEvents, loading: cachedLoading, error: cachedError, fetchedAt, refresh: refreshCached } =
     useEventsContext();
+  const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
 
   const hasFilters = Boolean(deviceId || (types && types.length) || from || to || severity || resolved !== undefined);
 
@@ -97,12 +99,34 @@ export function useEvents({
   );
 
   const events = useMemo(() => {
-    if (!hasFilters && enabled) {
-      const source = Array.isArray(cachedEvents) ? cachedEvents : [];
-      return source.slice(0, limit);
+    const source = !hasFilters && enabled
+      ? (Array.isArray(cachedEvents) ? cachedEvents : [])
+      : (Array.isArray(data) ? data : []);
+    const trimmed = source.slice(0, limit);
+    if (accessLoading) return trimmed;
+    if (!isRestricted && accessibleVehicleIds.length === 0 && accessibleDeviceIds.length === 0) {
+      return trimmed;
     }
-    return Array.isArray(data) ? data : [];
-  }, [cachedEvents, data, hasFilters, enabled, limit]);
+    const allowedVehicles = new Set(accessibleVehicleIds.map(String));
+    const allowedDevices = new Set(accessibleDeviceIds.map(String));
+    return trimmed.filter((event) => {
+      const vehicleId = event?.vehicleId ?? event?.vehicle?.id ?? null;
+      const deviceId = event?.deviceId ?? event?.device?.id ?? null;
+      if (vehicleId && allowedVehicles.has(String(vehicleId))) return true;
+      if (deviceId && allowedDevices.has(String(deviceId))) return true;
+      return false;
+    });
+  }, [
+    accessibleDeviceIds,
+    accessibleVehicleIds,
+    accessLoading,
+    cachedEvents,
+    data,
+    enabled,
+    hasFilters,
+    isRestricted,
+    limit,
+  ]);
 
   const combinedLoading = hasFilters ? loading : cachedLoading && enabled;
   const combinedError = hasFilters ? error : cachedError;

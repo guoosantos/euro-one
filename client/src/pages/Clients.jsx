@@ -10,6 +10,7 @@ import FilterBar from "../components/ui/FilterBar";
 import DataTable from "../components/ui/DataTable";
 import EmptyState from "../components/ui/EmptyState";
 import SkeletonTable from "../components/ui/SkeletonTable";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const documentTypeOptions = ["CPF", "CNPJ", "Cédula de identidad", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora de Risco", "Companhias de Seguro"];
@@ -133,6 +134,7 @@ export default function Clients() {
     users: EMPTY_LIST,
     mirrors: EMPTY_LIST,
   });
+  const { confirmDelete } = useConfirmDialog();
 
   const isAdmin = role === "admin";
   const isManager = role === "manager";
@@ -365,17 +367,18 @@ export default function Clients() {
 
   async function handleDeleteClient(client) {
     if (!client?.id) return;
-    if (!window.confirm(`Excluir cliente ${client.name}?`)) return;
-    try {
-      await api.delete(`${API_ROUTES.clients}/${client.id}`);
-      setClients((prev) => prev.filter((entry) => String(entry.id) !== String(client.id)));
-      if (detailsClientId && String(detailsClientId) === String(client.id)) {
-        closeDetailsDrawer();
-      }
-    } catch (deleteError) {
-      console.error("Erro ao excluir cliente", deleteError);
-      setError(deleteError);
-    }
+    await confirmDelete({
+      title: "Excluir cliente",
+      message: `Excluir cliente ${client.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await api.delete(`${API_ROUTES.clients}/${client.id}`);
+        setClients((prev) => prev.filter((entry) => String(entry.id) !== String(client.id)));
+        if (detailsClientId && String(detailsClientId) === String(client.id)) {
+          closeDetailsDrawer();
+        }
+      },
+    });
   }
 
   function closeDetailsDrawer() {

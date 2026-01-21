@@ -4,6 +4,7 @@ import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
 import PageHeader from "../components/ui/PageHeader.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const defaultUserForm = {
   name: "",
@@ -30,6 +31,7 @@ export default function ClientUsers() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState(null);
+  const { confirmDelete } = useConfirmDialog();
 
   const managedTenants = useMemo(() => {
     if (role === "admin") {
@@ -116,15 +118,16 @@ export default function ClientUsers() {
   }
 
   async function handleDelete(entry) {
-    if (!window.confirm(`Remover usuário ${entry.name}?`)) return;
-    try {
-      await api.delete(`/users/${entry.id}`);
-      setMessage("Usuário removido");
-      await loadUsers(selectedTenantId);
-    } catch (deleteError) {
-      console.error("Falha ao remover usuário", deleteError);
-      setError(deleteError);
-    }
+    await confirmDelete({
+      title: "Remover usuário",
+      message: `Remover usuário ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await api.delete(`/users/${entry.id}`);
+        setMessage("Usuário removido");
+        await loadUsers(selectedTenantId);
+      },
+    });
   }
 
   if (role !== "admin" && role !== "manager") {

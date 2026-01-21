@@ -4,6 +4,8 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTranslation } from "../lib/i18n.js";
 import { usePolling } from "../lib/hooks/usePolling.js";
+import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
+import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -17,6 +19,8 @@ const LivePositionsContext = createContext({ data: [], positions: [], loading: f
 export function LivePositionsProvider({ children, interval = 60_000 }) {
   const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
+  const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
 
   const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
 
@@ -38,22 +42,40 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchPositions,
-    intervalMs: interval,
+    intervalMs: autoRefresh.intervalMs,
     enabled: isAuthenticated,
+    paused: autoRefresh.paused,
     dependencies: [tenantId, isAuthenticated],
     resetOnChange: true,
   });
 
+  const filteredData = useMemo(() => {
+    const source = Array.isArray(data) ? data : [];
+    if (accessLoading) return source;
+    if (!isRestricted && accessibleVehicleIds.length === 0 && accessibleDeviceIds.length === 0) {
+      return source;
+    }
+    const allowedVehicles = new Set(accessibleVehicleIds.map(String));
+    const allowedDevices = new Set(accessibleDeviceIds.map(String));
+    return source.filter((item) => {
+      const vehicleId = item?.vehicleId ?? item?.vehicle?.id ?? null;
+      const deviceId = item?.deviceId ?? item?.device?.id ?? item?.traccarId ?? null;
+      if (vehicleId && allowedVehicles.has(String(vehicleId))) return true;
+      if (deviceId && allowedDevices.has(String(deviceId))) return true;
+      return false;
+    });
+  }, [accessibleDeviceIds, accessibleVehicleIds, accessLoading, data, isRestricted]);
+
   const value = useMemo(
     () => ({
-      data: Array.isArray(data) ? data : [],
-      positions: Array.isArray(data) ? data : [],
+      data: filteredData,
+      positions: filteredData,
       loading,
       error,
       refresh,
       fetchedAt: lastUpdated,
     }),
-    [data, error, lastUpdated, loading, refresh],
+    [filteredData, error, lastUpdated, loading, refresh],
   );
 
   return <LivePositionsContext.Provider value={value}>{children}</LivePositionsContext.Provider>;

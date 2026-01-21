@@ -8,6 +8,7 @@ import Select from "../ui/Select.jsx";
 import AddressCell from "../ui/AddressCell.jsx";
 import Modal from "../ui/Modal.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
+import DataState from "../ui/DataState.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import api from "../lib/api.js";
@@ -20,6 +21,7 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import { usePermissionGate, usePermissionResolver } from "../lib/permissions/permission-gate.js";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
 const EVENT_TABS = [
   {
@@ -210,6 +212,7 @@ export default function Events() {
   const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
   const { vehicles } = useVehicles();
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0].id);
@@ -254,6 +257,19 @@ export default function Events() {
   const { getPermission } = usePermissionResolver();
   const severityPermission = usePermissionGate({ menuKey: "primary", pageKey: "events", subKey: "severity" });
   const canEditSeverity = severityPermission.isFull;
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
 
   const availableTabs = useMemo(
     () => EVENT_TABS.filter((tab) => getPermission(tab.permission).canShow),

@@ -132,6 +132,43 @@ function mergeVehicles(primary = [], secondary = []) {
   return Array.from(map.values());
 }
 
+async function resolveAccessibleVehicles(req, { clientId, includeMirrorsForNonReceivers = true } = {}) {
+  const isAdmin = req.user?.role === "admin";
+  let vehicles = deps.listVehicles({ clientId });
+  let mirrorOwnerIds = [];
+  let isReceiver = false;
+  let hasMirrors = false;
+
+  if (!isAdmin && req.user?.clientId) {
+    const client = await deps.getClientById(req.user.clientId).catch(() => null);
+    const clientType = client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
+    isReceiver = ["GERENCIADORA", "SEGURADORA", "GERENCIADORA DE RISCO", "COMPANHIA DE SEGURO"]
+      .includes(String(clientType).toUpperCase());
+
+    const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) =>
+      isMirrorActive(mirror),
+    );
+    hasMirrors = mirrors.length > 0;
+    if (mirrors.length) {
+      mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
+      const mirroredVehicles = mirrors.flatMap((mirror) => {
+        const ownerVehicles = deps.listVehicles({ clientId: mirror.ownerClientId });
+        const allowedIds = new Set((mirror.vehicleIds || []).map(String));
+        return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
+      });
+      if (isReceiver) {
+        vehicles = mirroredVehicles;
+      } else if (includeMirrorsForNonReceivers) {
+        vehicles = mergeVehicles(vehicles, mirroredVehicles);
+      }
+    } else if (isReceiver) {
+      vehicles = [];
+    }
+  }
+
+  return { vehicles, mirrorOwnerIds, isReceiver, hasMirrors };
+}
+
 function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
   const protocolKey = protocol ? String(protocol).toLowerCase() : null;
   return mappings.filter((mapping) => {
@@ -1227,8 +1264,16 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       .filter(Boolean);
     const hasVehicleFilter = requestedVehicleIds.length > 0 || requestedPlates.length > 0;
 
-    const prismaFilter = clientId ? { clientId: String(clientId) } : {};
-    const deviceRegistry = deps.listDevices({ clientId });
+    const access = await resolveAccessibleVehicles(req, {
+      clientId,
+      includeMirrorsForNonReceivers: false,
+    });
+    const accessVehicleIds = access.vehicles.map((vehicle) => String(vehicle.id)).filter(Boolean);
+    let deviceRegistry = deps.listDevices({ clientId });
+    if (access.mirrorOwnerIds.length) {
+      const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));
+      deviceRegistry = mergeVehicles(deviceRegistry, extraDevices);
+    }
     const deviceById = new Map(deviceRegistry.map((device) => [String(device.id), device]));
     const devicesByVehicleId = new Map();
     deviceRegistry.forEach((device) => {
@@ -1241,11 +1286,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     let vehicles = [];
     let clientMap = new Map();
 
-    if (isPrismaReady()) {
+    if (isPrismaReady() && accessVehicleIds.length) {
       try {
         // 🔄 atualizado: buscar veículos e devices direto do Postgres para manter a visão por placa
         vehicles = await prisma.vehicle.findMany({
-          where: prismaFilter,
+          where: { id: { in: accessVehicleIds } },
           include: { devices: true, client: true },
         });
         const clientIds = vehicles.map((vehicle) => vehicle?.clientId).filter(Boolean);
@@ -1259,7 +1304,13 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     }
 
     if (!vehicles.length) {
-      vehicles = deps.listVehicles({ clientId });
+      vehicles = access.vehicles;
+    } else {
+      const prismaIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+      const fallback = access.vehicles.filter((vehicle) => !prismaIds.has(String(vehicle.id)));
+      if (fallback.length) {
+        vehicles = [...vehicles, ...fallback];
+      }
     }
 
     vehicles = vehicles.map((vehicle) => {
@@ -2648,10 +2699,12 @@ router.get(
   let clientId = null;
   try {
     clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const accessibleOnly = isTruthyParam(req.query?.accessible);
     const query = String(req.query?.query || "").trim().toLowerCase();
     const { page, pageSize, start } = parsePagination(req.query);
     const isAdmin = req.user?.role === "admin";
     let mirrorOwnerIds = [];
+    let mirrorRestricted = false;
     const userAccess = req.user?.attributes?.userAccess || {};
     const groupIds = Array.isArray(userAccess.vehicleGroupIds)
       ? userAccess.vehicleGroupIds
@@ -2671,27 +2724,13 @@ router.get(
             .flatMap((group) => (group.attributes?.vehicleIds || []).map(String)),
         ])
         : null;
-    let vehicles = deps.listVehicles({ clientId });
-    if (!isAdmin && req.user?.clientId) {
-      const client = await deps.getClientById(req.user.clientId).catch(() => null);
-      const clientType = client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
-      const isReceiver = ["GERENCIADORA", "SEGURADORA", "GERENCIADORA DE RISCO", "COMPANHIA DE SEGURO"]
-        .includes(String(clientType).toUpperCase());
-      const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) =>
-        isMirrorActive(mirror),
-      );
-      if (mirrors.length) {
-        mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
-        const mirroredVehicles = mirrors.flatMap((mirror) => {
-          const ownerVehicles = deps.listVehicles({ clientId: mirror.ownerClientId });
-          const allowedIds = new Set((mirror.vehicleIds || []).map(String));
-          return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
-        });
-        vehicles = isReceiver ? mirroredVehicles : mergeVehicles(vehicles, mirroredVehicles);
-      } else if (isReceiver) {
-        vehicles = [];
-      }
-    }
+    const access = await resolveAccessibleVehicles(req, {
+      clientId,
+      includeMirrorsForNonReceivers: !accessibleOnly,
+    });
+    let vehicles = access.vehicles;
+    mirrorOwnerIds = access.mirrorOwnerIds;
+    mirrorRestricted = access.isReceiver;
     if (accessVehicleIds) {
       vehicles = vehicles.filter((vehicle) => accessVehicleIds.has(String(vehicle.id)));
     }
@@ -2833,14 +2872,18 @@ router.get(
     }
     const total = response.length;
     const paged = response.slice(start, start + pageSize);
-    res.json({
+    const responsePayload = {
       vehicles: paged,
       page,
       pageSize,
       total,
       hasMore: start + pageSize < total,
       ...(telemetryUnavailable ? { telemetryStatus: "unavailable" } : {}),
-    });
+    };
+    if (accessibleOnly) {
+      responsePayload.meta = { restricted: mirrorRestricted };
+    }
+    res.json(responsePayload);
   } catch (error) {
     const durationMs = Date.now() - startedAt;
     console.error("[vehicles] falha ao listar", {

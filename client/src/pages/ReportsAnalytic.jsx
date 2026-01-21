@@ -6,6 +6,7 @@ import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
 import PageHeader from "../ui/PageHeader.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
+import DataState from "../ui/DataState.jsx";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import { resolvePortLabel, useModelPorts } from "../lib/hooks/useModelPorts.js";
 import { geocodeAddress } from "../lib/geocode.js";
@@ -27,6 +28,7 @@ import {
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
 const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -312,6 +314,7 @@ function buildCsvFileName(vehicle, from, to, target = "positions") {
 }
 
 export default function ReportsAnalytic() {
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
   const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = useAnalyticReport();
   const { portsIndex } = useModelPorts();
@@ -336,6 +339,19 @@ export default function ReportsAnalytic() {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const [csvExportTarget, setCsvExportTarget] = useState("positions");
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);

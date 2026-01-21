@@ -18,6 +18,7 @@ import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -234,6 +235,7 @@ export default function Devices() {
   const [linkTarget, setLinkTarget] = useState(null);
   const [linkVehicleId, setLinkVehicleId] = useState("");
   const [linkQuery, setLinkQuery] = useState("");
+  const { confirmDelete } = useConfirmDialog();
   const [filters, setFilters] = useState({
     status: "all",
     link: "all",
@@ -330,6 +332,7 @@ export default function Devices() {
     try {
       const clientId = tenantId || user?.clientId;
       const vehiclesParams = clientId ? { clientId } : {};
+      vehiclesParams.accessible = true;
       vehiclesParams.includeUnlinked = true;
       const [deviceResult, modelResult, chipResult, vehicleResult] = await Promise.allSettled([
         CoreApi.listDevices(clientId ? { clientId } : undefined),
@@ -1207,38 +1210,42 @@ export default function Devices() {
 
   async function handleDeleteDevice(id) {
     if (!id) return;
-    if (!window.confirm("Remover este equipamento?")) return;
     const clientId = tenantId || user?.clientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
       return;
     }
-    try {
-      await CoreApi.deleteDevice(id, { clientId });
-      await load();
-      showToast("Equipamento removido", "success");
-    } catch (requestError) {
-      showToast(requestError?.message || "Não foi possível remover o equipamento", "error");
-    }
+    await confirmDelete({
+      title: "Remover equipamento",
+      message: "Remover este equipamento? Esta ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await CoreApi.deleteDevice(id, { clientId });
+        await load();
+        showToast("Equipamento removido", "success");
+      },
+    });
   }
 
   async function handleDeleteConflictDevice() {
     if (!conflictDevice?.deviceId) return;
-    if (!window.confirm("Remover este equipamento?")) return;
     const clientId = tenantId || user?.clientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
       return;
     }
-    try {
-      await CoreApi.deleteDevice(conflictDevice.deviceId, { clientId });
-      await load();
-      resetDeviceForm();
-      setConflictDevice(null);
-      showToast("Equipamento removido", "success");
-    } catch (requestError) {
-      showToast(requestError?.message || "Não foi possível remover o equipamento", "error");
-    }
+    await confirmDelete({
+      title: "Remover equipamento",
+      message: "Remover este equipamento? Esta ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await CoreApi.deleteDevice(conflictDevice.deviceId, { clientId });
+        await load();
+        resetDeviceForm();
+        setConflictDevice(null);
+        showToast("Equipamento removido", "success");
+      },
+    });
   }
 
   function openEditDevice(device) {
@@ -1391,19 +1398,21 @@ export default function Devices() {
 
   async function handleUnlinkChip(device) {
     if (!device?.chipId) return;
-    if (!window.confirm("Desvincular chip deste equipamento?")) return;
-    try {
-      const clientId = device?.clientId || tenantId || user?.clientId || "";
-      if (!clientId) {
-        showToast("Selecione um cliente antes de desvincular", "error");
-        return;
-      }
-      await CoreApi.updateDevice(device.id, { chipId: "", clientId });
-      await load();
-      showToast("Chip desvinculado do equipamento", "success");
-    } catch (requestError) {
-      showToast(requestError?.message || "Falha ao desvincular chip", "error");
-    }
+    await confirmDelete({
+      title: "Desvincular chip",
+      message: "Desvincular chip deste equipamento?",
+      confirmLabel: "Desvincular",
+      onConfirm: async () => {
+        const clientId = device?.clientId || tenantId || user?.clientId || "";
+        if (!clientId) {
+          showToast("Selecione um cliente antes de desvincular", "error");
+          return;
+        }
+        await CoreApi.updateDevice(device.id, { chipId: "", clientId });
+        await load();
+        showToast("Chip desvinculado do equipamento", "success");
+      },
+    });
   }
 
   async function handleSyncDevices() {

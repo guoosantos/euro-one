@@ -4,6 +4,7 @@ import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
 import PageHeader from "../components/ui/PageHeader.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const initialForm = {
   name: "",
@@ -22,6 +23,7 @@ export default function AdminClients() {
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState(null);
+  const { confirmDelete } = useConfirmDialog();
 
   const isAdmin = role === "admin";
 
@@ -88,15 +90,16 @@ export default function AdminClients() {
   }
 
   async function handleDelete(client) {
-    if (!window.confirm(`Remover ${client.name}? Essa ação não pode ser desfeita.`)) return;
-    try {
-      await api.delete(`/clients/${client.id}`);
-      setMessage("Cliente removido");
-      await loadClients();
-    } catch (deleteError) {
-      console.error("Falha ao remover cliente", deleteError);
-      setError(deleteError);
-    }
+    await confirmDelete({
+      title: "Remover cliente",
+      message: `Remover ${client.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await api.delete(`/clients/${client.id}`);
+        setMessage("Cliente removido");
+        await loadClients();
+      },
+    });
   }
 
   if (!isAdmin) {
