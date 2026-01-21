@@ -7,8 +7,8 @@ import {
   normalizePermissionLevel,
 } from "../../lib/permissions/permission-utils";
 
-const LEVEL_OPTIONS = [
-  { value: "view", label: "Somente visualizar" },
+const ACCESS_OPTIONS = [
+  { value: "read", label: "Somente visualizar" },
   { value: "full", label: "Acesso completo" },
 ];
 
@@ -57,20 +57,25 @@ export default function PermissionTreeEditor({
       .filter(Boolean);
   }, [registry, search]);
 
-  const getLevel = (menuKey, pageKey, subKey) => {
+  const getEntry = (menuKey, pageKey, subKey) => {
     const menu = normalizedPermissions?.[menuKey] || {};
     const page = menu?.[pageKey];
     if (subKey) {
-      if (typeof page === "object" && page !== null) {
-        return normalizePermissionLevel(page.subpages?.[subKey]);
+      if (page && typeof page === "object") {
+        const subEntry = page.subpages?.[subKey];
+        if (subEntry && typeof subEntry === "object") {
+          return subEntry;
+        }
       }
-      return "none";
+      return { visible: false, access: null };
     }
-    if (typeof page === "string") return normalizePermissionLevel(page);
     if (page && typeof page === "object") {
-      return normalizePermissionLevel(page.level);
+      return page;
     }
-    return "none";
+    const legacyLevel = normalizePermissionLevel(page);
+    if (legacyLevel === "full") return { visible: true, access: "full" };
+    if (legacyLevel === "read" || legacyLevel === "view") return { visible: true, access: "read" };
+    return { visible: false, access: null };
   };
 
   const updatePermissions = (updater) => {
@@ -79,55 +84,104 @@ export default function PermissionTreeEditor({
     onChange?.(next);
   };
 
-  const setPageLevel = (menuKey, pageKey, level, pageConfig) => {
+  const setPageVisibility = (menuKey, pageKey, visible, pageConfig) => {
     updatePermissions((next) => {
       const menu = next[menuKey] || {};
-      if (pageConfig.subpages?.length) {
-        const page = typeof menu[pageKey] === "object" && menu[pageKey] !== null ? menu[pageKey] : {};
-        const updated = { ...page, level };
-        if (level === "none") {
-          const subpages = { ...updated.subpages };
-          pageConfig.subpages.forEach((subpage) => {
-            subpages[subpage.subKey] = "none";
-          });
-          updated.subpages = subpages;
-        }
-        menu[pageKey] = updated;
-      } else {
-        menu[pageKey] = level;
+      const page = typeof menu[pageKey] === "object" && menu[pageKey] !== null ? menu[pageKey] : {};
+      const nextAccess = visible ? page.access || "read" : null;
+      const updated = { ...page, visible, access: nextAccess };
+      if (!visible && pageConfig.subpages?.length) {
+        const subpages = { ...updated.subpages };
+        pageConfig.subpages.forEach((subpage) => {
+          subpages[subpage.subKey] = { visible: false, access: null };
+        });
+        updated.subpages = subpages;
       }
+      menu[pageKey] = updated;
       next[menuKey] = menu;
     });
   };
 
-  const setSubpageLevel = (menuKey, pageKey, subKey, level) => {
+  const setPageAccess = (menuKey, pageKey, access, pageConfig) => {
+    updatePermissions((next) => {
+      const menu = next[menuKey] || {};
+      const page = typeof menu[pageKey] === "object" && menu[pageKey] !== null ? menu[pageKey] : {};
+      const updated = { ...page, visible: true, access };
+      if (pageConfig.subpages?.length) {
+        const subpages = { ...updated.subpages };
+        pageConfig.subpages.forEach((subpage) => {
+          const current = subpages[subpage.subKey] || { visible: false, access: null };
+          subpages[subpage.subKey] = { ...current };
+        });
+        updated.subpages = subpages;
+      }
+      menu[pageKey] = updated;
+      next[menuKey] = menu;
+    });
+  };
+
+  const setSubpageVisibility = (menuKey, pageKey, subKey, visible) => {
     updatePermissions((next) => {
       const menu = next[menuKey] || {};
       const page = typeof menu[pageKey] === "object" && menu[pageKey] !== null ? menu[pageKey] : {};
       const subpages = { ...(page.subpages || {}) };
-      subpages[subKey] = level;
+      const current = subpages[subKey] || {};
+      subpages[subKey] = { ...current, visible, access: visible ? current.access || "read" : null };
       menu[pageKey] = {
-        level: normalizePermissionLevel(page.level || "view"),
+        ...page,
+        visible: page.visible ?? true,
+        access: page.access || "read",
         subpages,
       };
       next[menuKey] = menu;
     });
   };
 
-  const applyMenuLevel = (menuKey, level, pages) => {
+  const setSubpageAccess = (menuKey, pageKey, subKey, access) => {
+    updatePermissions((next) => {
+      const menu = next[menuKey] || {};
+      const page = typeof menu[pageKey] === "object" && menu[pageKey] !== null ? menu[pageKey] : {};
+      const subpages = { ...(page.subpages || {}) };
+      subpages[subKey] = { visible: true, access };
+      menu[pageKey] = {
+        ...page,
+        visible: page.visible ?? true,
+        access: page.access || "read",
+        subpages,
+      };
+      next[menuKey] = menu;
+    });
+  };
+
+  const applyMenuLevel = (menuKey, access, pages) => {
     updatePermissions((next) => {
       const menu = next[menuKey] || {};
       pages.forEach((page) => {
         if (page.subpages?.length) {
           const subpages = {};
           page.subpages.forEach((subpage) => {
-            subpages[subpage.subKey] = level;
+            subpages[subpage.subKey] = { visible: true, access };
           });
-          menu[page.pageKey] = { level, subpages };
+          menu[page.pageKey] = { visible: true, access, subpages };
         } else {
-          menu[page.pageKey] = level;
+          menu[page.pageKey] = { visible: true, access };
         }
       });
+      next[menuKey] = menu;
+    });
+  };
+
+  const applyPageToChildren = (menuKey, pageKey, access, visible, subpages) => {
+    updatePermissions((next) => {
+      const menu = next[menuKey] || {};
+      const page = typeof menu[pageKey] === "object" && menu[pageKey] !== null ? menu[pageKey] : {};
+      const nextSubpages = { ...(page.subpages || {}) };
+      subpages.forEach((subpage) => {
+        nextSubpages[subpage.subKey] = visible
+          ? { visible: true, access }
+          : { visible: false, access: null };
+      });
+      menu[pageKey] = { ...page, visible, access: visible ? access : page.access, subpages: nextSubpages };
       next[menuKey] = menu;
     });
   };
@@ -147,7 +201,7 @@ export default function PermissionTreeEditor({
       <div className="space-y-3">
         {filteredRegistry.map((menu) => {
           const isOpen = openMenus[menu.menuKey] !== false;
-          const bulkLevel = bulkLevels[menu.menuKey] || "view";
+          const bulkLevel = bulkLevels[menu.menuKey] || "read";
           return (
             <div key={menu.menuKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -174,7 +228,7 @@ export default function PermissionTreeEditor({
                     }
                     className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
                   >
-                    {LEVEL_OPTIONS.map((option) => (
+                    {ACCESS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -193,8 +247,9 @@ export default function PermissionTreeEditor({
               {isOpen && (
                 <div className="mt-4 space-y-3">
                   {menu.pages.map((page) => {
-                    const pageLevel = getLevel(menu.menuKey, page.pageKey);
-                    const isPageVisible = pageLevel !== "none";
+                    const pageEntry = getEntry(menu.menuKey, page.pageKey);
+                    const isPageVisible = Boolean(pageEntry.visible);
+                    const pageAccess = pageEntry.access || "read";
                     return (
                       <div key={page.pageKey} className="rounded-lg border border-white/10 bg-black/20 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -207,39 +262,57 @@ export default function PermissionTreeEditor({
                                 type="checkbox"
                                 checked={isPageVisible}
                                 onChange={() =>
-                                  setPageLevel(
-                                    menu.menuKey,
-                                    page.pageKey,
-                                    isPageVisible ? "none" : "view",
-                                    page,
-                                  )
+                                  setPageVisibility(menu.menuKey, page.pageKey, !isPageVisible, page)
                                 }
                               />
                               Mostrar
                             </label>
                             {isPageVisible && (
                               <select
-                                value={pageLevel}
+                                value={pageAccess}
                                 onChange={(event) =>
-                                  setPageLevel(menu.menuKey, page.pageKey, event.target.value, page)
+                                  setPageAccess(menu.menuKey, page.pageKey, event.target.value, page)
                                 }
                                 className="min-w-[200px] rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
                               >
-                                {LEVEL_OPTIONS.map((option) => (
+                                {ACCESS_OPTIONS.map((option) => (
                                   <option key={option.value} value={option.value}>
                                     {option.label}
                                   </option>
                                 ))}
                               </select>
                             )}
+                            {page.subpages?.length ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  applyPageToChildren(
+                                    menu.menuKey,
+                                    page.pageKey,
+                                    pageAccess,
+                                    isPageVisible,
+                                    page.subpages,
+                                  )
+                                }
+                                className="rounded-lg border border-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.08em] text-white/60 transition hover:border-white/30"
+                              >
+                                Aplicar aos filhos
+                              </button>
+                            ) : null}
                           </div>
                         </div>
 
                         {page.subpages?.length ? (
                           <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+                            <p className="text-[10px] uppercase tracking-[0.08em] text-white/40">
+                              {isPageVisible
+                                ? `Aplicará ${pageAccess === "full" ? "Acesso completo" : "Somente visualizar"} aos filhos`
+                                : "Aplicará Sem acesso aos filhos"}
+                            </p>
                             {page.subpages.map((subpage) => {
-                              const subLevel = getLevel(menu.menuKey, page.pageKey, subpage.subKey);
-                              const isSubVisible = subLevel !== "none";
+                              const subEntry = getEntry(menu.menuKey, page.pageKey, subpage.subKey);
+                              const isSubVisible = Boolean(subEntry.visible);
+                              const subAccess = subEntry.access || "read";
                               return (
                                 <div key={subpage.subKey} className="flex flex-wrap items-center justify-between gap-3">
                                   <span className="text-xs text-white/70">{subpage.label}</span>
@@ -249,11 +322,11 @@ export default function PermissionTreeEditor({
                                         type="checkbox"
                                         checked={isSubVisible}
                                         onChange={() =>
-                                          setSubpageLevel(
+                                          setSubpageVisibility(
                                             menu.menuKey,
                                             page.pageKey,
                                             subpage.subKey,
-                                            isSubVisible ? "none" : "view",
+                                            !isSubVisible,
                                           )
                                         }
                                         disabled={!isPageVisible}
@@ -262,9 +335,9 @@ export default function PermissionTreeEditor({
                                     </label>
                                     {isSubVisible && (
                                       <select
-                                        value={subLevel}
+                                        value={subAccess}
                                         onChange={(event) =>
-                                          setSubpageLevel(
+                                          setSubpageAccess(
                                             menu.menuKey,
                                             page.pageKey,
                                             subpage.subKey,
@@ -274,7 +347,7 @@ export default function PermissionTreeEditor({
                                         className="min-w-[180px] rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
                                         disabled={!isPageVisible}
                                       >
-                                        {LEVEL_OPTIONS.map((option) => (
+                                        {ACCESS_OPTIONS.map((option) => (
                                           <option key={option.value} value={option.value}>
                                             {option.label}
                                           </option>

@@ -12,6 +12,7 @@ import DataState from "../../ui/DataState.jsx";
 import api from "../../lib/api.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
 import { usePermissionGate, usePermissions } from "../../lib/permissions/permission-gate.js";
+import { useConfirmDialog } from "../../components/ui/ConfirmDialogProvider.jsx";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -89,6 +90,7 @@ export default function ServiceOrdersList() {
     if (user?.role === "admin") return "";
     return user?.clientId ? String(user.clientId) : "";
   });
+  const { confirmDelete } = useConfirmDialog();
   const [activeType, setActiveType] = useState("ALL");
   const retryCooldownRef = useRef(0);
 
@@ -140,16 +142,17 @@ export default function ServiceOrdersList() {
 
   const handleDelete = async (item) => {
     if (!item?.id) return;
-    if (!window.confirm("Excluir esta ordem de serviço?")) return;
-    try {
-      const params = clientId ? { clientId } : undefined;
-      await api.delete(`core/service-orders/${item.id}`, { params });
-      setItems((prev) => prev.filter((entry) => entry.id !== item.id));
-      setActionError(null);
-    } catch (deleteError) {
-      console.error("Falha ao excluir ordem de serviço", deleteError);
-      setActionError("Não foi possível excluir a OS no momento.");
-    }
+    await confirmDelete({
+      title: "Excluir ordem de serviço",
+      message: "Excluir esta ordem de serviço? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        const params = clientId ? { clientId } : undefined;
+        await api.delete(`core/service-orders/${item.id}`, { params });
+        setItems((prev) => prev.filter((entry) => entry.id !== item.id));
+        setActionError(null);
+      },
+    });
   };
 
   useEffect(() => {

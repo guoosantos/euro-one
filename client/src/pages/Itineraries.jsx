@@ -26,6 +26,9 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
+import DataState from "../ui/DataState.jsx";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const HISTORY_PAGE_SIZE = 10;
 const HISTORY_POLL_INTERVAL_MS = 8000;
@@ -1880,6 +1883,8 @@ export default function Itineraries() {
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
   const { tenants, tenantId } = useTenant();
   const { vehicles } = useVehicles();
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const { confirmDelete } = useConfirmDialog();
   const [routes, setRoutes] = useState([]);
   const [itineraries, setItineraries] = useState([]);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -1905,6 +1910,19 @@ export default function Itineraries() {
   const [selectedBatchItineraryIds, setSelectedBatchItineraryIds] = useState([]);
   const [editorEmbarkVehicleQuery, setEditorEmbarkVehicleQuery] = useState("");
   const [editorEmbarkItineraryQuery, setEditorEmbarkItineraryQuery] = useState("");
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
   const [selectedEditorEmbarkVehicleIds, setSelectedEditorEmbarkVehicleIds] = useState([]);
   const [selectedEditorEmbarkItineraryIds, setSelectedEditorEmbarkItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
@@ -2301,20 +2319,25 @@ export default function Itineraries() {
   const handleDelete = async (id) => {
     if (!id) return;
     const existing = itineraries.find((item) => item.id === id);
-    if (!window.confirm("Remover este itinerário?")) return;
-    try {
-      await api.delete(`${API_ROUTES.itineraries}/${id}`);
-      setItineraries((current) => current.filter((item) => item.id !== id));
-      if (selectedId === id) resetForm();
-      showToast("Itinerário removido.");
-    } catch (error) {
-      console.error(error);
-      if (error?.response?.status === 409) {
-        setDeleteConflict({ id, name: existing?.name || "Itinerário" });
-        return;
-      }
-      showToast(resolveApiError(error, "Não foi possível remover."), "warning");
-    }
+    await confirmDelete({
+      title: "Remover itinerário",
+      message: "Remover este itinerário? Esta ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        try {
+          await api.delete(`${API_ROUTES.itineraries}/${id}`);
+          setItineraries((current) => current.filter((item) => item.id !== id));
+          if (selectedId === id) resetForm();
+          showToast("Itinerário removido.");
+        } catch (error) {
+          console.error(error);
+          if (error?.response?.status === 409) {
+            setDeleteConflict({ id, name: existing?.name || "Itinerário" });
+          }
+          throw error;
+        }
+      },
+    });
   };
 
   const exportKml = async (id) => {

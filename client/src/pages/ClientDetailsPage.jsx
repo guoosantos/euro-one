@@ -15,6 +15,7 @@ import {
   buildPermissionEditorState,
   normalizePermissionPayload,
 } from "../lib/permissions/permission-utils";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const documentTypeOptions = ["CPF", "CNPJ", "CI", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora", "Seguradora"];
@@ -125,6 +126,7 @@ export default function ClientDetailsPage() {
   const [mirrors, setMirrors] = useState(EMPTY_LIST);
   const [mirrorDrawerOpen, setMirrorDrawerOpen] = useState(false);
   const [editingMirror, setEditingMirror] = useState(null);
+  const { confirmDelete } = useConfirmDialog();
   const [mirrorForm, setMirrorForm] = useState({
     targetClientIds: [],
     vehicleIds: [],
@@ -415,13 +417,14 @@ export default function ClientDetailsPage() {
       setMessage("Perfis globais só podem ser removidos no ADMIN GERAL.");
       return;
     }
-    if (!window.confirm(`Remover grupo ${group.name}?`)) return;
-    try {
-      await deleteGroup(group.id);
-    } catch (permissionError) {
-      console.error("Erro ao remover grupo de permissões", permissionError);
-      setError(permissionError);
-    }
+    await confirmDelete({
+      title: "Remover grupo de permissões",
+      message: `Remover grupo ${group.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await deleteGroup(group.id);
+      },
+    });
   };
 
   const openMirrorDrawer = (mirror = null) => {
@@ -486,14 +489,15 @@ export default function ClientDetailsPage() {
   };
 
   const handleMirrorDelete = async (mirror) => {
-    if (!window.confirm("Remover espelhamento?")) return;
-    try {
-      await api.delete(`/mirrors/${mirror.id}`);
-      setMirrors((prev) => prev.filter((entry) => entry.id !== mirror.id));
-    } catch (mirrorError) {
-      console.error("Erro ao remover espelhamento", mirrorError);
-      setError(mirrorError);
-    }
+    await confirmDelete({
+      title: "Remover espelhamento",
+      message: "Remover espelhamento? Essa ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await api.delete(`/mirrors/${mirror.id}`);
+        setMirrors((prev) => prev.filter((entry) => entry.id !== mirror.id));
+      },
+    });
   };
 
   return (

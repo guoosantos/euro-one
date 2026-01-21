@@ -12,6 +12,7 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -111,6 +112,7 @@ export default function Chips() {
   const [statusFilter, setStatusFilter] = useState("todos");
   const [carrierFilter, setCarrierFilter] = useState("todos");
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const { confirmDelete } = useConfirmDialog();
 
   const resolvedClientId = tenantId || user?.clientId || null;
   const columnStorageKey = useMemo(
@@ -398,13 +400,15 @@ export default function Chips() {
 
   async function handleDelete(id) {
     if (!id) return;
-    if (!window.confirm("Remover este chip?")) return;
-    try {
-      await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
-      await load();
-    } catch (requestError) {
-      alert(requestError?.message || "Não foi possível remover o chip");
-    }
+    await confirmDelete({
+      title: "Remover chip",
+      message: "Remover este chip? Esta ação não pode ser desfeita.",
+      confirmLabel: "Remover",
+      onConfirm: async () => {
+        await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
+        await load();
+      },
+    });
   }
 
   function openEdit(chip) {

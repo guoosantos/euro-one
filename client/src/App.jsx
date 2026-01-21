@@ -2,6 +2,7 @@ import React from "react";
 import { AppDataProviders } from "./contexts/AppDataProviders.jsx";
 import { AppRoutes } from "./routes";
 import { useTenant } from "./lib/tenant-context";
+import ConfirmDialogProvider from "./components/ui/ConfirmDialogProvider.jsx";
 
 export default function App() {
   const { isAuthenticated } = useTenant();
@@ -11,8 +12,10 @@ export default function App() {
   }
 
   return (
-    <AppDataProviders>
-      <AppRoutes />
-    </AppDataProviders>
+    <ConfirmDialogProvider>
+      <AppDataProviders>
+        <AppRoutes />
+      </AppDataProviders>
+    </ConfirmDialogProvider>
   );
 }

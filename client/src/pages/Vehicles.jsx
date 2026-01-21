@@ -19,6 +19,7 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import Modal from "../ui/Modal";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const BRAND_COLORS = {
   fiat: "bg-red-500/20 text-red-200",
@@ -165,6 +166,7 @@ export default function Vehicles() {
   const [attributeDrawerOpen, setAttributeDrawerOpen] = useState(false);
   const [attributeDrawerTab, setAttributeDrawerTab] = useState("list");
   const [attributeForm, setAttributeForm] = useState({ name: "", color: "#38bdf8" });
+  const { confirmDelete } = useConfirmDialog();
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -213,6 +215,7 @@ export default function Vehicles() {
     setError(null);
     try {
       const clientParams = resolvedClientId ? { clientId: resolvedClientId } : {};
+      clientParams.accessible = true;
       if (user?.role === "admin" || user?.role === "manager") {
         clientParams.includeUnlinked = true;
       } else {
@@ -514,14 +517,15 @@ export default function Vehicles() {
 
   async function handleDelete(vehicle) {
     if (!vehicle?.id) return;
-    const confirmed = window.confirm("Deseja realmente excluir este veículo?");
-    if (!confirmed) return;
-    try {
-      await CoreApi.deleteVehicle(vehicle.id);
-      await load();
-    } catch (requestError) {
-      alert(requestError?.message || "Falha ao excluir veículo.");
-    }
+    await confirmDelete({
+      title: "Excluir veículo",
+      message: "Deseja realmente excluir este veículo? Esta ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await CoreApi.deleteVehicle(vehicle.id);
+        await load();
+      },
+    });
   }
 
   function handleViewDevice(vehicle, latestPosition) {

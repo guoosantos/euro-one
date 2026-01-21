@@ -15,6 +15,7 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
   const options = typeof requestFnOrOptions === "function" ? maybeOptions : requestFnOrOptions || {};
   const {
     enabled = true,
+    paused = false,
     intervalMs = 5000,
     dependencies = [],
     resetOnChange = false,
@@ -31,7 +32,7 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
   fnRef.current = requestFn;
 
   useEffect(() => {
-    if (!enabled || typeof fnRef.current !== "function") return undefined;
+    if (!enabled || paused || typeof fnRef.current !== "function") return undefined;
 
     let cancelled = false;
     let timerId;
@@ -54,7 +55,9 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
       } finally {
         if (!cancelled) {
           setLoading(false);
-          timerId = setTimeout(tick, intervalMs);
+          if (Number.isFinite(intervalMs) && intervalMs > 0) {
+            timerId = setTimeout(tick, intervalMs);
+          }
         }
       }
     }
@@ -66,22 +69,34 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
       cancelled = true;
       if (timerId) clearTimeout(timerId);
     };
-  }, [enabled, intervalMs, ...dependencies]);
+  }, [enabled, paused, intervalMs, ...dependencies]);
 
   useEffect(() => {
-    if (!resetOnChange) return;
+    if (!resetOnChange || paused) return;
     setData(null);
     setError(null);
     setLastUpdated(null);
     setLoading(Boolean(enabled));
-  }, [enabled, resetOnChange, ...dependencies]);
+  }, [enabled, paused, resetOnChange, ...dependencies]);
 
-  const refresh = useCallback(() => {
-    if (!enabled) return undefined;
-    if (typeof tickRef.current === "function") {
+  const refresh = useCallback(async () => {
+    if (typeof fnRef.current !== "function") return undefined;
+    if (enabled && typeof tickRef.current === "function") {
       return tickRef.current();
     }
-    return undefined;
+    try {
+      setLoading(true);
+      const result = await fnRef.current();
+      setData(result ?? null);
+      setError(null);
+      setLastUpdated(new Date());
+      return result;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
   }, [enabled]);
 
   return useMemo(

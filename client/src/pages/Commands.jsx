@@ -7,11 +7,14 @@ import Select from "../ui/Select.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
+import DataState from "../ui/DataState.jsx";
 import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
 import { usePermissionGate, usePermissionResolver } from "../lib/permissions/permission-gate.js";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import {
   filterCommandsBySearch,
   mergeCommands,
@@ -199,6 +202,8 @@ export default function Commands() {
   const canEditCreate = createPermission.isFull;
   const canAccessCreateTab = createPermission.hasAccess;
   const { vehicles, loading: vehiclesLoading } = useVehicles();
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const { confirmDelete } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0].id);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
@@ -949,23 +954,26 @@ export default function Commands() {
       const commandId = command?.id;
       if (!commandId) return;
       const uiKey = getCommandKey(command);
-      const confirmed = window.confirm("Deseja remover este comando personalizado?");
-      if (!confirmed) return;
-      setDeletingCommandId(commandId);
-      try {
-        await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
-        setCustomCommands((current) => current.filter((item) => item.id !== commandId));
-        if (expandedCommandId === uiKey) {
-          setExpandedCommandId(null);
-        }
-        showToast("Comando removido.");
-      } catch (error) {
-        showToast(friendlyApiError(error, "Erro ao remover comando"), "error");
-      } finally {
-        setDeletingCommandId(null);
-      }
+      await confirmDelete({
+        title: "Remover comando personalizado",
+        message: "Deseja remover este comando personalizado? Esta ação não pode ser desfeita.",
+        confirmLabel: "Remover",
+        onConfirm: async () => {
+          setDeletingCommandId(commandId);
+          try {
+            await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
+            setCustomCommands((current) => current.filter((item) => item.id !== commandId));
+            if (expandedCommandId === uiKey) {
+              setExpandedCommandId(null);
+            }
+            showToast("Comando removido.");
+          } finally {
+            setDeletingCommandId(null);
+          }
+        },
+      });
     },
-    [canEditList, expandedCommandId, setCustomCommands, showToast],
+    [canEditList, confirmDelete, expandedCommandId, setCustomCommands, showToast],
   );
 
   const handleUpdateParam = (commandId, key, value) => {
@@ -1288,6 +1296,19 @@ export default function Commands() {
       </div>
     );
   };
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">

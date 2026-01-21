@@ -4,39 +4,59 @@ import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { getGroupById } from "../models/group.js";
 import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
 
-const PERMISSION_LEVELS = new Set(["none", "view", "full"]);
+const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
 
 function normaliseLevel(value) {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
+  if (normalized === "view") return "read";
   return PERMISSION_LEVELS.has(normalized) ? normalized : null;
 }
 
-function resolvePermissionLevel(permissions, menuKey, pageKey, subKey) {
-  if (!permissions || !menuKey || !pageKey) return DEFAULT_LEVEL;
+function normalizeEntry(value) {
+  if (typeof value === "string") {
+    const level = normaliseLevel(value) || DEFAULT_LEVEL;
+    if (level === "none") return { visible: false, access: null };
+    return { visible: true, access: level === "full" ? "full" : "read" };
+  }
+  if (value && typeof value === "object") {
+    if (Object.prototype.hasOwnProperty.call(value, "visible")) {
+      const visible = Boolean(value.visible);
+      const access = normaliseLevel(value.access) || "read";
+      return { visible, access: visible ? access : null };
+    }
+    const legacyLevel = normaliseLevel(value?.level) || DEFAULT_LEVEL;
+    if (legacyLevel === "none") return { visible: false, access: null };
+    return { visible: true, access: legacyLevel === "full" ? "full" : "read" };
+  }
+  return { visible: false, access: null };
+}
+
+function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
+  if (!permissions || !menuKey || !pageKey) return { visible: false, access: null };
 
   const menuPermissions = permissions?.[menuKey] || {};
   const pagePermission = menuPermissions?.[pageKey];
 
   if (subKey) {
-    if (typeof pagePermission === "string") {
-      return normaliseLevel(pagePermission) || DEFAULT_LEVEL;
+    if (pagePermission && typeof pagePermission === "object") {
+      const subpages = pagePermission?.subpages || {};
+      const subValue = subpages?.[subKey];
+      const baseEntry = normalizeEntry(pagePermission);
+      if (subValue !== undefined) {
+        const subEntry = normalizeEntry(subValue);
+        if (!baseEntry.visible) {
+          return { visible: false, access: null };
+        }
+        return subEntry;
+      }
+      return baseEntry.visible ? baseEntry : { visible: false, access: null };
     }
-    const subpages = pagePermission?.subpages || {};
-    const subLevel = normaliseLevel(subpages?.[subKey]);
-    if (subLevel) return subLevel;
-    const baseLevel = normaliseLevel(pagePermission?.level);
-    if (baseLevel) return baseLevel;
-    return DEFAULT_LEVEL;
+    return normalizeEntry(pagePermission);
   }
 
-  if (typeof pagePermission === "string") {
-    return normaliseLevel(pagePermission) || DEFAULT_LEVEL;
-  }
-
-  const baseLevel = normaliseLevel(pagePermission?.level);
-  return baseLevel || DEFAULT_LEVEL;
+  return normalizeEntry(pagePermission);
 }
 
 async function resolvePermissionContext(req) {
@@ -75,15 +95,16 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
   return async (req, _res, next) => {
     try {
       const context = await resolvePermissionContext(req);
-      const level =
+      const resolved =
         context.level
-        || resolvePermissionLevel(context.permissions, menuKey, pageKey, subKey);
+          ? { visible: true, access: context.level }
+          : resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
 
-      if (level === "none") {
+      if (!resolved.visible) {
         return next(createError(403, "Sem permissão para acessar este recurso"));
       }
 
-      if (requireFull && level !== "full") {
+      if (requireFull && resolved.access !== "full") {
         return next(createError(403, "Acesso restrito para esta operação"));
       }
 

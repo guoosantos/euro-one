@@ -31,6 +31,7 @@ import MapToolbar from "../components/map/MapToolbar.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
 const DEFAULT_CENTER = [-23.55052, -46.633308];
@@ -377,6 +378,7 @@ export default function Geofences({ variant = "geofences" }) {
   const [saving, setSaving] = useState(false);
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
+  const { confirmDelete } = useConfirmDialog();
   const { tenantId, user, tenant } = useTenant();
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
   const addressSearch = useAddressSearchState({ mapPreferences });
@@ -597,34 +599,39 @@ export default function Geofences({ variant = "geofences" }) {
     async (target = null) => {
       const geofence = target || selectedGeofence;
       if (!geofence) return;
-      const confirmed = window.confirm(`Excluir ${entityArticle} ${entityLabelLower} "${geofence.name}"?`);
-      if (!confirmed) return;
+      await confirmDelete({
+        title: `Excluir ${entityLabelLower}`,
+        message: `Excluir ${entityArticle} ${entityLabelLower} "${geofence.name}"? Essa ação não pode ser desfeita.`,
+        confirmLabel: "Excluir",
+        onConfirm: async () => {
+          const isLocal = !geofence.id || geofence.id.startsWith("local-") || geofence.id.startsWith("kml-");
+          if (isLocal) {
+            setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
+            setSelectedId((current) => (current === geofence.id ? null : current));
+            setHasUnsavedChanges(true);
+            return;
+          }
 
-      const isLocal = !geofence.id || geofence.id.startsWith("local-") || geofence.id.startsWith("kml-");
-      if (isLocal) {
-        setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
-        setSelectedId((current) => (current === geofence.id ? null : current));
-        setHasUnsavedChanges(true);
-        return;
-      }
-
-      setSaving(true);
-      setUiError(null);
-      setStatus(`Removendo ${entityLabelLower}...`);
-      try {
-        await deleteGeofence(geofence.id);
-        setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
-        setBaselineGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
-        setSelectedId((current) => (current === geofence.id ? null : current));
-        setStatus(`${entityLabel} ${isTargetView ? "excluído" : "excluída"}.`);
-      } catch (error) {
-        setUiError(error);
-        setStatus(error?.message || `Não foi possível excluir ${entityArticle} ${entityLabelLower}.`);
-      } finally {
-        setSaving(false);
-      }
+          setSaving(true);
+          setUiError(null);
+          setStatus(`Removendo ${entityLabelLower}...`);
+          try {
+            await deleteGeofence(geofence.id);
+            setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
+            setBaselineGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
+            setSelectedId((current) => (current === geofence.id ? null : current));
+            setStatus(`${entityLabel} ${isTargetView ? "excluído" : "excluída"}.`);
+          } catch (error) {
+            setUiError(error);
+            setStatus(error?.message || `Não foi possível excluir ${entityArticle} ${entityLabelLower}.`);
+            throw error;
+          } finally {
+            setSaving(false);
+          }
+        },
+      });
     },
-    [deleteGeofence, selectedGeofence],
+    [confirmDelete, deleteGeofence, entityArticle, entityLabel, entityLabelLower, isTargetView, selectedGeofence],
   );
 
   const handleRemoveSelected = useCallback(() => {

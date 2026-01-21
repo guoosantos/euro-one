@@ -4,6 +4,8 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import { useTranslation } from "../lib/i18n.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { usePolling } from "../lib/hooks/usePolling.js";
+import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
+import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 
 function normaliseDeviceList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -17,6 +19,8 @@ const DevicesContext = createContext({ data: [], devices: [], loading: false, er
 export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
   const { tenantId, isAuthenticated } = useTenant();
+  const { accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
 
   const fetchDevices = useCallback(async () => {
     const params = tenantId ? { clientId: tenantId } : undefined;
@@ -43,16 +47,29 @@ export function DevicesProvider({ children, interval = 60_000 }) {
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchDevices,
-    intervalMs: interval,
+    intervalMs: autoRefresh.intervalMs,
     enabled: isAuthenticated,
+    paused: autoRefresh.paused,
     dependencies: [tenantId, isAuthenticated],
     resetOnChange: true,
   });
 
+  const filteredDevices = useMemo(() => {
+    const source = Array.isArray(data) ? data : [];
+    if (accessLoading) return source;
+    if (!isRestricted && accessibleDeviceIds.length === 0) return source;
+    const allowedDevices = new Set(accessibleDeviceIds.map(String));
+    return source.filter((device) => {
+      const deviceId = device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null;
+      if (!deviceId) return false;
+      return allowedDevices.has(String(deviceId));
+    });
+  }, [accessLoading, accessibleDeviceIds, data, isRestricted]);
+
   const value = useMemo(
     () => ({
-      data: Array.isArray(data) ? data : [],
-      devices: Array.isArray(data) ? data : [],
+      data: filteredDevices,
+      devices: filteredDevices,
       loading,
       error,
       refresh,
@@ -66,7 +83,7 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           }) || "",
       },
     }),
-    [data, error, lastUpdated, loading, refresh, t],
+    [filteredDevices, error, lastUpdated, loading, refresh, t],
   );
 
   return <DevicesContext.Provider value={value}>{children}</DevicesContext.Provider>;

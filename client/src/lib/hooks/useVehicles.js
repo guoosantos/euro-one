@@ -72,9 +72,9 @@ export function formatVehicleLabel(vehicle) {
   return plate || name || vehicle?.identifier || vehicle?.id || "Veículo";
 }
 
-export function useVehicles({ includeUnlinked = false } = {}) {
+export function useVehicles({ includeUnlinked = false, accessible = true } = {}) {
   const { tenantId } = useTenant();
-  const cacheKey = `${tenantId ?? "all"}:${includeUnlinked ? "1" : "0"}`;
+  const cacheKey = `${tenantId ?? "all"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
   const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -91,6 +91,9 @@ export function useVehicles({ includeUnlinked = false } = {}) {
       const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
       if (includeUnlinked) {
         params.includeUnlinked = true;
+      }
+      if (accessible) {
+        params.accessible = true;
       }
       const response = await CoreApi.listVehicles(params);
       const list = Array.isArray(response) ? response : [];
@@ -125,7 +128,7 @@ export function useVehicles({ includeUnlinked = false } = {}) {
     } finally {
       setLoading(false);
     }
-  }, [cacheKey, includeUnlinked, tenantId]);
+  }, [accessible, cacheKey, includeUnlinked, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});

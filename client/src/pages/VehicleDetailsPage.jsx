@@ -492,6 +492,7 @@ export default function VehicleDetailsPage() {
     setFeedback(null);
     try {
       const params = resolvedClientId ? { clientId: resolvedClientId } : {};
+      params.accessible = true;
       if (isAdmin) {
         params.includeUnlinked = true;
       } else {

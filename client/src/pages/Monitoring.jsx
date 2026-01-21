@@ -29,6 +29,9 @@ import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
+import useOverlayActivity from "../lib/hooks/useOverlayActivity.js";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
+import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -380,6 +383,7 @@ export default function Monitoring() {
   const [searchParams] = useSearchParams();
 
   const { tenantId, user, tenant } = useTenant();
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
   const {
@@ -389,13 +393,17 @@ export default function Monitoring() {
     reload: reloadTasks,
   } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
   const { vehicles } = useVehicles();
+  const pendingAlertsRefresh = useAutoRefresh({ enabled: true, intervalMs: 30_000, pauseWhenOverlayOpen: true });
+  const conjugatedAlertsRefresh = useAutoRefresh({ enabled: true, intervalMs: 60_000, pauseWhenOverlayOpen: true });
   const { alerts: pendingAlerts } = useAlerts({
     params: { status: "pending" },
-    refreshInterval: 30_000,
+    refreshInterval: pendingAlertsRefresh.intervalMs,
+    enabled: pendingAlertsRefresh.enabled,
   });
   const { alerts: conjugatedAlerts } = useConjugatedAlerts({
     params: { windowHours: 5 },
-    refreshInterval: 60_000,
+    refreshInterval: conjugatedAlertsRefresh.intervalMs,
+    enabled: conjugatedAlertsRefresh.enabled,
   });
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
 
@@ -1239,6 +1247,7 @@ export default function Monitoring() {
   );
 
   const isDetailsOpen = Boolean(detailsDeviceId);
+  useOverlayActivity(isDetailsOpen);
   const closeDetails = useCallback(() => {
     setDetailsDeviceId(null);
     setSelectedDeviceId(null);
@@ -1754,6 +1763,19 @@ export default function Monitoring() {
         >
           Atualizar telemetria
         </button>
+      </div>
+    );
+  }
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-6 bg-[#0b0f17] px-6 py-10 text-white">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
       </div>
     );
   }

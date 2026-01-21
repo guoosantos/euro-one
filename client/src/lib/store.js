@@ -32,6 +32,7 @@ const initialState = {
   routesTopbarVisible: true,
   selectedVehicleId: null,
   selectedTelemetryDeviceId: null,
+  overlayCount: 0,
   ...loadState(),
 };
 
@@ -143,4 +144,10 @@ export const useUI = create((set, get) => ({
       persistNextState(next);
       return next;
     }),
+  registerOverlay: () => {
+    set((state) => ({ ...state, overlayCount: state.overlayCount + 1 }));
+    return () => {
+      set((state) => ({ ...state, overlayCount: Math.max(0, state.overlayCount - 1) }));
+    };
+  },
 }));

@@ -3,6 +3,8 @@ import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { usePolling } from "../lib/hooks/usePolling.js";
+import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
+import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 
 function normaliseTelemetry(payload) {
   if (Array.isArray(payload)) return payload;
@@ -26,6 +28,8 @@ const ENABLE_WEBSOCKET = false;
 
 export function TelemetryProvider({ children, interval = 60_000 }) {
   const { tenantId, isAuthenticated } = useTenant();
+  const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
 
   const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
 
@@ -47,13 +51,29 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
     },
     {
       enabled: isAuthenticated,
-      intervalMs: interval,
+      intervalMs: autoRefresh.intervalMs,
+      paused: autoRefresh.paused,
       dependencies: [tenantId, isAuthenticated],
       resetOnChange: true,
     },
   );
 
-  const telemetry = Array.isArray(data?.telemetry) ? data.telemetry : [];
+  const telemetry = useMemo(() => {
+    const source = Array.isArray(data?.telemetry) ? data.telemetry : [];
+    if (accessLoading) return source;
+    if (!isRestricted && accessibleVehicleIds.length === 0 && accessibleDeviceIds.length === 0) {
+      return source;
+    }
+    const allowedVehicles = new Set(accessibleVehicleIds.map(String));
+    const allowedDevices = new Set(accessibleDeviceIds.map(String));
+    return source.filter((item) => {
+      const vehicleId = item?.vehicleId ?? item?.vehicle?.id ?? null;
+      const deviceId = item?.deviceId ?? item?.device?.id ?? item?.traccarId ?? null;
+      if (vehicleId && allowedVehicles.has(String(vehicleId))) return true;
+      if (deviceId && allowedDevices.has(String(deviceId))) return true;
+      return false;
+    });
+  }, [accessibleDeviceIds, accessibleVehicleIds, accessLoading, data?.telemetry, isRestricted]);
   const warnings = Array.isArray(data?.warnings) ? data.warnings : [];
   const liveStatus = useMemo(
     () => ({ mode: ENABLE_WEBSOCKET ? "websocket" : "polling", connected: false }),

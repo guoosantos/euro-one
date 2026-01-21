@@ -25,6 +25,8 @@ import {
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 import PageHeader from "../ui/PageHeader.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
+import DataState from "../ui/DataState.jsx";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -233,6 +235,7 @@ function buildCsvFileName(vehicle, from, to) {
 }
 
 export default function ReportsPositions() {
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
   const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = usePositionsReport();
 
@@ -263,6 +266,19 @@ export default function ReportsPositions() {
   const [loadingMore, setLoadingMore] = useState(false);
   const baseQueryRef = useRef(null);
   const [lastResolvedFilter, setLastResolvedFilter] = useState(null);
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
 
   const effectivePageSize = pageSize;
   const totalPages = meta?.totalPages || 1;

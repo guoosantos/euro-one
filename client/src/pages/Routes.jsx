@@ -19,6 +19,7 @@ import useMapController from "../lib/map/useMapController.js";
 import MapToolbar from "../components/map/MapToolbar.jsx";
 import { useUI } from "../lib/store.js";
 import AppMap from "../components/map/AppMap.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 function alignUrlProtocol(rawUrl) {
@@ -517,6 +518,7 @@ export default function RoutesPage() {
   const [editingRouteId, setEditingRouteId] = useState(null);
   const [routeFilter, setRouteFilter] = useState("");
   const [loadingRoutes, setLoadingRoutes] = useState(false);
+  const { confirmDelete } = useConfirmDialog();
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
@@ -757,17 +759,18 @@ export default function RoutesPage() {
 
   const handleDeleteRoute = async (id) => {
     if (!id) return;
-    if (!window.confirm("Excluir esta rota?")) return;
-    try {
-      await api.delete(`${API_ROUTES.routes}/${id}`);
-      setRoutes((current) => current.filter((item) => String(item.id) !== String(id)));
-      if (activeRouteId === id) {
-        handleNewRoute();
-      }
-    } catch (error) {
-      console.error(error);
-      showToast(error?.message || "Não foi possível remover a rota.", "warning");
-    }
+    await confirmDelete({
+      title: "Excluir rota",
+      message: "Excluir esta rota? Esta ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        await api.delete(`${API_ROUTES.routes}/${id}`);
+        setRoutes((current) => current.filter((item) => String(item.id) !== String(id)));
+        if (activeRouteId === id) {
+          handleNewRoute();
+        }
+      },
+    });
   };
 
   const handleExportSingle = (route) => {

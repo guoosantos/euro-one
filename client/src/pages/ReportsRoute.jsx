@@ -20,18 +20,21 @@ import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-preset
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
+import DataState from "../ui/DataState.jsx";
 import {
   buildAddressWithLatLng,
   resolveReportColumnLabel,
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
   const COLUMN_STORAGE_KEY = "routeReportColumns";
 
 export default function ReportsRoute() {
   const { locale } = useTranslation();
   const location = useLocation();
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const {
     vehicles,
     vehicleOptions,
@@ -372,6 +375,19 @@ export default function ReportsRoute() {
     } finally {
       setFetching(false);
     }
+  }
+
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
   }
 
   return (

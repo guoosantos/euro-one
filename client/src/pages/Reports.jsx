@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { CoreApi } from "../lib/coreApi";
 import { useReports } from "../lib/hooks/useReports";
-import { useTenant } from "../lib/tenant-context.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
+import DataState from "../ui/DataState.jsx";
+import useVehicles from "../lib/hooks/useVehicles.js";
+import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
 export default function Reports() {
-  const { tenantId } = useTenant();
-  const [vehicles, setVehicles] = useState([]);
-  const [loadingVehicles, setLoadingVehicles] = useState(false);
-  const [vehiclesError, setVehiclesError] = useState(null);
+  const { vehicles, loading: loadingVehicles, error: vehiclesError } = useVehicles();
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { data, loading, error, generateTripsReport, downloadTripsCsv } = useReports();
 
   const [vehicleIds, setVehicleIds] = useState([]);
@@ -24,33 +23,18 @@ export default function Reports() {
     }
   }, [vehicleIds.length, vehicles]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadVehicles() {
-      setLoadingVehicles(true);
-      setVehiclesError(null);
-      try {
-        const response = await CoreApi.listVehicles(tenantId ? { clientId: tenantId } : undefined);
-        if (cancelled) return;
-        const list = Array.isArray(response) ? response : [];
-        const withTracker = list.filter((vehicle) => (vehicle.deviceCount || vehicle.devices?.length || vehicle.device ? 1 : 0));
-        setVehicles(withTracker);
-      } catch (requestError) {
-        if (!cancelled) {
-          setVehiclesError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingVehicles(false);
-        }
-      }
-    }
-
-    loadVehicles();
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId]);
+  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Sem veículos espelhados ativos"
+          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
+        />
+      </div>
+    );
+  }
 
   async function handleGenerate(event) {
     event.preventDefault();
