@@ -44,6 +44,7 @@ const defaultDeps = {
   createModel: modelModel.createModel,
   getModelById: modelModel.getModelById,
   listDevices: deviceModel.listDevices,
+  listDevicesFromDb: deviceModel.listDevicesFromDb,
   createDevice: deviceModel.createDevice,
   updateDevice: deviceModel.updateDevice,
   getDeviceById: deviceModel.getDeviceById,
@@ -120,6 +121,26 @@ function mergeById(primary = [], secondary = []) {
     }
   });
   return Array.from(map.values());
+}
+
+function dedupeDevices(devices = []) {
+  const seen = new Set();
+  const result = [];
+  devices.forEach((device) => {
+    if (!device) return;
+    const key =
+      device?.traccarId != null
+        ? `traccar:${device.traccarId}`
+        : device?.id != null
+        ? `id:${device.id}`
+        : device?.uniqueId
+        ? `unique:${device.uniqueId}`
+        : null;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(device);
+  });
+  return result;
 }
 
 function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
@@ -1224,10 +1245,21 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     });
     const accessVehicleIds = access.vehicles.map((vehicle) => String(vehicle.id)).filter(Boolean);
     let deviceRegistry = deps.listDevices({ clientId });
+    let persistedDevices = deps.listDevicesFromDb ? await deps.listDevicesFromDb({ clientId }) : [];
     if (access.mirrorOwnerIds.length) {
       const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));
+      const extraPersisted = deps.listDevicesFromDb
+        ? await Promise.all(access.mirrorOwnerIds.map((ownerId) => deps.listDevicesFromDb({ clientId: ownerId })))
+        : [];
       deviceRegistry = mergeById(deviceRegistry, extraDevices);
+      persistedDevices = mergeById(persistedDevices, extraPersisted.flat());
     }
+    const vehicleIdSet = new Set(accessVehicleIds);
+    deviceRegistry = dedupeDevices([...deviceRegistry, ...persistedDevices]).filter((device) => {
+      if (!device) return false;
+      if (!device.vehicleId) return includeUnlinked;
+      return vehicleIdSet.has(String(device.vehicleId));
+    });
     const deviceById = new Map(deviceRegistry.map((device) => [String(device.id), device]));
     const devicesByVehicleId = new Map();
     deviceRegistry.forEach((device) => {
