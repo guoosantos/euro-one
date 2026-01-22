@@ -8,7 +8,6 @@ import {
 } from "../../lib/permissions/permission-utils";
 
 const ACCESS_OPTIONS = [
-  { value: "none", label: "Sem acesso" },
   { value: "read", label: "Somente visualizar" },
   { value: "full", label: "Acesso completo" },
 ];
@@ -307,13 +306,7 @@ export default function PermissionTreeEditor({
                           <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
                             <p className="text-[10px] uppercase tracking-[0.08em] text-white/40">
                               {isPageVisible
-                                ? `Aplicará ${
-                                  pageAccess === "full"
-                                    ? "Acesso completo"
-                                    : pageAccess === "none"
-                                      ? "Sem acesso"
-                                      : "Somente visualizar"
-                                } aos filhos`
+                                ? `Aplicará ${pageAccess === "full" ? "Acesso completo" : "Somente visualizar"} aos filhos`
                                 : "Aplicará Sem acesso aos filhos"}
                             </p>
                             {page.subpages.map((subpage) => {

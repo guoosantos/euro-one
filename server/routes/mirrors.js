@@ -2,7 +2,6 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { getClientById, listClients } from "../models/client.js";
 import { createGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
@@ -391,7 +390,6 @@ router.delete(
   "/mirrors/:id",
   authorizePermission({ menuKey: "admin", pageKey: "mirrors", requireFull: true }),
   requireRole("manager", "admin"),
-  requireAdminGeneral,
   (req, res, next) => {
   try {
     const { id } = req.params;

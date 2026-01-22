@@ -166,27 +166,8 @@ export const PERMISSION_REGISTRY = [
           { subKey: "mirrors-received", label: "Espelhados" },
         ],
       },
-      {
-        pageKey: "clients",
-        label: "Clientes",
-        subpages: [
-          { subKey: "clients-general", label: "Geral" },
-          { subKey: "clients-users", label: "Usuários" },
-          { subKey: "clients-vehicles", label: "Veículos" },
-          { subKey: "clients-equipments", label: "Equipamentos" },
-          { subKey: "clients-permissions", label: "Grupos de Permissões" },
-          { subKey: "clients-mirrors", label: "Espelhamento" },
-        ],
-      },
-      {
-        pageKey: "users",
-        label: "Usuários",
-        subpages: [
-          { subKey: "users-list", label: "Usuários" },
-          { subKey: "users-vehicle-groups", label: "Grupos de veículos" },
-          { subKey: "users-permission-groups", label: "Grupos de permissões" },
-        ],
-      },
+      { pageKey: "clients", label: "Clientes" },
+      { pageKey: "users", label: "Usuários" },
       { pageKey: "import", label: "Importar Base (XLSX)" },
     ],
   },
@@ -303,7 +284,7 @@ export const MENU_REGISTRY = [
           { to: "/analytics/heatmap", label: "Mapa de Calor", icon: BarChart3, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
           { to: "/ranking", label: "Ranking", icon: Medal, permission: { menuKey: "admin", pageKey: "analytics", subKey: "ranking" } },
           { to: "/analytics/risk-area", label: "Área de Risco", icon: Map, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
-          { to: "/analytics/security", label: "Segurança", icon: ShieldCheck, permission: { menuKey: "admin", pageKey: "analytics", subKey: "security-events" } },
+          { to: "/events", label: "Segurança", icon: ShieldCheck, permission: { menuKey: "primary", pageKey: "events" } },
         ],
       },
       {
