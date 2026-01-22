@@ -4,37 +4,18 @@ import { Plus, RefreshCw, Search, Pencil, Eye } from "lucide-react";
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes";
 import { useTenant } from "../lib/tenant-context";
-import { usePermissionGate, usePermissions } from "../lib/permissions/permission-gate";
+import { usePermissionGate } from "../lib/permissions/permission-gate";
 import PageHeader from "../components/ui/PageHeader";
 import FilterBar from "../components/ui/FilterBar";
 import DataTable from "../components/ui/DataTable";
 import EmptyState from "../components/ui/EmptyState";
 import SkeletonTable from "../components/ui/SkeletonTable";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
-import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
-import usePageToast from "../lib/hooks/usePageToast.js";
-import PageToast from "../components/ui/PageToast.jsx";
 
 const documentTypeOptions = ["CPF", "CNPJ", "Cédula de identidad", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora de Risco", "Companhias de Seguro"];
 const cnhCategories = ["ACC", "A", "B", "C", "D", "E", "AB", "AC", "AD", "AE"];
 const genderOptions = ["Masculino", "Feminino", "Outro"];
-
-const detailsTabs = [
-  { id: "Geral", label: "Geral", permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-general" } },
-  { id: "Veículos", label: "Veículos", permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-vehicles" } },
-  {
-    id: "Equipamentos",
-    label: "Equipamentos",
-    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-equipments" },
-  },
-  { id: "Usuários", label: "Usuários", permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-users" } },
-  {
-    id: "Espelhamento",
-    label: "Espelhamento",
-    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-mirrors" },
-  },
-];
 
 const defaultProfile = {
   documentType: "CPF",
@@ -154,21 +135,10 @@ export default function Clients() {
     mirrors: EMPTY_LIST,
   });
   const { confirmDelete } = useConfirmDialog();
-  const { isAdminGeneral } = useAdminGeneralAccess();
-  const { toast, showToast } = usePageToast();
 
   const isAdmin = role === "admin";
   const isManager = role === "manager";
   const clientsPermission = usePermissionGate({ menuKey: "admin", pageKey: "clients" });
-  const { getPermission } = usePermissions();
-  const availableDetailsTabs = useMemo(
-    () => detailsTabs.filter((tab) => getPermission(tab.permission).canShow),
-    [getPermission],
-  );
-  const activeDetailsPermission = useMemo(() => {
-    const tab = detailsTabs.find((entry) => entry.id === detailsTab);
-    return tab ? getPermission(tab.permission) : null;
-  }, [detailsTab, getPermission]);
 
   useEffect(() => {
     if (isAdmin || isManager) {
@@ -210,12 +180,6 @@ export default function Clients() {
       setDetailsClient(refreshed);
     }
   }, [clients, detailsClient, detailsClientId]);
-
-  useEffect(() => {
-    if (!availableDetailsTabs.length) return;
-    if (availableDetailsTabs.some((tab) => tab.id === detailsTab)) return;
-    setDetailsTab(availableDetailsTabs[0].id);
-  }, [availableDetailsTabs, detailsTab]);
 
   const filteredClients = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -375,7 +339,7 @@ export default function Clients() {
     setDetailsClient(client);
     setDetailsClientId(client?.id || null);
     setDetailsOpen(true);
-    setDetailsTab(availableDetailsTabs[0]?.id || "Geral");
+    setDetailsTab("Geral");
     setDetailsSearch({ vehicles: "", users: "", mirrors: "" });
     setDetailsLoading(true);
     try {
@@ -403,25 +367,15 @@ export default function Clients() {
 
   async function handleDeleteClient(client) {
     if (!client?.id) return;
-    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir cliente",
       message: `Excluir cliente ${client.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        try {
-          await api.delete(`${API_ROUTES.clients}/${client.id}`);
-          setClients((prev) => prev.filter((entry) => String(entry.id) !== String(client.id)));
-          if (detailsClientId && String(detailsClientId) === String(client.id)) {
-            closeDetailsDrawer();
-          }
-          showToast("Cliente removido com sucesso.");
-        } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o cliente.",
-            "error",
-          );
-          throw requestError;
+        await api.delete(`${API_ROUTES.clients}/${client.id}`);
+        setClients((prev) => prev.filter((entry) => String(entry.id) !== String(client.id)));
+        if (detailsClientId && String(detailsClientId) === String(client.id)) {
+          closeDetailsDrawer();
         }
       },
     });
@@ -618,7 +572,7 @@ export default function Clients() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
-                      {clientsPermission.isFull && isAdminGeneral && (
+                      {clientsPermission.isFull && (
                         <button
                           type="button"
                           onClick={() => handleDeleteClient(client)}
@@ -1009,31 +963,21 @@ export default function Clients() {
       >
         <div className="space-y-6">
           <div className="flex flex-wrap gap-2">
-            {availableDetailsTabs.map((tab) => (
+            {["Geral", "Veículos", "Equipamentos", "Usuários", "Espelhamento"].map((tab) => (
               <button
-                key={tab.id}
+                key={tab}
                 type="button"
-                onClick={() => setDetailsTab(tab.id)}
+                onClick={() => setDetailsTab(tab)}
                 className={`rounded-full border px-4 py-2 text-sm transition ${
-                  detailsTab === tab.id
+                  detailsTab === tab
                     ? "border-sky-400 bg-sky-500/20 text-sky-200"
                     : "border-white/10 bg-white/5 text-white/70 hover:border-white/30"
                 }`}
               >
-                {tab.label}
+                {tab}
               </button>
             ))}
           </div>
-
-          {clientsPermission.isFull && isAdminGeneral && detailsClient && (
-            <button
-              type="button"
-              onClick={() => handleDeleteClient(detailsClient)}
-              className="w-fit rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
-            >
-              Excluir cliente
-            </button>
-          )}
 
           {detailsLoading && (
             <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/60">
@@ -1041,14 +985,7 @@ export default function Clients() {
             </div>
           )}
 
-          {activeDetailsPermission && !activeDetailsPermission.canRead && (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
-              <h2 className="text-lg font-semibold">Sem acesso</h2>
-              <p className="mt-2 text-sm text-white/60">Seu perfil não possui acesso a esta seção.</p>
-            </div>
-          )}
-
-          {!detailsLoading && activeDetailsPermission?.canRead && detailsTab === "Geral" && (
+          {!detailsLoading && detailsTab === "Geral" && (
             <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1095,7 +1032,7 @@ export default function Clients() {
             </div>
           )}
 
-          {!detailsLoading && activeDetailsPermission?.canRead && detailsTab === "Veículos" && (
+          {!detailsLoading && detailsTab === "Veículos" && (
             <div className="space-y-4">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
@@ -1141,7 +1078,7 @@ export default function Clients() {
             </div>
           )}
 
-          {!detailsLoading && activeDetailsPermission?.canRead && detailsTab === "Equipamentos" && (
+          {!detailsLoading && detailsTab === "Equipamentos" && (
             <div className="space-y-4">
               <DataTable>
                 <thead className="text-xs uppercase tracking-wide text-white/50">
@@ -1173,7 +1110,7 @@ export default function Clients() {
             </div>
           )}
 
-          {!detailsLoading && activeDetailsPermission?.canRead && detailsTab === "Usuários" && (
+          {!detailsLoading && detailsTab === "Usuários" && (
             <div className="space-y-4">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
@@ -1217,7 +1154,7 @@ export default function Clients() {
             </div>
           )}
 
-          {!detailsLoading && activeDetailsPermission?.canRead && detailsTab === "Espelhamento" && (
+          {!detailsLoading && detailsTab === "Espelhamento" && (
             <div className="space-y-4">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
@@ -1270,7 +1207,6 @@ export default function Clients() {
           )}
         </div>
       </Drawer>
-      <PageToast toast={toast} />
     </div>
   );
 }

@@ -27,15 +27,12 @@ function normalizeEntry(value) {
   if (value && typeof value === "object") {
     if (Object.prototype.hasOwnProperty.call(value, "visible")) {
       const visible = Boolean(value.visible);
-      if (!visible) {
-        return { visible: false, access: null };
-      }
       const normalizedAccess = normaliseLevel(value.access);
       if (normalizedAccess === "none") {
-        return { visible: true, access: "none" };
+        return { visible: false, access: null };
       }
       const access = normalizedAccess || "read";
-      return { visible: true, access };
+      return { visible, access: visible ? access : null };
     }
     const legacyLevel = normaliseLevel(value?.level) || DEFAULT_LEVEL;
     if (legacyLevel === "none") return { visible: false, access: null };
@@ -128,21 +125,14 @@ export function usePermissionResolver() {
       }
 
       const entry = resolvePermissionEntry(permissions, menuKey, pageKey, subKey);
-      const rawLevel = entry.visible
-        ? entry.access === "full"
-          ? "full"
-          : entry.access === "none"
-            ? "none"
-            : "read"
-        : "none";
+      const rawLevel = entry.visible ? (entry.access === "full" ? "full" : "read") : "none";
       const level = toUiLevel(rawLevel);
-      const hasAccess = entry.visible && entry.access !== "none" && entry.access !== null;
       return {
         level,
-        hasAccess,
+        hasAccess: entry.visible,
         canShow: entry.visible,
-        canView: hasAccess,
-        canRead: hasAccess,
+        canView: entry.visible,
+        canRead: entry.visible,
         isFull: level === UI_LEVELS.full,
       };
     },
