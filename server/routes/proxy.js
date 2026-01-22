@@ -10,7 +10,7 @@ import { getDeviceById, listDevices } from "../models/device.js";
 import { getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
-import { getAccessibleScope, getAccessibleVehicles } from "../services/accessible-vehicles.js";
+import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
@@ -2004,17 +2004,23 @@ function mergeById(primary = [], secondary = []) {
 
 async function resolveAccessibleDeviceContext(req) {
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-  const access = await getAccessibleScope({
+  const access = await getAccessibleVehicles({
     user: req.user,
     clientId,
     includeMirrorsForNonReceivers: false,
   });
-  return {
-    clientId,
-    vehicles: access.vehicles,
-    devices: access.devices,
-    access,
-  };
+  const vehicles = access.vehicles;
+  const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+  let devices = listDevices({ clientId });
+  if (access.mirrorOwnerIds.length) {
+    const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
+    devices = mergeById(devices, extraDevices);
+  }
+  const filteredDevices = devices.filter((device) => {
+    if (!device?.vehicleId) return false;
+    return vehicleIds.has(String(device.vehicleId));
+  });
+  return { clientId, vehicles, devices: filteredDevices, access };
 }
 
 async function resolveDeviceIdsToQuery(req) {

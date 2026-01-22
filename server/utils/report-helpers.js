@@ -34,19 +34,6 @@ function mergeById(primary = [], secondary = []) {
   return Array.from(map.values());
 }
 
-function dedupeVehiclesByIdentity(vehicles = []) {
-  const map = new Map();
-  vehicles.forEach((vehicle, index) => {
-    const idKey = vehicle?.id ? `id:${String(vehicle.id)}` : null;
-    const plateKey = vehicle?.plate ? `plate:${String(vehicle.plate).toLowerCase()}` : null;
-    const key = idKey || plateKey || `index:${index}`;
-    if (!map.has(key)) {
-      map.set(key, vehicle);
-    }
-  });
-  return Array.from(map.values());
-}
-
 export function resolveAllowedDeviceIds(req) {
   if (req.user?.role === "admin") return null;
 
@@ -58,7 +45,7 @@ export function resolveAllowedDeviceIds(req) {
     req.user?.attributes?.clientProfile?.clientType || req.user?.attributes?.clientType || "";
   const isReceiver = RECEIVER_TYPES.has(String(clientType).toUpperCase());
   const mirrors = listMirrors({ targetClientId: clientId }).filter((mirror) => isMirrorActive(mirror));
-  const mirrorOwnerIds = Array.from(new Set(mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean)));
+  const mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
   const mirroredVehicles = mirrors.flatMap((mirror) => {
     const ownerVehicles = listVehicles({ clientId: mirror.ownerClientId });
     const allowedIds = new Set((mirror.vehicleIds || []).map(String));
@@ -70,7 +57,6 @@ export function resolveAllowedDeviceIds(req) {
   } else if (isReceiver) {
     vehicles = [];
   }
-  vehicles = dedupeVehiclesByIdentity(vehicles);
   const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
   let devices = listDevices({ clientId });
   if (mirrorOwnerIds.length) {
