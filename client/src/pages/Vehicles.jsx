@@ -20,9 +20,6 @@ import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import Modal from "../ui/Modal";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
-import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
-import usePageToast from "../lib/hooks/usePageToast.js";
-import PageToast from "../components/ui/PageToast.jsx";
 
 const BRAND_COLORS = {
   fiat: "bg-red-500/20 text-red-200",
@@ -103,8 +100,6 @@ function VehicleRow({
   statusLabel,
   attributeBadges,
   onEdit,
-  onDelete,
-  canDelete,
 }) {
   return (
     <tr className="hover:bg-white/5">
@@ -137,26 +132,14 @@ function VehicleRow({
         )}
       </td>
       <td className="px-4 py-4 text-right">
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
-            aria-label="Editar veículo"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          {canDelete && (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
-              aria-label="Excluir veículo"
-            >
-              ×
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+          aria-label="Editar veículo"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
       </td>
     </tr>
   );
@@ -184,8 +167,6 @@ export default function Vehicles() {
   const [attributeDrawerTab, setAttributeDrawerTab] = useState("list");
   const [attributeForm, setAttributeForm] = useState({ name: "", color: "#38bdf8" });
   const { confirmDelete } = useConfirmDialog();
-  const { isAdminGeneral } = useAdminGeneralAccess();
-  const { toast, showToast } = usePageToast();
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -536,23 +517,13 @@ export default function Vehicles() {
 
   async function handleDelete(vehicle) {
     if (!vehicle?.id) return;
-    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir veículo",
       message: "Deseja realmente excluir este veículo? Esta ação não pode ser desfeita.",
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        try {
-          await CoreApi.deleteVehicle(vehicle.id);
-          await load();
-          showToast("Veículo removido com sucesso.");
-        } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o veículo.",
-            "error",
-          );
-          throw requestError;
-        }
+        await CoreApi.deleteVehicle(vehicle.id);
+        await load();
       },
     });
   }
@@ -838,8 +809,6 @@ export default function Vehicles() {
                     statusLabel={vehicle.status || statusLive?.label || "—"}
                     attributeBadges={attributeBadges}
                     onEdit={() => navigate(`/vehicles/${vehicle.id}`)}
-                    onDelete={() => handleDelete(vehicle)}
-                    canDelete={isAdminGeneral}
                   />
                 );
               })}
@@ -1013,7 +982,6 @@ export default function Vehicles() {
           <p className="text-sm text-white/70">Sem posição recente para este veículo.</p>
         )}
       </Modal>
-      <PageToast toast={toast} />
     </div>
   );
 }

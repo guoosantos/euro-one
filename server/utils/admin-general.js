@@ -1,4 +1,4 @@
-const ADMIN_GENERAL_NAMES = new Set(["EURO ONE"]);
+const ADMIN_GENERAL_NAMES = new Set(["EURO ONE", "EURO ST"]);
 
 export function normalizeAdminClientName(name) {
   const normalized = String(name || "").trim();

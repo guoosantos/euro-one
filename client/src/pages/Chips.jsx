@@ -13,27 +13,13 @@ import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
-import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
-import usePageToast from "../lib/hooks/usePageToast.js";
-import PageToast from "../components/ui/PageToast.jsx";
 
 function formatStatus(status) {
   if (!status) return "—";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function ChipRow({
-  chip,
-  lastPing,
-  deviceLabel,
-  showCarrier,
-  showStatus,
-  showLastPing,
-  showDevice,
-  onEdit,
-  onDelete,
-  canDelete,
-}) {
+function ChipRow({ chip, lastPing, deviceLabel, showCarrier, showStatus, showLastPing, showDevice, onEdit, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
 
@@ -67,19 +53,17 @@ function ChipRow({
             >
               Editar chip
             </button>
-            {canDelete && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-200 hover:bg-red-500/10"
-                onClick={() => {
-                  onDelete?.();
-                  setMenuOpen(false);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-                Remover
-              </button>
-            )}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-200 hover:bg-red-500/10"
+              onClick={() => {
+                onDelete?.();
+                setMenuOpen(false);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Remover
+            </button>
           </div>
         </DropdownMenu>
       </td>
@@ -129,8 +113,6 @@ export default function Chips() {
   const [carrierFilter, setCarrierFilter] = useState("todos");
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const { confirmDelete } = useConfirmDialog();
-  const { isAdminGeneral } = useAdminGeneralAccess();
-  const { toast, showToast } = usePageToast();
 
   const resolvedClientId = tenantId || user?.clientId || null;
   const columnStorageKey = useMemo(
@@ -418,23 +400,13 @@ export default function Chips() {
 
   async function handleDelete(id) {
     if (!id) return;
-    if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Remover chip",
       message: "Remover este chip? Esta ação não pode ser desfeita.",
       confirmLabel: "Remover",
       onConfirm: async () => {
-        try {
-          await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
-          await load();
-          showToast("Chip removido com sucesso.");
-        } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível remover o chip.",
-            "error",
-          );
-          throw requestError;
-        }
+        await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
+        await load();
       },
     });
   }
@@ -599,7 +571,6 @@ export default function Chips() {
                     showDevice={visibleColumns.device}
                     onEdit={() => openEdit(chip)}
                     onDelete={() => handleDelete(chip.id)}
-                    canDelete={isAdminGeneral}
                   />
                 ))}
             </tbody>
@@ -687,7 +658,6 @@ export default function Chips() {
           </div>
         </form>
       </Drawer>
-      <PageToast toast={toast} />
     </div>
   );
 }
