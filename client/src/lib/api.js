@@ -196,7 +196,7 @@ async function request({
     resolvedHeaders.set("Authorization", authorization);
   }
   const storedSession = getStoredSession();
-  const ownerClientId = storedSession?.user?.tenantId ?? null;
+  const ownerClientId = storedSession?.user?.activeMirrorOwnerClientId ?? null;
   if (ownerClientId && !resolvedHeaders.has("X-Owner-Client-Id")) {
     resolvedHeaders.set("X-Owner-Client-Id", String(ownerClientId));
   }

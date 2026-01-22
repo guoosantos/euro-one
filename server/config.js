@@ -79,6 +79,7 @@ export const config = {
   },
   features: {
     euroXlsxImport: process.env.FEATURE_EURO_XLSX_IMPORT === "true",
+    mirrorMode: process.env.MIRROR_MODE_ENABLED === "true",
   },
 };
 
