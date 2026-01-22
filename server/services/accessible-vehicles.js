@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { getClientById } from "../models/client.js";
 import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
@@ -38,7 +39,7 @@ export async function getAccessibleVehicles({
   mirrorContext = null,
 } = {}) {
   const resolvedClientId = clientId ?? user?.clientId ?? null;
-  if (mirrorContext?.ownerClientId) {
+  if (config.features?.mirrorMode && mirrorContext?.ownerClientId) {
     const allowedIds = new Set((mirrorContext.vehicleIds || []).map(String));
     const ownerVehicles = listVehicles({ clientId: mirrorContext.ownerClientId });
     const mirroredVehicles = ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
@@ -60,22 +61,24 @@ export async function getAccessibleVehicles({
     const clientType = client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
     isReceiver = RECEIVER_TYPES.has(String(clientType).toUpperCase());
 
-    const mirrors = listMirrors({ targetClientId: user.clientId }).filter((mirror) => isMirrorActive(mirror));
-    hasMirrors = mirrors.length > 0;
-    if (mirrors.length) {
-      mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
-      const mirroredVehicles = mirrors.flatMap((mirror) => {
-        const ownerVehicles = listVehicles({ clientId: mirror.ownerClientId });
-        const allowedIds = new Set((mirror.vehicleIds || []).map(String));
-        return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
-      });
-      if (isReceiver) {
-        vehicles = mirroredVehicles;
-      } else if (includeMirrorsForNonReceivers) {
-        vehicles = mergeById(vehicles, mirroredVehicles);
+    if (config.features?.mirrorMode) {
+      const mirrors = listMirrors({ targetClientId: user.clientId }).filter((mirror) => isMirrorActive(mirror));
+      hasMirrors = mirrors.length > 0;
+      if (mirrors.length) {
+        mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
+        const mirroredVehicles = mirrors.flatMap((mirror) => {
+          const ownerVehicles = listVehicles({ clientId: mirror.ownerClientId });
+          const allowedIds = new Set((mirror.vehicleIds || []).map(String));
+          return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
+        });
+        if (isReceiver) {
+          vehicles = mirroredVehicles;
+        } else if (includeMirrorsForNonReceivers) {
+          vehicles = mergeById(vehicles, mirroredVehicles);
+        }
+      } else if (isReceiver) {
+        vehicles = [];
       }
-    } else if (isReceiver) {
-      vehicles = [];
     }
   }
 

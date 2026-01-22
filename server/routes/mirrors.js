@@ -1,6 +1,7 @@
 import express from "express";
 import createError from "http-errors";
 
+import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission } from "../middleware/permissions.js";
@@ -86,6 +87,17 @@ function resolveAllowedVehicleIds(req) {
   return allowedIds;
 }
 
+function resolveMirrorVehicleIds(mirror) {
+  if (!mirror) return [];
+  if (mirror.vehicleGroupId) {
+    const group = getGroupById(mirror.vehicleGroupId);
+    if (Array.isArray(group?.attributes?.vehicleIds)) {
+      return group.attributes.vehicleIds.map(String);
+    }
+  }
+  return Array.isArray(mirror.vehicleIds) ? mirror.vehicleIds.map(String) : [];
+}
+
 async function ensureTemporaryGroup({ ownerClientId, vehicleIds, endAt, createdBy }) {
   const owner = await getClientById(ownerClientId);
   if (!owner) {
@@ -126,6 +138,55 @@ function markTemporaryGroupExpired(mirror) {
 
 router.get("/mirrors/context", authorizePermission({ menuKey: "admin", pageKey: "mirrors" }), async (req, res, next) => {
   try {
+    const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
+    const ownerClientId = req.query?.ownerClientId ?? null;
+    if (ownerClientId) {
+      if (!mirrorModeEnabled) {
+        return res.json({ activeMirror: null, mirrorModeEnabled });
+      }
+      if (req.user.role === "admin") {
+        const mirror = listMirrors({ ownerClientId }).find((entry) => isMirrorActive(entry));
+        if (!mirror) {
+          return res.json({ activeMirror: null, mirrorModeEnabled });
+        }
+        return res.json({
+          activeMirror: {
+            ownerClientId: String(mirror.ownerClientId),
+            targetClientId: mirror.targetClientId ? String(mirror.targetClientId) : null,
+            mirrorId: String(mirror.id),
+            permissionGroupId: mirror.permissionGroupId ?? null,
+            vehicleIds: resolveMirrorVehicleIds(mirror),
+            vehicleGroupId: mirror.vehicleGroupId ?? null,
+            startAt: mirror.startAt || null,
+            endAt: mirror.endAt || null,
+          },
+          mirrorModeEnabled,
+        });
+      }
+      if (!req.user.clientId) {
+        throw createError(401, "Usuário sem tenant associado");
+      }
+      const mirrors = listMirrors({ ownerClientId, targetClientId: req.user.clientId }).filter((mirror) =>
+        isMirrorActive(mirror),
+      );
+      if (!mirrors.length) {
+        return res.json({ activeMirror: null, mirrorModeEnabled });
+      }
+      const mirror = mirrors[0];
+      return res.json({
+        activeMirror: {
+          ownerClientId: String(mirror.ownerClientId),
+          targetClientId: mirror.targetClientId ? String(mirror.targetClientId) : null,
+          mirrorId: String(mirror.id),
+          permissionGroupId: mirror.permissionGroupId ?? null,
+          vehicleIds: resolveMirrorVehicleIds(mirror),
+          vehicleGroupId: mirror.vehicleGroupId ?? null,
+          startAt: mirror.startAt || null,
+          endAt: mirror.endAt || null,
+        },
+        mirrorModeEnabled,
+      });
+    }
     if (req.user.role === "admin") {
       const allClients = await listClients();
       const targets = allClients.filter((client) => isReceiverType(resolveClientType(client)));
@@ -134,6 +195,7 @@ router.get("/mirrors/context", authorizePermission({ menuKey: "admin", pageKey: 
         clientType: "ADMIN",
         targets,
         owners: allClients,
+        mirrorModeEnabled,
       });
     }
 
@@ -149,6 +211,7 @@ router.get("/mirrors/context", authorizePermission({ menuKey: "admin", pageKey: 
         clientType,
         owners,
         targets: [],
+        mirrorModeEnabled,
       });
     }
 
@@ -159,6 +222,7 @@ router.get("/mirrors/context", authorizePermission({ menuKey: "admin", pageKey: 
       clientType,
       owners: [],
       targets,
+      mirrorModeEnabled,
     });
   } catch (error) {
     return next(error);

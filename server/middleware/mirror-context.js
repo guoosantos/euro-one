@@ -1,5 +1,6 @@
 import createError from "http-errors";
 
+import { config } from "../config.js";
 import { getClientById } from "../models/client.js";
 import { getGroupById } from "../models/group.js";
 import { listMirrors } from "../models/mirror.js";
@@ -53,6 +54,7 @@ function resolveMirrorVehicleIds(mirror) {
 }
 
 export async function resolveMirrorContext(req) {
+  if (!config.features?.mirrorMode) return null;
   if (!req?.user || req.user.role === "admin") return null;
 
   const ownerClientId = resolveOwnerClientId(req);
@@ -76,7 +78,7 @@ export async function resolveMirrorContext(req) {
     isMirrorActive(mirror),
   );
   if (!mirrors.length) {
-    throw createError(403, "Espelhamento não autorizado para este cliente");
+    return null;
   }
 
   const mirror = mirrors[0];

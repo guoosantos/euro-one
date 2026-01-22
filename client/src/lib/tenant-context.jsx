@@ -68,6 +68,8 @@ export function TenantProvider({ children }) {
   const [token, setToken] = useState(stored?.token ?? null);
   const [tenants, setTenants] = useState([]);
   const [mirrorOwners, setMirrorOwners] = useState(null);
+  const [activeMirror, setActiveMirror] = useState(null);
+  const [activeMirrorOwnerClientId, setActiveMirrorOwnerClientId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const [error, setError] = useState(null);
@@ -203,6 +205,48 @@ export function TenantProvider({ children }) {
     return null;
   }, []);
 
+  const loadActiveMirror = useCallback(
+    async ({ currentUser, ownerClientId }) => {
+      if (!currentUser || currentUser.role === "admin") {
+        setActiveMirror(null);
+        setActiveMirrorOwnerClientId(null);
+        return null;
+      }
+      if (!ownerClientId) {
+        setActiveMirror(null);
+        setActiveMirrorOwnerClientId(null);
+        return null;
+      }
+      try {
+        const response = await api.get(`${API_ROUTES.mirrors}/context`, {
+          params: { ownerClientId },
+        });
+        const payload = response?.data || {};
+        if (payload?.mirrorModeEnabled === false) {
+          setActiveMirror(null);
+          setActiveMirrorOwnerClientId(null);
+          return null;
+        }
+        const mirror = payload?.activeMirror || null;
+        if (!mirror?.ownerClientId) {
+          setActiveMirror(null);
+          setActiveMirrorOwnerClientId(null);
+          return null;
+        }
+        const normalizedOwnerId = String(mirror.ownerClientId);
+        setActiveMirror(mirror);
+        setActiveMirrorOwnerClientId(normalizedOwnerId);
+        return mirror;
+      } catch (error) {
+        console.warn("Falha ao carregar contexto de espelhamento", error);
+        setActiveMirror(null);
+        setActiveMirrorOwnerClientId(null);
+        return null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const unsubscribe = registerUnauthorizedHandler(() => {
       setToken(null);
@@ -320,6 +364,8 @@ export function TenantProvider({ children }) {
     let cancelled = false;
     if (!user || user.role === "admin") {
       setMirrorOwners(null);
+      setActiveMirror(null);
+      setActiveMirrorOwnerClientId(null);
       return undefined;
     }
     loadMirrorOwners(user).catch(() => {
@@ -331,15 +377,52 @@ export function TenantProvider({ children }) {
   }, [loadMirrorOwners, user]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!user || user.role === "admin") {
+      setActiveMirror(null);
+      setActiveMirrorOwnerClientId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!tenantId || !Array.isArray(mirrorOwners) || mirrorOwners.length === 0) {
+      setActiveMirror(null);
+      setActiveMirrorOwnerClientId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    loadActiveMirror({ currentUser: user, ownerClientId: tenantId }).catch(() => {
+      if (!cancelled) {
+        setActiveMirror(null);
+        setActiveMirrorOwnerClientId(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadActiveMirror, mirrorOwners, tenantId, user]);
+
+  useEffect(() => {
     if (!user || !token) return;
-    if (user.tenantId === tenantId) {
+    const activePermissionGroupId = activeMirror?.permissionGroupId ?? null;
+    if (
+      user.tenantId === tenantId &&
+      user.activeMirrorOwnerClientId === activeMirrorOwnerClientId &&
+      user.activeMirrorPermissionGroupId === activePermissionGroupId
+    ) {
       setStoredSession({ token, user });
       return;
     }
-    const nextUser = { ...user, tenantId };
+    const nextUser = {
+      ...user,
+      tenantId,
+      activeMirrorOwnerClientId,
+      activeMirrorPermissionGroupId: activePermissionGroupId,
+    };
     setUser(nextUser);
     setStoredSession({ token, user: nextUser });
-  }, [tenantId, token, user]);
+  }, [activeMirror, activeMirrorOwnerClientId, tenantId, token, user]);
 
   const value = useMemo(() => {
     const isAdmin = user?.role === "admin";
@@ -364,8 +447,25 @@ export function TenantProvider({ children }) {
       hasAdminAccess: isAdmin,
       canSwitchTenant,
       role: user?.role ?? "guest",
+      activeMirror,
+      activeMirrorOwnerClientId,
+      activeMirrorPermissionGroupId: activeMirror?.permissionGroupId ?? null,
     };
-  }, [tenantId, tenants, user, token, login, logout, loading, error, initialising, refreshClients, mirrorOwners]);
+  }, [
+    tenantId,
+    tenants,
+    user,
+    token,
+    login,
+    logout,
+    loading,
+    error,
+    initialising,
+    refreshClients,
+    mirrorOwners,
+    activeMirror,
+    activeMirrorOwnerClientId,
+  ]);
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;
 }
