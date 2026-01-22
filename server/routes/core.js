@@ -3,7 +3,6 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { requireAdminGeneral } from "../middleware/admin-general.js";
 import * as clientMiddleware from "../middleware/client.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { authorizePermission } from "../middleware/permissions.js";
@@ -2088,7 +2087,6 @@ router.delete(
   "/devices/:id",
   authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
   deps.requireRole("manager", "admin"),
-  requireAdminGeneral,
   async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -2260,7 +2258,6 @@ router.delete(
   "/chips/:id",
   authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-chips", requireFull: true }),
   deps.requireRole("manager", "admin"),
-  requireAdminGeneral,
   resolveClientMiddleware,
   (req, res, next) => {
   try {
@@ -2557,7 +2554,6 @@ router.delete(
   "/technicians/:id",
   authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "technicians", requireFull: true }),
   deps.requireRole("manager", "admin"),
-  requireAdminGeneral,
   async (req, res, next) => {
   try {
     if (!isPrismaAvailable()) {
@@ -3305,7 +3301,6 @@ router.delete(
   "/vehicles/:id",
   authorizePermission({ menuKey: "fleet", pageKey: "vehicles", requireFull: true }),
   deps.requireRole("manager", "admin"),
-  requireAdminGeneral,
   (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
@@ -3397,7 +3392,6 @@ router.delete(
   "/stock/:id",
   authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-stock", requireFull: true }),
   deps.requireRole("manager", "admin"),
-  requireAdminGeneral,
   resolveClientMiddleware,
   (req, res, next) => {
   try {

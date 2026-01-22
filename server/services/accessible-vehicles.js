@@ -37,12 +37,13 @@ export async function getAccessibleVehicles({
   includeMirrorsForNonReceivers = true,
 } = {}) {
   const resolvedClientId = clientId ?? user?.clientId ?? null;
+  const isAdmin = user?.role === "admin";
   let vehicles = listVehicles(resolvedClientId ? { clientId: resolvedClientId } : {});
   let mirrorOwnerIds = [];
   let isReceiver = false;
   let hasMirrors = false;
 
-  if (user?.clientId) {
+  if (!isAdmin && user?.clientId) {
     const client = await getClientById(user.clientId).catch(() => null);
     const clientType = client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
     isReceiver = RECEIVER_TYPES.has(String(clientType).toUpperCase());
