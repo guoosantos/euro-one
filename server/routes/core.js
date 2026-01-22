@@ -1111,7 +1111,7 @@ router.post(
 
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
-    const vehicles = deps.listVehicles({ clientId });
+    let vehicles = deps.listVehicles({ clientId });
     const traccarById = new Map([[String(traccarDevice.id), traccarDevice]]);
     const traccarByUnique = new Map([[String(traccarDevice.uniqueId), traccarDevice]]);
     const response = buildDeviceResponse(device, {
@@ -1242,6 +1242,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       user: req.user,
       clientId,
       includeMirrorsForNonReceivers: false,
+      mirrorContext: req.mirrorContext,
     });
     const accessVehicleIds = access.vehicles.map((vehicle) => String(vehicle.id)).filter(Boolean);
     let deviceRegistry = deps.listDevices({ clientId });
@@ -1677,7 +1678,7 @@ router.get(
 
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
-    const vehicles = deps.listVehicles({ clientId });
+    let vehicles = deps.listVehicles({ clientId });
     const modelMap = new Map(models.map((item) => [item.id, item]));
     const chipMap = new Map(chips.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
@@ -1702,6 +1703,12 @@ router.get(
 
     if (!devices.length) {
       devices = deps.listDevices({ clientId });
+    }
+
+    if (req.mirrorContext?.ownerClientId) {
+      const allowedVehicleIds = new Set((req.mirrorContext.vehicleIds || []).map(String));
+      vehicles = vehicles.filter((vehicle) => allowedVehicleIds.has(String(vehicle.id)));
+      devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
     }
 
     devices.forEach((device) => {
@@ -2717,6 +2724,7 @@ router.get(
       user: req.user,
       clientId,
       includeMirrorsForNonReceivers: !accessibleOnly,
+      mirrorContext: req.mirrorContext,
     });
     let vehicles = access.vehicles;
     mirrorOwnerIds = access.mirrorOwnerIds;
@@ -2916,7 +2924,7 @@ router.get(
   try {
     const { id } = req.params;
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
-    const access = await getAccessibleVehicles({ user: req.user, clientId });
+    const access = await getAccessibleVehicles({ user: req.user, clientId, mirrorContext: req.mirrorContext });
     const isAccessible = access.vehicles.some((vehicle) => String(vehicle.id) === String(id));
     if (!isAccessible) {
       throw createError(404, "Veículo não encontrado");

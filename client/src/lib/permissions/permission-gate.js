@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import api from "../api.js";
 import { useTenant } from "../tenant-context.jsx";
-import { useGroups } from "../hooks/useGroups.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
@@ -77,24 +77,57 @@ function toUiLevel(access) {
 
 export function usePermissionResolver() {
   const { user, role, tenantId } = useTenant();
-  const permissionGroupId = user?.attributes?.permissionGroupId || null;
-  const shouldLoadGroups = Boolean(permissionGroupId && role !== "admin");
-  const { groups, loading } = useGroups({ params: shouldLoadGroups ? { clientId: tenantId } : {}, autoRefreshMs: 0 });
+  const [permissionContext, setPermissionContext] = useState({
+    permissions: null,
+    isFull: true,
+    permissionGroupId: null,
+  });
+  const [loading, setLoading] = useState(false);
 
-  const permissionGroup = useMemo(() => {
-    if (!permissionGroupId) return null;
-    const list = Array.isArray(groups) ? groups : [];
-    return list.find((group) => String(group.id) === String(permissionGroupId)) || null;
-  }, [groups, permissionGroupId]);
+  useEffect(() => {
+    let cancelled = false;
 
-  const permissions =
-    permissionGroup?.attributes?.permissions && typeof permissionGroup.attributes.permissions === "object"
-      ? permissionGroup.attributes.permissions
-      : null;
+    async function loadPermissionContext() {
+      if (!user) {
+        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        return;
+      }
+      if (role === "admin") {
+        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        return;
+      }
+      setLoading(true);
+      try {
+        const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
+        const response = await api.get("permissions/context", { params });
+        if (cancelled) return;
+        const payload = response?.data || {};
+        const permissions =
+          payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
+        setPermissionContext({
+          permissions,
+          isFull: Boolean(payload?.isFull || payload?.level === "full"),
+          permissionGroupId: payload?.permissionGroupId ?? null,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("Falha ao carregar permissões", error);
+        setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadPermissionContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [role, tenantId, user]);
 
   const getPermission = useCallback(
     ({ menuKey, pageKey, subKey }) => {
-      if (role === "admin") {
+      if (role === "admin" || permissionContext.isFull) {
         return {
           level: UI_LEVELS.full,
           hasAccess: true,
@@ -104,7 +137,7 @@ export function usePermissionResolver() {
           isFull: true,
         };
       }
-      if (!permissionGroupId) {
+      if (!permissionContext.permissions) {
         return {
           level: UI_LEVELS.none,
           hasAccess: false,
@@ -127,7 +160,7 @@ export function usePermissionResolver() {
         };
       }
 
-      const entry = resolvePermissionEntry(permissions, menuKey, pageKey, subKey);
+      const entry = resolvePermissionEntry(permissionContext.permissions, menuKey, pageKey, subKey);
       const rawLevel = entry.visible
         ? entry.access === "full"
           ? "full"
@@ -146,16 +179,16 @@ export function usePermissionResolver() {
         isFull: level === UI_LEVELS.full,
       };
     },
-    [loading, permissionGroupId, permissions, role],
+    [loading, permissionContext, role],
   );
 
   return useMemo(
     () => ({
       getPermission,
       loading,
-      permissionGroup,
+      permissionGroupId: permissionContext.permissionGroupId,
     }),
-    [getPermission, loading, permissionGroup],
+    [getPermission, loading, permissionContext.permissionGroupId],
   );
 }
 

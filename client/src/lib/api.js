@@ -195,6 +195,11 @@ async function request({
   if (authorization && !resolvedHeaders.has("Authorization")) {
     resolvedHeaders.set("Authorization", authorization);
   }
+  const storedSession = getStoredSession();
+  const ownerClientId = storedSession?.user?.tenantId ?? null;
+  if (ownerClientId && !resolvedHeaders.has("X-Owner-Client-Id")) {
+    resolvedHeaders.set("X-Owner-Client-Id", String(ownerClientId));
+  }
 
   const init = {
     method: method.toUpperCase(),

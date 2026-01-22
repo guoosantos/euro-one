@@ -44,7 +44,16 @@ export function resolveClientId(req, providedClientId, { required = true } = {})
   }
 
   if (clientId && String(clientId) !== String(userClientId)) {
+    if (req?.mirrorContext?.ownerClientId && String(req.mirrorContext.ownerClientId) === String(clientId)) {
+      console.info("[tenant] clientId resolvido (mirror)", { userId: user?.id, clientId: String(clientId) });
+      return String(clientId);
+    }
     throw createError(403, "Operação não permitida para este cliente");
+  }
+
+  if (!clientId && req?.mirrorContext?.ownerClientId) {
+    console.info("[tenant] clientId resolvido (mirror)", { userId: user?.id, clientId: req.mirrorContext.ownerClientId });
+    return String(req.mirrorContext.ownerClientId);
   }
 
   console.info("[tenant] clientId resolvido", { userId: user?.id, clientId: String(userClientId) });

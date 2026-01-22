@@ -128,6 +128,7 @@ async function resolveAccessibleContext(req, clientId) {
     user: req.user,
     clientId,
     includeMirrorsForNonReceivers: false,
+    mirrorContext: req.mirrorContext,
   });
   const vehicles = access.vehicles;
   const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));

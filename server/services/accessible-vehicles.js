@@ -35,8 +35,21 @@ export async function getAccessibleVehicles({
   user,
   clientId,
   includeMirrorsForNonReceivers = true,
+  mirrorContext = null,
 } = {}) {
   const resolvedClientId = clientId ?? user?.clientId ?? null;
+  if (mirrorContext?.ownerClientId) {
+    const allowedIds = new Set((mirrorContext.vehicleIds || []).map(String));
+    const ownerVehicles = listVehicles({ clientId: mirrorContext.ownerClientId });
+    const mirroredVehicles = ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
+    return {
+      vehicles: mirroredVehicles,
+      mirrorOwnerIds: [mirrorContext.ownerClientId],
+      isReceiver: true,
+      hasMirrors: true,
+      clientId: mirrorContext.ownerClientId,
+    };
+  }
   let vehicles = listVehicles(resolvedClientId ? { clientId: resolvedClientId } : {});
   let mirrorOwnerIds = [];
   let isReceiver = false;

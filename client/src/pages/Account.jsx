@@ -3,7 +3,7 @@ import React from "react";
 import { useTenant } from "../lib/tenant-context";
 
 export default function Account() {
-  const { tenant, tenants, setTenantId, user, role } = useTenant();
+  const { tenant, tenants, setTenantId, user, role, canSwitchTenant } = useTenant();
   const isAdmin = role === "admin";
 
   return (
@@ -23,7 +23,7 @@ export default function Account() {
       <section className="card">
         <div className="text-sm font-medium text-white">Alternar cliente</div>
         <p className="mt-2 text-xs text-white/50">
-          {isAdmin
+          {isAdmin || canSwitchTenant
             ? "Selecione um cliente para visualizar seus dispositivos, usuários e telemetria."
             : "Sua conta está vinculada ao cliente abaixo."
           }
