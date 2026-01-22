@@ -115,17 +115,6 @@ function enforceClientGroupInBody(req, target = req.body) {
   }
 }
 
-function mergeById(primary = [], secondary = []) {
-  const map = new Map(primary.map((item) => [String(item.id), item]));
-  secondary.forEach((item) => {
-    const key = String(item.id);
-    if (!map.has(key)) {
-      map.set(key, item);
-    }
-  });
-  return Array.from(map.values());
-}
-
 function resolveTraccarDeviceId(req, allowed = null) {
   const requested = extractDeviceIds(req.body);
   if (!requested.length) return null;
@@ -499,19 +488,7 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
     const resolveByVehicle = async () => {
       if (!vehicleId) return null;
 
-      const access = await getAccessibleVehicles({
-        user: req.user,
-        clientId,
-        includeMirrorsForNonReceivers: false,
-      });
-      if (!access.vehicles.some((vehicle) => String(vehicle.id) === vehicleId)) {
-        throw createError(404, "Veículo não encontrado");
-      }
-      let localDevices = listDevices({ clientId });
-      if (access.mirrorOwnerIds.length) {
-        const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
-        localDevices = mergeById(localDevices, extraDevices);
-      }
+      const localDevices = listDevices({ clientId });
       const localMatch = localDevices.find((device) => device?.vehicleId && String(device.vehicleId) === vehicleId);
       if (localMatch) {
         const resolved = await buildResolved(localMatch, localMatch.traccarId);
@@ -553,17 +530,8 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
 
     if (normalizedDeviceId) {
       const deviceRecord = getDeviceById(normalizedDeviceId);
-      if (
-        clientId &&
-        deviceRecord?.clientId &&
-        String(deviceRecord.clientId) !== String(clientId) &&
-        req.user?.role !== "admin"
-      ) {
-        const traccarId = deviceRecord?.traccarId ? String(deviceRecord.traccarId) : null;
-        const allowedDeviceIds = resolveAllowedDeviceIds(req);
-        if (!traccarId || (allowedDeviceIds && !allowedDeviceIds.includes(traccarId))) {
-          throw createError(403, "Dispositivo não autorizado para este cliente");
-        }
+      if (clientId && deviceRecord?.clientId && String(deviceRecord.clientId) !== String(clientId) && req.user?.role !== "admin") {
+        throw createError(403, "Dispositivo não autorizado para este cliente");
       }
       if (deviceRecord && !deviceRecord.vehicleId) {
         throw createError(409, "Equipamento sem veículo vinculado");
