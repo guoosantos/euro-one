@@ -40,6 +40,24 @@ export function resolveAllowedDeviceIds(req) {
   if (!req.user?.clientId) {
     throw createError(403, "Usuário não vinculado a um cliente");
   }
+
+  if (req.mirrorContext?.ownerClientId) {
+    const allowedVehicleIds = new Set((req.mirrorContext.vehicleIds || []).map(String));
+    const vehicles = listVehicles({ clientId: req.mirrorContext.ownerClientId }).filter((vehicle) =>
+      allowedVehicleIds.has(String(vehicle.id)),
+    );
+    const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+    const devices = listDevices({ clientId: req.mirrorContext.ownerClientId });
+    const traccarIds = devices
+      .filter((device) => device?.vehicleId && vehicleIds.has(String(device.vehicleId)))
+      .map((device) => (device?.traccarId ? String(device.traccarId) : null))
+      .filter(Boolean);
+
+    if (!traccarIds.length) {
+      throw createError(403, "Cliente não possui dispositivos sincronizados");
+    }
+    return traccarIds;
+  }
   const clientId = req.user.clientId;
   const clientType =
     req.user?.attributes?.clientProfile?.clientType || req.user?.attributes?.clientType || "";
@@ -151,7 +169,7 @@ export function enforceDeviceFilterInBody(req, target = req.body) {
 
 export function resolveClientGroupId(req) {
   if (req.user?.role === "admin") return null;
-  const clientId = req.user?.clientId;
+  const clientId = req.mirrorContext?.ownerClientId ?? req.user?.clientId;
   if (!clientId) return null;
   const client = getClientById(clientId);
   return client?.attributes?.traccarGroupId ?? null;

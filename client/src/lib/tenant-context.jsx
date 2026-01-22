@@ -67,6 +67,7 @@ export function TenantProvider({ children }) {
   const [user, setUser] = useState(stored?.user ?? null);
   const [token, setToken] = useState(stored?.token ?? null);
   const [tenants, setTenants] = useState([]);
+  const [mirrorOwners, setMirrorOwners] = useState(null);
   const [loading, setLoading] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const [error, setError] = useState(null);
@@ -181,6 +182,27 @@ export function TenantProvider({ children }) {
     };
   }, [token]);
 
+  const loadMirrorOwners = useCallback(async (currentUser) => {
+    if (!currentUser || currentUser.role === "admin") {
+      setMirrorOwners(null);
+      return null;
+    }
+    try {
+      const response = await api.get(`${API_ROUTES.mirrors}/context`);
+      const payload = response?.data || {};
+      const owners = Array.isArray(payload.owners) ? payload.owners : [];
+      if (payload.mode === "target" && owners.length) {
+        const normalized = normaliseClients({ clients: owners }, currentUser);
+        setMirrorOwners(normalized);
+        return normalized;
+      }
+    } catch (error) {
+      console.warn("Falha ao carregar clientes espelhados", error);
+    }
+    setMirrorOwners(null);
+    return null;
+  }, []);
+
   useEffect(() => {
     const unsubscribe = registerUnauthorizedHandler(() => {
       setToken(null);
@@ -197,6 +219,11 @@ export function TenantProvider({ children }) {
   const refreshClients = useCallback(async () => {
     if (!user) return [];
     if (user.role !== "admin") {
+      if (Array.isArray(mirrorOwners) && mirrorOwners.length) {
+        setTenants(mirrorOwners);
+        setTenantId((prev) => prev ?? mirrorOwners[0]?.id ?? user.clientId ?? user.id ?? null);
+        return mirrorOwners;
+      }
       const list = normaliseClients(null, user);
       setTenants(list);
       setTenantId((prev) => prev ?? list[0]?.id ?? user.clientId ?? user.id ?? null);
@@ -206,7 +233,7 @@ export function TenantProvider({ children }) {
     const list = normaliseClients(response?.data, user);
     setTenants(list);
     return list;
-  }, [user, tenantId]);
+  }, [mirrorOwners, user]);
 
   const login = useCallback(async ({ username, password, remember = true }) => {
     setLoading(true);
@@ -283,11 +310,25 @@ export function TenantProvider({ children }) {
   useEffect(() => {
     if (!user) return;
     if (user.role !== "admin") {
-      const list = normaliseClients(null, user);
+      const list = Array.isArray(mirrorOwners) && mirrorOwners.length ? mirrorOwners : normaliseClients(null, user);
       setTenants(list);
       setTenantId((prev) => prev ?? user.clientId ?? list[0]?.id ?? null);
     }
-  }, [user, tenants]);
+  }, [mirrorOwners, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user || user.role === "admin") {
+      setMirrorOwners(null);
+      return undefined;
+    }
+    loadMirrorOwners(user).catch(() => {
+      if (!cancelled) setMirrorOwners(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadMirrorOwners, user]);
 
   useEffect(() => {
     if (!user || !token) return;
@@ -302,6 +343,7 @@ export function TenantProvider({ children }) {
 
   const value = useMemo(() => {
     const isAdmin = user?.role === "admin";
+    const canSwitchTenant = isAdmin || (Array.isArray(mirrorOwners) && mirrorOwners.length > 0);
     const tenant =
       tenants.find((item) => item.id === tenantId) ??
       (isAdmin && !tenantId ? { id: null, name: "Todos os clientes", segment: "Todas as frotas" } : tenants[0] ?? null);
@@ -320,9 +362,10 @@ export function TenantProvider({ children }) {
       refreshClients,
       isAuthenticated: Boolean(token && user),
       hasAdminAccess: isAdmin,
+      canSwitchTenant,
       role: user?.role ?? "guest",
     };
-  }, [tenantId, tenants, user, token, login, logout, loading, error, initialising, refreshClients]);
+  }, [tenantId, tenants, user, token, login, logout, loading, error, initialising, refreshClients, mirrorOwners]);
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;
 }

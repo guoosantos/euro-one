@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import createError from "http-errors";
 
 import { config } from "../config.js";
+import { resolveMirrorContext } from "./mirror-context.js";
 import { enforceUserAccess } from "./user-access.js";
 
 export function signSession(payload) {
@@ -45,7 +46,7 @@ export function extractToken(req) {
   }
 }
 
-export function authenticate(req, _res, next) {
+export async function authenticate(req, _res, next) {
   const token = extractToken(req);
   if (!token) {
     return next(createError(401, "Token ausente"));
@@ -71,6 +72,15 @@ export function authenticate(req, _res, next) {
     enforceUserAccess(req);
   } catch (accessError) {
     return next(accessError);
+  }
+  try {
+    const mirrorContext = await resolveMirrorContext(req);
+    if (mirrorContext) {
+      req.mirrorContext = mirrorContext;
+      req.clientId = mirrorContext.ownerClientId;
+    }
+  } catch (mirrorError) {
+    return next(mirrorError);
   }
   return next();
 }

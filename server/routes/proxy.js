@@ -503,6 +503,7 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
         user: req.user,
         clientId,
         includeMirrorsForNonReceivers: false,
+        mirrorContext: req.mirrorContext,
       });
       if (!access.vehicles.some((vehicle) => String(vehicle.id) === vehicleId)) {
         throw createError(404, "Veículo não encontrado");
@@ -2008,6 +2009,7 @@ async function resolveAccessibleDeviceContext(req) {
     user: req.user,
     clientId,
     includeMirrorsForNonReceivers: false,
+    mirrorContext: req.mirrorContext,
   });
   const vehicles = access.vehicles;
   const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));

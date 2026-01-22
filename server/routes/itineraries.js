@@ -85,6 +85,7 @@ async function resolveAccessibleVehicleList(req, clientId) {
     user: req.user,
     clientId,
     includeMirrorsForNonReceivers: false,
+    mirrorContext: req.mirrorContext,
   });
   return access.vehicles;
 }

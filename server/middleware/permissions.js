@@ -65,13 +65,28 @@ function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
   return normalizeEntry(pagePermission);
 }
 
-async function resolvePermissionContext(req) {
+export async function resolvePermissionContext(req) {
   if (!req.user) {
     throw createError(401, "Sessão não autenticada");
   }
 
   if (req.user.role === "admin") {
-    return { permissions: null, level: "full", isFull: true };
+    return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+  }
+
+  const mirrorPermissionGroupId = req.mirrorContext?.permissionGroupId ?? null;
+  if (req.mirrorContext) {
+    if (!mirrorPermissionGroupId) {
+      return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+    }
+
+    const mirrorGroup = getGroupById(mirrorPermissionGroupId);
+    const permissions =
+      mirrorGroup?.attributes?.kind === "PERMISSION_GROUP"
+        ? mirrorGroup?.attributes?.permissions || {}
+        : mirrorGroup?.attributes?.permissions || {};
+
+    return { permissions, level: null, isFull: false, permissionGroupId: mirrorPermissionGroupId };
   }
 
   let user = null;
@@ -85,7 +100,7 @@ async function resolvePermissionContext(req) {
 
   const permissionGroupId = user?.attributes?.permissionGroupId;
   if (!permissionGroupId) {
-    return { permissions: null, level: "full", isFull: true };
+    return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
   }
 
   const permissionGroup = getGroupById(permissionGroupId);
@@ -94,7 +109,7 @@ async function resolvePermissionContext(req) {
       ? permissionGroup?.attributes?.permissions || {}
       : permissionGroup?.attributes?.permissions || {};
 
-  return { permissions, level: null, isFull: false };
+  return { permissions, level: null, isFull: false, permissionGroupId };
 }
 
 export function authorizePermission({ menuKey, pageKey, subKey, requireFull = false }) {
@@ -123,4 +138,5 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
 
 export default {
   authorizePermission,
+  resolvePermissionContext,
 };

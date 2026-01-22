@@ -23,7 +23,7 @@ export function Topbar({ title }) {
   const theme = useUI((state) => state.theme);
   const toggleTheme = useUI((state) => state.toggleTheme);
   const setLocale = useUI((state) => state.setLocale);
-  const { tenantId, setTenantId, tenant, tenants, hasAdminAccess } = useTenant();
+  const { tenantId, setTenantId, tenant, tenants, hasAdminAccess, canSwitchTenant } = useTenant();
   const navigate = useNavigate();
   const { locale } = useTranslation();
 
@@ -155,7 +155,7 @@ export function Topbar({ title }) {
           <select
             value={tenantId ?? ""}
             onChange={(event) => setTenantId(event.target.value || null)}
-            disabled={!hasAdminAccess || tenantOptions.length <= 1}
+            disabled={!canSwitchTenant || tenantOptions.length <= 1}
             className="hidden h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white hover:border-primary/40 focus:border-primary/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:block"
           >
             {tenantOptions.map((item) => (
