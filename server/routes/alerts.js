@@ -44,42 +44,94 @@ function resolveEventIdFromPayload(event) {
   );
 }
 
-router.get("/alerts", (req, res) => {
-  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-  const alerts = listAlerts({
-    clientId,
-    status: req.query?.status,
-    vehicleId: req.query?.vehicleId,
-    deviceId: req.query?.deviceId,
-    severity: req.query?.severity,
-    category: req.query?.category,
-    from: req.query?.from,
-    to: req.query?.to,
-  });
-  return res.json({ data: alerts, total: alerts.length });
+function resolveMirrorVehicleNotFoundMessage(req) {
+  return req.mirrorContext?.ownerClientId ? "Veículo não encontrado para este espelhamento" : "Veículo não encontrado";
+}
+
+export function filterAlertsByVehicleAccess(alerts = [], allowedVehicleIds = null) {
+  if (!allowedVehicleIds || allowedVehicleIds.size === 0) return alerts;
+  return alerts.filter((alert) => alert?.vehicleId && allowedVehicleIds.has(String(alert.vehicleId)));
+}
+
+router.get("/alerts", async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const access = await getAccessibleVehicles({
+      user: req.user,
+      clientId,
+      includeMirrorsForNonReceivers: false,
+      mirrorContext: req.mirrorContext,
+    });
+    const allowedVehicleIds = new Set(access.vehicles.map((vehicle) => String(vehicle.id)));
+    if (req.mirrorContext?.ownerClientId && req.query?.vehicleId) {
+      const requested = String(req.query.vehicleId);
+      if (!allowedVehicleIds.has(requested)) {
+        return res.status(404).json({ message: resolveMirrorVehicleNotFoundMessage(req) });
+      }
+    }
+
+    let alerts = listAlerts({
+      clientId,
+      status: req.query?.status,
+      vehicleId: req.query?.vehicleId,
+      deviceId: req.query?.deviceId,
+      severity: req.query?.severity,
+      category: req.query?.category,
+      from: req.query?.from,
+      to: req.query?.to,
+    });
+    if (req.mirrorContext?.ownerClientId) {
+      alerts = filterAlertsByVehicleAccess(alerts, allowedVehicleIds);
+    }
+    return res.json({ data: alerts, total: alerts.length });
+  } catch (error) {
+    return next(error);
+  }
 });
 
-router.patch("/alerts/:id/handle", (req, res) => {
-  const { id } = req.params;
-  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
-  const payload = {
-    isOk: req.body?.isOk,
-    action: req.body?.action,
-    cause: req.body?.cause,
-    notes: req.body?.notes,
-  };
+router.patch("/alerts/:id/handle", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+    if (req.mirrorContext?.ownerClientId) {
+      const access = await getAccessibleVehicles({
+        user: req.user,
+        clientId,
+        includeMirrorsForNonReceivers: false,
+        mirrorContext: req.mirrorContext,
+      });
+      const allowedVehicleIds = new Set(access.vehicles.map((vehicle) => String(vehicle.id)));
+      const existing = listAlerts({ clientId }).find(
+        (alert) => String(alert.id) === String(id) || String(alert.eventId) === String(id),
+      );
+      if (!existing) {
+        return res.status(404).json({ message: "Alerta não encontrado" });
+      }
+      if (!existing?.vehicleId || !allowedVehicleIds.has(String(existing.vehicleId))) {
+        return res.status(404).json({ message: resolveMirrorVehicleNotFoundMessage(req) });
+      }
+    }
+    const payload = {
+      isOk: req.body?.isOk,
+      action: req.body?.action,
+      cause: req.body?.cause,
+      notes: req.body?.notes,
+    };
 
-  const alert = handleAlert({
-    clientId,
-    alertId: id,
-    payload,
-    handledBy: req.user?.id ?? null,
-    handledByName: req.user?.name || req.user?.email || null,
-  });
-  if (!alert) {
-    return res.status(404).json({ message: "Alerta não encontrado" });
+    const alert = handleAlert({
+      clientId,
+      alertId: id,
+      payload,
+      handledBy: req.user?.id ?? null,
+      handledByName: req.user?.name || req.user?.email || null,
+    });
+    if (!alert) {
+      return res.status(404).json({ message: "Alerta não encontrado" });
+    }
+    return res.json({ data: alert, ok: true });
+  } catch (error) {
+    return next(error);
   }
-  return res.json({ data: alert, ok: true });
 });
 
 router.get("/alerts/conjugated", async (req, res, next) => {

@@ -392,6 +392,8 @@ export function TenantProvider({ children }) {
         cancelled = true;
       };
     }
+    setActiveMirror(null);
+    setActiveMirrorOwnerClientId(null);
     loadActiveMirror({ currentUser: user, ownerClientId: tenantId }).catch(() => {
       if (!cancelled) {
         setActiveMirror(null);

@@ -126,6 +126,10 @@ function mergeById(primary = [], secondary = []) {
   return Array.from(map.values());
 }
 
+function resolveMirrorVehicleNotFoundMessage(req) {
+  return req.mirrorContext?.ownerClientId ? "Veículo não encontrado para este espelhamento" : "Veículo não encontrado";
+}
+
 function resolveTraccarDeviceId(req, allowed = null) {
   const requested = extractDeviceIds(req.body);
   if (!requested.length) return null;
@@ -506,7 +510,7 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
         mirrorContext: req.mirrorContext,
       });
       if (!access.vehicles.some((vehicle) => String(vehicle.id) === vehicleId)) {
-        throw createError(404, "Veículo não encontrado");
+        throw createError(404, resolveMirrorVehicleNotFoundMessage(req));
       }
       let localDevices = listDevices({ clientId });
       if (access.mirrorOwnerIds.length) {
@@ -4443,7 +4447,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const eventScope = normalizeReportEventScope(reportEventScope);
   const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
   if (!vehicle) {
-    throw createError(404, "Veículo não encontrado");
+    throw createError(404, resolveMirrorVehicleNotFoundMessage(req));
   }
 
   const device = devices.find((item) => String(item.vehicleId) === String(vehicleId));

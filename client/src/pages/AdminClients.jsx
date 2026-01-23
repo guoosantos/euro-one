@@ -5,6 +5,8 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const initialForm = {
   name: "",
@@ -24,6 +26,7 @@ export default function AdminClients() {
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState(null);
   const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
 
   const isAdmin = role === "admin";
 
@@ -91,13 +94,19 @@ export default function AdminClients() {
 
   async function handleDelete(client) {
     await confirmDelete({
-      title: "Remover cliente",
-      message: `Remover ${client.name}? Essa ação não pode ser desfeita.`,
-      confirmLabel: "Remover",
+      title: "Excluir cliente",
+      message: `Tem certeza que deseja excluir o cliente ${client.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`/clients/${client.id}`);
-        setMessage("Cliente removido");
-        await loadClients();
+        try {
+          await api.delete(`/clients/${client.id}`);
+          setMessage("Excluído com sucesso.");
+          showToast("Excluído com sucesso.");
+          await loadClients();
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   }
@@ -269,6 +278,7 @@ export default function AdminClients() {
           </div>
         )}
       </section>
+      <PageToast toast={toast} />
     </div>
   );
 }

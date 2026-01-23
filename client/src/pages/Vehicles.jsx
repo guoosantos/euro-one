@@ -539,18 +539,15 @@ export default function Vehicles() {
     if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir veículo",
-      message: "Deseja realmente excluir este veículo? Esta ação não pode ser desfeita.",
+      message: `Tem certeza que deseja excluir o veículo ${vehicle.plate || vehicle.name || ""}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
           await CoreApi.deleteVehicle(vehicle.id);
           await load();
-          showToast("Veículo removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o veículo.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },

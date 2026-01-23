@@ -13,6 +13,8 @@ import api from "../../lib/api.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
 import { usePermissionGate, usePermissions } from "../../lib/permissions/permission-gate.js";
 import { useConfirmDialog } from "../../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../../lib/hooks/usePageToast.js";
+import PageToast from "../../components/ui/PageToast.jsx";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -91,6 +93,7 @@ export default function ServiceOrdersList() {
     return user?.clientId ? String(user.clientId) : "";
   });
   const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
   const [activeType, setActiveType] = useState("ALL");
   const retryCooldownRef = useRef(0);
 
@@ -144,13 +147,20 @@ export default function ServiceOrdersList() {
     if (!item?.id) return;
     await confirmDelete({
       title: "Excluir ordem de serviço",
-      message: "Excluir esta ordem de serviço? Essa ação não pode ser desfeita.",
+      message: "Tem certeza que deseja excluir a ordem de serviço? Essa ação não pode ser desfeita.",
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        const params = clientId ? { clientId } : undefined;
-        await api.delete(`core/service-orders/${item.id}`, { params });
-        setItems((prev) => prev.filter((entry) => entry.id !== item.id));
-        setActionError(null);
+        try {
+          const params = clientId ? { clientId } : undefined;
+          await api.delete(`core/service-orders/${item.id}`, { params });
+          setItems((prev) => prev.filter((entry) => entry.id !== item.id));
+          setActionError(null);
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          setActionError("Falha ao excluir.");
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   };
@@ -508,6 +518,7 @@ export default function ServiceOrdersList() {
           </tbody>
         </DataTable>
       )}
+      <PageToast toast={toast} />
     </div>
   );
 }

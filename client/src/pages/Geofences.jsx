@@ -600,8 +600,8 @@ export default function Geofences({ variant = "geofences" }) {
       const geofence = target || selectedGeofence;
       if (!geofence) return;
       await confirmDelete({
-        title: `Excluir ${entityLabelLower}`,
-        message: `Excluir ${entityArticle} ${entityLabelLower} "${geofence.name}"? Essa ação não pode ser desfeita.`,
+        title: `Excluir ${entityLabel}`,
+        message: `Tem certeza que deseja excluir ${entityArticle} ${entityLabelLower} "${geofence.name}"? Essa ação não pode ser desfeita.`,
         confirmLabel: "Excluir",
         onConfirm: async () => {
           const isLocal = !geofence.id || geofence.id.startsWith("local-") || geofence.id.startsWith("kml-");

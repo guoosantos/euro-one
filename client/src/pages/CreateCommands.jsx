@@ -185,18 +185,21 @@ export default function CreateCommands({ readOnly = false }) {
       return;
     }
     await confirmDelete({
-      title: "Remover comando personalizado",
-      message: "Deseja remover este comando personalizado? Esta ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir comando personalizado",
+      message: "Tem certeza que deseja excluir o comando personalizado? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
       onConfirm: async () => {
         setDeletingId(commandId);
         try {
           await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
-          showToast("Comando removido.");
+          showToast("Excluído com sucesso.");
           await fetchCustomCommands();
           if (editingId === commandId) {
             resetForm();
           }
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
         } finally {
           setDeletingId(null);
         }

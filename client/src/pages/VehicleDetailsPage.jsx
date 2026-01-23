@@ -17,6 +17,8 @@ import EmptyState from "../components/ui/EmptyState.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -518,6 +520,17 @@ export default function VehicleDetailsPage() {
       setClients(Array.isArray(clientList) ? clientList : []);
       setVehicleAttributes(Array.isArray(attributeList) ? attributeList : []);
     } catch (requestError) {
+      const status = Number(requestError?.status || requestError?.response?.status);
+      if (status === 403 || status === 404) {
+        setVehicle(null);
+        setDevices([]);
+        setChips([]);
+        setClients([]);
+        setVehicleAttributes([]);
+        setError(null);
+        setFeedback(null);
+        return;
+      }
       reportError(requestError, "Falha ao carregar veículo");
     } finally {
       setLoading(false);
@@ -542,7 +555,6 @@ export default function VehicleDetailsPage() {
     try {
       await CoreApi.linkDeviceToVehicle(vehicle.id, deviceId, { clientId: targetClientId });
       setLinkEquipmentId("");
-      setLinkEquipmentOpen(false);
       await loadData();
       reportSuccess("Equipamento vinculado ao veículo.");
     } catch (requestError) {
@@ -601,11 +613,17 @@ export default function VehicleDetailsPage() {
     if (!vehicle?.id || !isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir veículo",
-      message: `Excluir veículo ${vehicle.plate || vehicle.name || ""}? Essa ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o veículo ${vehicle.plate || vehicle.name || ""}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        await CoreApi.deleteVehicle(vehicle.id);
-        navigate("/vehicles");
+        try {
+          await CoreApi.deleteVehicle(vehicle.id);
+          showToast("Excluído com sucesso.");
+          navigate("/vehicles");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   };

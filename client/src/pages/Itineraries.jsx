@@ -2320,20 +2320,21 @@ export default function Itineraries() {
     if (!id) return;
     const existing = itineraries.find((item) => item.id === id);
     await confirmDelete({
-      title: "Remover itinerário",
-      message: "Remover este itinerário? Esta ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir itinerário",
+      message: "Tem certeza que deseja excluir o itinerário? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
           await api.delete(`${API_ROUTES.itineraries}/${id}`);
           setItineraries((current) => current.filter((item) => item.id !== id));
           if (selectedId === id) resetForm();
-          showToast("Itinerário removido.");
+          showToast("Excluído com sucesso.");
         } catch (error) {
           console.error(error);
           if (error?.response?.status === 409) {
             setDeleteConflict({ id, name: existing?.name || "Itinerário" });
           }
+          showToast("Falha ao excluir.", "error");
           throw error;
         }
       },

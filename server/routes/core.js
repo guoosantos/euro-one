@@ -123,6 +123,10 @@ function mergeById(primary = [], secondary = []) {
   return Array.from(map.values());
 }
 
+function resolveMirrorVehicleNotFoundMessage(req) {
+  return req.mirrorContext?.ownerClientId ? "Veículo não encontrado para este espelhamento" : "Veículo não encontrado";
+}
+
 function dedupeDevices(devices = []) {
   const seen = new Set();
   const result = [];
@@ -1252,6 +1256,22 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       mirrorContext: req.mirrorContext,
     });
     const accessVehicleIds = access.vehicles.map((vehicle) => String(vehicle.id)).filter(Boolean);
+    if (req.mirrorContext?.ownerClientId && hasVehicleFilter) {
+      const allowedIdSet = new Set(accessVehicleIds);
+      const allowedPlateSet = new Set(
+        access.vehicles
+          .map((vehicle) => String(vehicle.plate || "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+      const hasRequestedId = requestedVehicleIds.some((value) => allowedIdSet.has(value));
+      const hasRequestedPlate = requestedPlates.some((value) => allowedPlateSet.has(value));
+      if ((requestedVehicleIds.length && !hasRequestedId) || (requestedPlates.length && !hasRequestedPlate)) {
+        return res.status(404).json({
+          data: null,
+          error: { message: resolveMirrorVehicleNotFoundMessage(req), code: "NOT_FOUND" },
+        });
+      }
+    }
     let deviceRegistry = deps.listDevices({ clientId });
     let persistedDevices = deps.listDevicesFromDb ? await deps.listDevicesFromDb({ clientId }) : [];
     if (access.mirrorOwnerIds.length) {
@@ -1695,9 +1715,15 @@ router.get(
         : null,
     });
 
+    const access = await getAccessibleVehicles({
+      user: req.user,
+      clientId,
+      includeMirrorsForNonReceivers: false,
+      mirrorContext: req.mirrorContext,
+    });
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
-    let vehicles = deps.listVehicles({ clientId });
+    let vehicles = access.vehicles;
     const modelMap = new Map(models.map((item) => [item.id, item]));
     const chipMap = new Map(chips.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
@@ -1729,11 +1755,12 @@ router.get(
       devices = deps.listDevices({ clientId });
     }
 
-    if (req.mirrorContext?.ownerClientId) {
-      const allowedVehicleIds = new Set((req.mirrorContext.vehicleIds || []).map(String));
-      vehicles = vehicles.filter((vehicle) => allowedVehicleIds.has(String(vehicle.id)));
-      devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
+    if (access.mirrorOwnerIds.length) {
+      const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));
+      devices = mergeById(devices, extraDevices);
     }
+    const allowedVehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+    devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
 
     devices.forEach((device) => {
       if (device?.model?.id && !modelMap.has(String(device.model.id))) {
@@ -2951,11 +2978,11 @@ router.get(
     const access = await getAccessibleVehicles({ user: req.user, clientId, mirrorContext: req.mirrorContext });
     const isAccessible = access.vehicles.some((vehicle) => String(vehicle.id) === String(id));
     if (!isAccessible) {
-      throw createError(404, "Veículo não encontrado");
+      throw createError(404, resolveMirrorVehicleNotFoundMessage(req));
     }
     const vehicle = deps.getVehicleById(id);
     if (!vehicle) {
-      throw createError(404, "Veículo não encontrado");
+      throw createError(404, resolveMirrorVehicleNotFoundMessage(req));
     }
 
     if (!vehicle.deviceId) {

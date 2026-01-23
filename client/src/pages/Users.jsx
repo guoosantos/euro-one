@@ -461,11 +461,17 @@ export default function Users() {
 
   async function handleGroupDelete(entry) {
     await confirmDelete({
-      title: "Remover grupo",
-      message: `Remover grupo ${entry.name}? Essa ação não pode ser desfeita.`,
-      confirmLabel: "Remover",
+      title: "Excluir grupo",
+      message: `Tem certeza que deseja excluir o grupo ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await deleteGroup(entry.id);
+        try {
+          await deleteGroup(entry.id);
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   }
@@ -516,11 +522,17 @@ export default function Users() {
       return;
     }
     await confirmDelete({
-      title: "Remover grupo de permissões",
-      message: `Remover grupo ${entry.name}? Essa ação não pode ser desfeita.`,
-      confirmLabel: "Remover",
+      title: "Excluir grupo de permissões",
+      message: `Tem certeza que deseja excluir o grupo de permissões ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await deleteGroup(entry.id);
+        try {
+          await deleteGroup(entry.id);
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   }
@@ -530,7 +542,7 @@ export default function Users() {
     if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir usuário",
-      message: `Excluir usuário ${entry.name}? Essa ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o usuário ${entry.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
@@ -541,12 +553,9 @@ export default function Users() {
             setDetailsUserId(null);
             setDetailsUser(null);
           }
-          showToast("Usuário removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o usuário.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },
