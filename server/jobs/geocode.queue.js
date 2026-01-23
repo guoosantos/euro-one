@@ -7,6 +7,8 @@ let IORedis = null;
 const shouldLogDriverWarnings = process.env.NODE_ENV !== "test";
 let warnedMissingRedisUrl = false;
 let warnedMemoryDriver = false;
+let warnedMissingModules = false;
+const missingModules = new Set();
 
 const require = createRequire(import.meta.url);
 
@@ -15,6 +17,7 @@ async function loadOptionalModule(specifier, label) {
     const resolved = require.resolve(specifier);
     return await import(resolved);
   } catch (error) {
+    missingModules.add(label);
     if (shouldLogDriverWarnings) {
       console.warn(`[geocode-queue] ${label} indisponível, ativando modo em memória.`, error?.message || error);
     }
@@ -200,6 +203,20 @@ function createMemoryQueue() {
 
 export function getGeocodeQueue() {
   if (state.driver !== "bullmq") {
+    if (
+      !warnedMissingModules &&
+      shouldLogDriverWarnings &&
+      process.env.NODE_ENV === "production" &&
+      process.env.GEOCODE_QUEUE_DISABLED !== "true" &&
+      missingModules.size
+    ) {
+      console.warn(
+        `[geocode-queue] Dependências ausentes (${[...missingModules].join(
+          ", ",
+        )}). Instale bullmq/ioredis para habilitar o driver Redis.`,
+      );
+      warnedMissingModules = true;
+    }
     if (!warnedMemoryDriver && shouldLogDriverWarnings && process.env.NODE_ENV === "production") {
       console.warn("[geocode-queue] Modo em memória ativo em produção; configure Redis/BullMQ.");
       warnedMemoryDriver = true;
