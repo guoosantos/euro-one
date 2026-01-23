@@ -533,8 +533,6 @@ export default function RoutesPage() {
   const [showToolsPanel, setShowToolsPanel] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const toastTimeoutRef = useRef(null);
-  const [toast, setToast] = useState(null);
   const [autocompleteResetKey, setAutocompleteResetKey] = useState(0);
   const addressSearch = useAddressSearchState();
   const mapInvalidateKey = useMemo(
@@ -588,20 +586,6 @@ export default function RoutesPage() {
 
   const waypoints = useMemo(() => normalizeStopOrders(draftRoute.metadata?.waypoints || []), [draftRoute.metadata?.waypoints]);
   const { origin, destination, stops } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
-
-  useEffect(() => () => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-  }, []);
-
-  const showToast = useCallback((message, type = "success") => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
-  }, []);
 
   const resetAutocomplete = useCallback(() => {
     setAutocompleteResetKey((current) => current + 1);
