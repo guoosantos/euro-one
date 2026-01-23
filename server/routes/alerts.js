@@ -7,6 +7,7 @@ import { listVehicles } from "../models/vehicle.js";
 import { fetchEventsWithFallback } from "../services/traccar-db.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { handleAlert, listAlerts } from "../services/alerts.js";
+import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 
 const router = express.Router();
 
@@ -16,6 +17,17 @@ function parsePositiveNumber(value, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
+}
+
+function mergeById(primary = [], secondary = []) {
+  const map = new Map(primary.map((item) => [String(item.id), item]));
+  secondary.forEach((item) => {
+    const key = String(item.id);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
 }
 
 function resolveEventIdFromPayload(event) {
@@ -76,13 +88,33 @@ router.get("/alerts/conjugated", async (req, res, next) => {
     const windowHours = parsePositiveNumber(req.query?.windowHours, 5);
     const limit = Math.min(2000, Math.floor(parsePositiveNumber(req.query?.limit, 500)));
 
-    const devices = listDevices({ clientId });
+    const access = await getAccessibleVehicles({
+      user: req.user,
+      clientId,
+      includeMirrorsForNonReceivers: false,
+      mirrorContext: req.mirrorContext,
+    });
+    const allowedVehicleIds = new Set(access.vehicles.map((vehicle) => String(vehicle.id)));
+    let devices = listDevices({ clientId });
+    if (access.mirrorOwnerIds.length) {
+      const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
+      devices = mergeById(devices, extraDevices);
+    }
+    devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
     const deviceByTraccarId = new Map(
       devices
         .filter((device) => device?.traccarId != null)
         .map((device) => [String(device.traccarId), device]),
     );
     const deviceIds = Array.from(deviceByTraccarId.keys());
+    console.info("[alerts/conjugated] request", {
+      clientIdReceived: req.query?.clientId ?? null,
+      clientIdResolved: clientId ?? null,
+      mirrorContext: req.mirrorContext
+        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+        : null,
+      deviceCount: deviceIds.length,
+    });
     if (!deviceIds.length) {
       return res.json({ data: [], total: 0 });
     }
@@ -92,7 +124,7 @@ router.get("/alerts/conjugated", async (req, res, next) => {
     const to = now.toISOString();
 
     const events = await fetchEventsWithFallback(deviceIds, from, to, limit);
-    const vehicles = listVehicles({ clientId });
+    const vehicles = access.vehicles.length ? access.vehicles : listVehicles({ clientId });
     const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
 
     const filtered = events

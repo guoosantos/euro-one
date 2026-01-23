@@ -2392,7 +2392,12 @@ async function handleEventsReport(req, res, next) {
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
     const pageSize = Number.isFinite(limit) && limit > 0 ? limit : 50;
 
-    const metadata = await fetchDevicesMetadata();
+    let metadata = [];
+    try {
+      metadata = await fetchDevicesMetadata();
+    } catch (metadataError) {
+      console.warn("[positions] falha ao buscar metadata do Traccar", metadataError?.message || metadataError);
+    }
     const lookup = buildDeviceLookup(devices, metadata);
 
     const fetchLimit = pageSize ? pageSize * page : pageSize;
@@ -2789,7 +2794,12 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 router.get("/positions", async (req, res, next) => {
   try {
     const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
-    const metadata = await fetchDevicesMetadata();
+    let metadata = [];
+    try {
+      metadata = await fetchDevicesMetadata();
+    } catch (metadataError) {
+      console.warn("[positions] falha ao buscar metadata do Traccar", metadataError?.message || metadataError);
+    }
     const lookup = buildDeviceLookup(devices, metadata);
 
     const rawFrom = req.query?.from;
@@ -2842,7 +2852,20 @@ router.get("/positions/last", async (req, res) => {
 
   try {
     const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
-    const metadata = await fetchDevicesMetadata();
+    console.info("[positions/last] request", {
+      clientIdReceived: req.query?.clientId ?? null,
+      clientIdResolved: clientId ?? null,
+      mirrorContext: req.mirrorContext
+        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+        : null,
+      deviceIdsToQuery,
+    });
+    let metadata = [];
+    try {
+      metadata = await fetchDevicesMetadata();
+    } catch (metadataError) {
+      console.warn("[positions/last] falha ao buscar metadata do Traccar", metadataError?.message || metadataError);
+    }
     const lookup = buildDeviceLookup(devices, metadata);
     if (requestedIds.length && !deviceIdsToQuery.length) {
       return respondDeviceNotFound(res);
@@ -2866,6 +2889,14 @@ router.get("/positions/last", async (req, res) => {
       return respondDeviceNotFound(res);
     }
 
+    console.warn("[positions/last] falha ao carregar posições", {
+      clientId: req.query?.clientId ?? null,
+      mirrorContext: req.mirrorContext
+        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+        : null,
+      status: error?.status || error?.statusCode || null,
+      message: error?.message || error,
+    });
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
 });

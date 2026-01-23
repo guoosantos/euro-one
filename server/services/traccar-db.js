@@ -85,6 +85,16 @@ function resolveDialect() {
   return null;
 }
 
+function ensureDialect() {
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw buildTraccarUnavailableError(createError(503, "Cliente do banco do Traccar não suportado"), {
+      stage: "db-config",
+    });
+  }
+  return dialect;
+}
+
 function isTraccarDbConfigured() {
   if (testOverrides?.pool || testOverrides?.dialect) return true;
   return Boolean(config.traccar.db.client && config.traccar.db.host && config.traccar.db.name);
@@ -106,10 +116,7 @@ async function getPool() {
   if (testOverrides?.pool) return testOverrides.pool;
   if (dbPool) return dbPool;
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   try {
     dbPool = await dialect.createPool();
@@ -147,10 +154,12 @@ export async function getTraccarDbHealth() {
 export async function queryTraccarDb(sql, params = []) {
   try {
     const pool = await getPool();
-    const dialect = resolveDialect();
+    const dialect = ensureDialect();
     const executor = dialect?.query;
     if (!executor) {
-      throw createError(500, "Driver SQL do Traccar não configurado");
+      throw buildTraccarUnavailableError(createError(503, "Driver SQL do Traccar não configurado"), {
+        stage: "db-config",
+      });
     }
     return await executor(pool, sql, params);
   } catch (error) {
@@ -403,10 +412,7 @@ export async function fetchTrips(deviceId, from, to) {
     throw createError(400, "Parâmetros obrigatórios: deviceId, from, to");
   }
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const sql = `
     SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, full_address, address_status, address_provider, address_updated_at, address_error, attributes
@@ -425,10 +431,7 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length && !clientId) return [];
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const conditions = [];
   const params = [];
@@ -550,10 +553,7 @@ export async function countPositions(deviceIds = [], from, to) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return 0;
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const params = [];
   const conditions = [`deviceid IN (${buildPlaceholders(filtered)})`];
@@ -578,10 +578,7 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const params = [];
   const conditions = [`deviceid IN (${buildPlaceholders(filtered)})`];
@@ -640,10 +637,7 @@ export async function updatePositionAddress(
   { fullAddress = null, status = ADDRESS_STATUS.RESOLVED, provider = null, error = null } = {},
 ) {
   if (!positionId) return null;
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const fields = [];
   const params = [];
@@ -847,10 +841,7 @@ export async function ensureFullAddressForPositions(positionIds = [], options = 
 
 export async function fetchLatestResolvedPositionForDevice(deviceId) {
   if (!deviceId) return null;
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const sql = `
     SELECT
@@ -886,10 +877,7 @@ export async function fetchPositionsMissingAddresses({
   includePending = true,
   includeNullStatus = true,
 } = {}) {
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const statuses = [];
   if (includePending) statuses.push(ADDRESS_STATUS.PENDING);
@@ -945,10 +933,7 @@ export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const params = [];
   const placeholders = buildPlaceholders(filtered);
@@ -1035,10 +1020,7 @@ export async function fetchPositionsByIds(positionIds = []) {
   const filtered = Array.from(new Set((positionIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
+  const dialect = ensureDialect();
 
   const placeholders = buildPlaceholders(filtered);
   const sql = `
