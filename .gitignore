@@ -42,3 +42,12 @@ tatus
 
 .pm2
 node_modules/
+
+# local secrets
+.env
+.env.*
+server/.env
+client/.env
+client/.env.*
+.pm2/
+dump.pm2

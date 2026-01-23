@@ -1,0 +1,6346 @@
+{
+  "0e4779cf-86b6-43a3-8acd-34d6db78083e": {
+    "": {
+      "ignitionOff": {
+        "displayName": "Evento desconhecido (ignitionOff)",
+        "customName": "Evento desconhecido (ignitionOff)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceStopped": {
+        "displayName": "Evento desconhecido (deviceStopped)",
+        "customName": "Evento desconhecido (deviceStopped)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "ignitionOn": {
+        "displayName": "Evento desconhecido (ignitionOn)",
+        "customName": "Evento desconhecido (ignitionOn)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceOnline": {
+        "displayName": "Evento desconhecido (deviceOnline)",
+        "customName": "Evento desconhecido (deviceOnline)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceOffline": {
+        "displayName": "Evento desconhecido (deviceOffline)",
+        "customName": "Evento desconhecido (deviceOffline)",
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "deviceUnknown": {
+        "displayName": "Evento desconhecido (deviceUnknown)",
+        "customName": "Evento desconhecido (deviceUnknown)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceMoving": {
+        "displayName": "Evento desconhecido (deviceMoving)",
+        "customName": "Evento desconhecido (deviceMoving)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "queuedCommandSent": {
+        "displayName": "Evento desconhecido (queuedCommandSent)",
+        "customName": "Evento desconhecido (queuedCommandSent)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "powerCut,powerCut": {
+        "displayName": "Evento desconhecido (powerCut,powerCut)",
+        "customName": "Evento desconhecido (powerCut,powerCut)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "powerCut": {
+        "displayName": "Evento desconhecido (powerCut)",
+        "customName": "Evento desconhecido (powerCut)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      }
+    },
+    "gt06": {
+      "0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "69": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "70": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "98": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "100": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "133": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "134": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "136": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "137": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "139": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "141": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "145": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "158": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "255": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "alarm": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "commandResult": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "crash": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceInactive": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "deviceMoving": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceOffline": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "deviceOnline": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceStopped": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceUnknown": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "door": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "driverChanged": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fuelDrop": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fuelUp": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "geofenceEnter": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "geofenceExit": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "harshAcceleration": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "harshBraking": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "harshCornering": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "idle": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "ignitionOff": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "ignitionOn": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "jamming": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "lowBattery": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "maintenance": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "media": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "overspeed": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "parking": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "powerCut": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "sos": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "speeding": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "speedLimit": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "tampering": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "textMessage": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "towing": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "tripStart": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "tripStop": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "powerCut,powerCut": {
+        "displayName": "Evento desconhecido (powerCut,powerCut)",
+        "customName": "Evento desconhecido (powerCut,powerCut)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      }
+    },
+    "iotm": {
+      "0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "22": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "64": {
+        "displayName": "Evento desconhecido (64)",
+        "customName": "Evento desconhecido (64)",
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "66": {
+        "displayName": "Evento desconhecido (66)",
+        "customName": "Evento desconhecido (66)",
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "68": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "69": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "70": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "98": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "100": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "133": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "134": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "136": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "137": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "139": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "141": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "143": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "145": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "158": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "255": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "alarm": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "commandResult": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "crash": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceInactive": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "deviceMoving": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceOffline": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "deviceOnline": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceStopped": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceUnknown": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "door": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "driverChanged": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fuelDrop": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fuelUp": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=100": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=101": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=102": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=103": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=104": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=105": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=106": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=107": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=108": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=109": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=110": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=111": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=112": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=113": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=114": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=115": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=116": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=117": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=118": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=119": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=120": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=121": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=122": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=123": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=124": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=125": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=126": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=127": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=128": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=129": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=130": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=131": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=132": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=133": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=134": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=135": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=136": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=137": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=138": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=139": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=140": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=141": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=142": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=143": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=144": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=145": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=146": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=147": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=148": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=149": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=150": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=151": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=152": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=153": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=154": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=155": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=156": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=157": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=158": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=159": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=160": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=161": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=162": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=163": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=164": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=165": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=166": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=167": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=168": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=169": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=170": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=171": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=172": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=173": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=174": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=175": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=176": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=177": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=178": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=179": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=180": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=181": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=182": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=183": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=184": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=240": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=0,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=10,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=10,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=10,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=10,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=17": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=20": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=22": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=23": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=24": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=25": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=26": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=27": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=28": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=29": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=30": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=31": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=32": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=33": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=34": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=35": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=36": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=37": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=38": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=39": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=40": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=41": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=42": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=43": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=44": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=45": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=46": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=47": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=48": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=49": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=50": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=51": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=52": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=53": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=54": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=55": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=56": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=57": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=58": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=59": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=60": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=61": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=62": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=63": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=64": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=65": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=66": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=67": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=68": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=69": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=70": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=71": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=72": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=73": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=74": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=75": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=76": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=77": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=78": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=79": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=80": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=81": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=82": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=100,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=20": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=22": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=23": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=101,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=100": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=50": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=102,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=103,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=103,war_id=128": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=103,war_id=129": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=103,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=103,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=100": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=101": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=102": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=103": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=104": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=105": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=106": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=107": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=108": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=109": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=110": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=120": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=121": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=122": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=123": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=124": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=125": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=126": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=127": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=128": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=129": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=130": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=131": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=17": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=20": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=22": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=23": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=24": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=25": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=26": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=27": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=28": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=29": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=30": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=31": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=32": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=33": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=34": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=35": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=36": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=37": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=38": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=39": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=40": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=41": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=42": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=43": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=44": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=45": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=46": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=47": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=48": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=49": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=50": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=51": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=52": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=53": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=54": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=55": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=56": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=57": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=58": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=59": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=60": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=61": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=62": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=63": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=64": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=65": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=66": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=67": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=68": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=69": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=70": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=71": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=72": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=73": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=74": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=75": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=76": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=77": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=78": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=79": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=80": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=81": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=82": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=83": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=84": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=85": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=86": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=87": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=88": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=89": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=90": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=91": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=92": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=93": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=94": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=95": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=96": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=97": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=98": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=104,war_id=99": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=113": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=115": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=120": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=127": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=17": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=33": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=34": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=36": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=105,war_id=49": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=106,war_id=xx": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=17": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=107,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=108,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=108,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=108,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=108,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=109,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=110,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=17": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=111,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=112,war_id=n": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=113,war_id=n": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=114,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=114,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=115,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=116,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=117,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=118,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=119,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=12,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=12,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=12,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=120,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=121,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=122,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=123,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=124,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=125,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=126,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=127,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=128,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=129,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=130,war_id=252": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=130,war_id=253": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=130,war_id=254": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=130,war_id=255": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=130,war_id=id": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=20": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=22": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=23": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=24": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=25": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=26": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=27": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=31": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=140+scriptid,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=145,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=150,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=155,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=155,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=155,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=155,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=160,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=161,war_id=xx": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=162,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=162,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=163,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=163,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=163,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=163,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=163,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=170,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=170,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=170,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=174,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=175,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=176,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=177,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=178,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=179,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=11": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=12": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=13": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=14": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=15": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=16": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=17": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=18": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=19": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=20": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=21": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=22": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=23": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=24": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=25": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=26": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=27": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=28": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=29": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=30": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=31": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=32": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=33": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=34": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=35": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=36": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=37": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=38": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=39": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=40": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=41": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=42": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=43": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=44": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=45": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=46": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=47": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=48": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=49": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=50": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=51": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=52": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=53": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=54": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=55": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=180+source,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=190,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=190,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=190,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=190,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=20,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=200,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=5": {
+        "displayName": "EQUIPAMENTO ATUALIZADO",
+        "customName": "EQUIPAMENTO ATUALIZADO",
+        "severity": "high",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=201,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=21,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=10": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=8": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=210,war_id=9": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=211,war_id=7": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=22,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=221,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=221,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=221,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=222,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=222,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=222,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=223,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=223,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=223,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=224,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=224,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=224,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=225,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=225,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=23,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=24,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=240,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=240+source,war_id=xx": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=25,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=250,war_id=0": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=250+source,war_id=xx": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=26,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=27,war_id=x": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=28,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=43,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=8,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=100": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=93,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=99,war_id=1": {
+        "displayName": null,
+        "customName": null,
+        "severity": "critical",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=99,war_id=2": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=99,war_id=3": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=99,war_id=4": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=99,war_id=5": {
+        "displayName": null,
+        "customName": null,
+        "severity": "warning",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "fun_id=99,war_id=6": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "geofenceEnter": {
+        "displayName": "ENTRADA DE ITINERÁRIO",
+        "customName": "ENTRADA DE ITINERÁRIO",
+        "severity": "high",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "geofenceExit": {
+        "displayName": "SAIDA DE ITINERÁRIO",
+        "customName": "SAIDA DE ITINERÁRIO",
+        "severity": "high",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "harshAcceleration": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "harshBraking": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "harshCornering": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "idle": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "ignitionOff": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "ignitionOn": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "jamming": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "lowBattery": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "maintenance": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "media": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "overspeed": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "parking": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "powerCut": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "sos": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "speeding": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "speedLimit": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "tampering": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "textMessage": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "towing": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "tripStart": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "tripStop": {
+        "displayName": null,
+        "customName": null,
+        "severity": "info",
+        "active": false,
+        "category": "Logística",
+        "requiresHandling": false
+      }
+    }
+  }
+}

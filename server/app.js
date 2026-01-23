@@ -55,8 +55,11 @@ const configuredOrigins = config.cors.origins.length ? config.cors.origins : [];
 const allowedOriginsSet = new Set([...viteOrigins, ...configuredOrigins]);
 
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const isAllowedOrigin = !origin || allowedOriginsSet.has(origin);
+const origin = req.headers.origin;
+const normalized =
+  origin?.replace(":443", "").replace(":80", "");
+
+const isAllowedOrigin = !origin || allowedOriginsSet.has(origin) || allowedOriginsSet.has(normalized);
 
   if (origin && isAllowedOrigin) {
     res.header("Access-Control-Allow-Origin", origin);

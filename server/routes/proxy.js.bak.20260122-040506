@@ -1992,6 +1992,17 @@ function parsePositiveNumber(value, fallback) {
   return parsed;
 }
 
+function mergeById(primary = [], secondary = []) {
+  const map = new Map(primary.map((item) => [String(item.id), item]));
+  secondary.forEach((item) => {
+    const key = String(item.id);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
 async function resolveAccessibleDeviceContext(req) {
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
   const access = await getAccessibleVehicles({
