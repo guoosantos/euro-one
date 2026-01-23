@@ -51,3 +51,4 @@ client/.env
 client/.env.*
 .pm2/
 dump.pm2
+euro-one/
