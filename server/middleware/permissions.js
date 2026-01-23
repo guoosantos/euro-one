@@ -6,6 +6,93 @@ import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
+const MIRROR_FALLBACK_PERMISSIONS = {
+  primary: {
+    home: "read",
+    monitoring: "read",
+    trips: "read",
+    devices: {
+      visible: true,
+      access: "read",
+      subpages: {
+        "devices-list": "read",
+        "devices-chips": "read",
+        "devices-models": "read",
+        "devices-stock": "read",
+      },
+    },
+    commands: {
+      visible: true,
+      access: "read",
+      subpages: {
+        list: "read",
+        advanced: "read",
+        create: "none",
+      },
+    },
+    events: {
+      visible: true,
+      access: "read",
+      subpages: {
+        report: "read",
+        severity: "none",
+      },
+    },
+  },
+  fleet: {
+    vehicles: "read",
+    documents: {
+      visible: true,
+      access: "read",
+      subpages: {
+        drivers: "read",
+        contracts: "read",
+      },
+    },
+    services: {
+      visible: true,
+      access: "read",
+      subpages: {
+        "service-orders": "read",
+        "service-orders-all": "read",
+        "service-orders-installation": "read",
+        "service-orders-maintenance": "read",
+        "service-orders-removal": "read",
+        "service-orders-socorro": "read",
+        "service-orders-remanejamento": "read",
+        "service-orders-reinstall": "read",
+        appointments: "read",
+        technicians: "read",
+      },
+    },
+    routes: "read",
+    geofences: "read",
+    targets: "read",
+    itineraries: "read",
+    deliveries: "read",
+  },
+  telemetry: {
+    "euro-view": {
+      visible: true,
+      access: "read",
+      subpages: {
+        videos: "read",
+        face: "read",
+        live: "read",
+      },
+    },
+    "euro-can": {
+      visible: true,
+      access: "read",
+      subpages: {
+        fuel: "read",
+        compliance: "read",
+        "driver-behavior": "read",
+        maintenance: "read",
+      },
+    },
+  },
+};
 
 function normaliseLevel(value) {
   if (typeof value !== "string") return null;
@@ -77,7 +164,7 @@ export async function resolvePermissionContext(req) {
   const mirrorPermissionGroupId = req.mirrorContext?.permissionGroupId ?? null;
   if (req.mirrorContext) {
     if (!mirrorPermissionGroupId) {
-      return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+      return { permissions: MIRROR_FALLBACK_PERMISSIONS, level: null, isFull: false, permissionGroupId: null };
     }
 
     const mirrorGroup = getGroupById(mirrorPermissionGroupId);

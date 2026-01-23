@@ -7,9 +7,13 @@ import { signSession } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { createVehicle, deleteVehicle } from "../models/vehicle.js";
+import { createDevice, deleteDevice, updateDevice } from "../models/device.js";
 import alertRoutes from "../routes/alerts.js";
+import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
+import { filterAlertsByVehicleAccess } from "../routes/alerts.js";
 
 const createdVehicles = [];
+const createdDevices = [];
 const originalMirrorMode = config.features.mirrorMode;
 
 function buildVehicle({ clientId, plate, model, type = "Carro" }) {
@@ -22,6 +26,15 @@ function buildVehicle({ clientId, plate, model, type = "Carro" }) {
   });
   createdVehicles.push(vehicle.id);
   return vehicle;
+}
+
+function buildDevice({ clientId, uniqueId, vehicleId = null, traccarId = null }) {
+  const device = createDevice({ clientId, uniqueId, traccarId });
+  createdDevices.push(device.id);
+  if (vehicleId) {
+    updateDevice(device.id, { vehicleId });
+  }
+  return device;
 }
 
 async function callAlertsConjugated({ clientId }) {
@@ -51,6 +64,14 @@ afterEach(() => {
       // ignora limpeza
     }
   });
+  createdDevices.splice(0).forEach((id) => {
+    try {
+      deleteDevice(id);
+    } catch (_error) {
+      // ignora limpeza
+    }
+  });
+  __resetCoreRouteMocks();
   config.features.mirrorMode = originalMirrorMode;
 });
 
@@ -97,5 +118,168 @@ describe("/api/alerts/conjugated", () => {
     assert.equal(status, 200);
     assert.deepEqual(payload.data, []);
     assert.equal(payload.total, 0);
+  });
+});
+
+describe("mirror access (core routes)", () => {
+  it("lista apenas veículos permitidos no mirror", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-vehicles";
+    const receiverId = "receiver-vehicles";
+    const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "MMM-1001", model: "Modelo M" });
+    const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "MMM-1002", model: "Modelo N" });
+    buildDevice({ clientId: ownerId, uniqueId: "DEV-1", vehicleId: allowedVehicle.id });
+    buildDevice({ clientId: ownerId, uniqueId: "DEV-2", vehicleId: blockedVehicle.id });
+
+    __setCoreRouteMocks({
+      authenticate: (req, _res, next) => {
+        req.user = { id: "user-vehicles", role: "user", clientId: receiverId };
+        const ownerHeader = req.headers["x-owner-client-id"];
+        if (ownerHeader) {
+          req.mirrorContext = {
+            ownerClientId: String(ownerHeader),
+            vehicleIds: [allowedVehicle.id],
+            permissionGroupId: null,
+          };
+          req.clientId = String(ownerHeader);
+        }
+        next();
+      },
+      fetchLatestPositionsWithFallback: async () => [],
+      fetchDevicesMetadata: async () => [],
+      getCachedTraccarResources: () => [],
+      isTraccarDbConfigured: () => false,
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use("/api", coreRoutes);
+    app.use(errorHandler);
+
+    const server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const response = await fetch(
+      `${baseUrl}/api/vehicles?clientId=${ownerId}&accessible=true`,
+      { headers: { "X-Owner-Client-Id": ownerId } },
+    );
+    const payload = await response.json();
+    server.close();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.vehicles.length, 1);
+    assert.equal(payload.vehicles[0].id, allowedVehicle.id);
+  });
+
+  it("retorna 404 ao acessar veículo fora do espelhamento", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-detail";
+    const receiverId = "receiver-detail";
+    const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "DDD-2001", model: "Modelo D" });
+    const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "DDD-2002", model: "Modelo E" });
+    buildDevice({ clientId: ownerId, uniqueId: "DEV-3", vehicleId: allowedVehicle.id, traccarId: "101" });
+
+    __setCoreRouteMocks({
+      authenticate: (req, _res, next) => {
+        req.user = { id: "user-detail", role: "user", clientId: receiverId };
+        const ownerHeader = req.headers["x-owner-client-id"];
+        if (ownerHeader) {
+          req.mirrorContext = {
+            ownerClientId: String(ownerHeader),
+            vehicleIds: [allowedVehicle.id],
+            permissionGroupId: null,
+          };
+          req.clientId = String(ownerHeader);
+        }
+        next();
+      },
+      fetchLatestPositionsWithFallback: async () => [],
+      fetchDevicesMetadata: async () => [],
+      isTraccarDbConfigured: () => false,
+      traccarProxy: async () => ({ id: 101, name: "Device", uniqueId: "DEV-3" }),
+      getCachedTraccarResources: () => [],
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use("/api", coreRoutes);
+    app.use(errorHandler);
+
+    const server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const response = await fetch(
+      `${baseUrl}/api/vehicles/${blockedVehicle.id}/traccar-device?clientId=${ownerId}`,
+      { headers: { "X-Owner-Client-Id": ownerId } },
+    );
+    const payload = await response.json();
+    server.close();
+
+    assert.equal(response.status, 404);
+    assert.equal(payload.message, "Veículo não encontrado para este espelhamento");
+  });
+
+  it("telemetria retorna apenas dispositivos permitidos no mirror", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-telemetry";
+    const receiverId = "receiver-telemetry";
+    const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "TEL-3001", model: "Modelo T" });
+    const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "TEL-3002", model: "Modelo U" });
+    buildDevice({ clientId: ownerId, uniqueId: "DEV-4", vehicleId: allowedVehicle.id, traccarId: "201" });
+    buildDevice({ clientId: ownerId, uniqueId: "DEV-5", vehicleId: blockedVehicle.id, traccarId: "202" });
+
+    __setCoreRouteMocks({
+      authenticate: (req, _res, next) => {
+        req.user = { id: "user-telemetry", role: "user", clientId: receiverId };
+        const ownerHeader = req.headers["x-owner-client-id"];
+        if (ownerHeader) {
+          req.mirrorContext = {
+            ownerClientId: String(ownerHeader),
+            vehicleIds: [allowedVehicle.id],
+            permissionGroupId: null,
+          };
+          req.clientId = String(ownerHeader);
+        }
+        next();
+      },
+      fetchLatestPositionsWithFallback: async (deviceIds) =>
+        deviceIds.map((deviceId) => ({
+          deviceId: Number(deviceId),
+          latitude: 0,
+          longitude: 0,
+          deviceTime: new Date().toISOString(),
+        })),
+      fetchDevicesMetadata: async () => [],
+      getCachedTraccarResources: () => [],
+      isTraccarDbConfigured: () => false,
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use("/api", coreRoutes);
+    app.use(errorHandler);
+
+    const server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const response = await fetch(`${baseUrl}/api/telemetry?clientId=${ownerId}`, {
+      headers: { "X-Owner-Client-Id": ownerId },
+    });
+    const payload = await response.json();
+    server.close();
+
+    assert.equal(response.status, 200);
+    const telemetry = payload.telemetry || [];
+    assert.equal(telemetry.length, 1);
+    assert.equal(String(telemetry[0]?.deviceId || telemetry[0]?.device?.id), "201");
+  });
+});
+
+describe("mirror alerts filter", () => {
+  it("filtra alertas por veículos permitidos", () => {
+    const allowedVehicleIds = new Set(["veh-1"]);
+    const alerts = [
+      { id: "a-1", vehicleId: "veh-1" },
+      { id: "a-2", vehicleId: "veh-2" },
+    ];
+    const filtered = filterAlertsByVehicleAccess(alerts, allowedVehicleIds);
+    assert.deepEqual(filtered.map((alert) => alert.id), ["a-1"]);
   });
 });

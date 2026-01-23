@@ -5,6 +5,8 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const defaultUserForm = {
   name: "",
@@ -32,6 +34,7 @@ export default function ClientUsers() {
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState(null);
   const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
 
   const managedTenants = useMemo(() => {
     if (role === "admin") {
@@ -119,13 +122,19 @@ export default function ClientUsers() {
 
   async function handleDelete(entry) {
     await confirmDelete({
-      title: "Remover usuário",
-      message: `Remover usuário ${entry.name}? Essa ação não pode ser desfeita.`,
-      confirmLabel: "Remover",
+      title: "Excluir usuário",
+      message: `Tem certeza que deseja excluir o usuário ${entry.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`/users/${entry.id}`);
-        setMessage("Usuário removido");
-        await loadUsers(selectedTenantId);
+        try {
+          await api.delete(`/users/${entry.id}`);
+          setMessage("Excluído com sucesso.");
+          showToast("Excluído com sucesso.");
+          await loadUsers(selectedTenantId);
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   }
@@ -292,6 +301,7 @@ export default function ClientUsers() {
           </div>
         )}
       </section>
+      <PageToast toast={toast} />
     </div>
   );
 }

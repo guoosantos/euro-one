@@ -18,6 +18,8 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 
@@ -87,6 +89,7 @@ export default function Fences() {
     updateGroupGeofences,
   } = useGeofenceGroups({ includeGeofences: true });
   const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
 
   const [layers, setLayers] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -317,11 +320,17 @@ export default function Fences() {
 
   const handleDeleteGroup = async (id) => {
     await confirmDelete({
-      title: "Remover grupo",
-      message: "Deseja remover este grupo? Essa ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir grupo",
+      message: "Tem certeza que deseja excluir o grupo? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await deleteGroup(id);
+        try {
+          await deleteGroup(id);
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   };
@@ -699,6 +708,7 @@ export default function Fences() {
           </div>
         </div>
       </div>
+      <PageToast toast={toast} />
     </div>
   );
 }

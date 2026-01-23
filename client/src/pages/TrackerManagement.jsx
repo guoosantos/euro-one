@@ -7,6 +7,9 @@ import Input from "../ui/Input";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import useTrackerMappings from "../lib/hooks/useTrackerMappings.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 function MappingRow({ mapping, onDelete }) {
   return (
@@ -28,6 +31,8 @@ function MappingRow({ mapping, onDelete }) {
 
 export default function TrackerManagement() {
   const { tenantId, role } = useTenant();
+  const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
   const {
     devices,
     telemetryMappings,
@@ -75,8 +80,21 @@ export default function TrackerManagement() {
   };
 
   const handleDelete = async (mapping, type) => {
-    await deleteMapping(type, mapping.id);
-    reload({ deviceId: selectedDeviceId });
+    await confirmDelete({
+      title: "Excluir mapeamento",
+      message: `Tem certeza que deseja excluir o mapeamento ${mapping.label}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
+      onConfirm: async () => {
+        try {
+          await deleteMapping(type, mapping.id);
+          reload({ deviceId: selectedDeviceId });
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
+      },
+    });
   };
 
   if (role !== "admin") {
@@ -176,6 +194,7 @@ export default function TrackerManagement() {
           </div>
         </div>
       </Card>
+      <PageToast toast={toast} />
     </div>
   );
 }

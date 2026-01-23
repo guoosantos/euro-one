@@ -406,7 +406,7 @@ export default function Clients() {
     if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir cliente",
-      message: `Excluir cliente ${client.name}? Essa ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o cliente ${client.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
@@ -415,12 +415,9 @@ export default function Clients() {
           if (detailsClientId && String(detailsClientId) === String(client.id)) {
             closeDetailsDrawer();
           }
-          showToast("Cliente removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o cliente.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },

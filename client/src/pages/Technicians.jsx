@@ -560,7 +560,7 @@ export default function Technicians() {
     if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir técnico",
-      message: `Excluir técnico ${technician.name}? Essa ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o técnico ${technician.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
@@ -570,12 +570,9 @@ export default function Technicians() {
             setDrawerOpen(false);
             setEditingId(null);
           }
-          showToast("Técnico removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o técnico.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },

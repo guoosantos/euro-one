@@ -20,6 +20,8 @@ import MapToolbar from "../components/map/MapToolbar.jsx";
 import { useUI } from "../lib/store.js";
 import AppMap from "../components/map/AppMap.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 function alignUrlProtocol(rawUrl) {
@@ -519,6 +521,7 @@ export default function RoutesPage() {
   const [routeFilter, setRouteFilter] = useState("");
   const [loadingRoutes, setLoadingRoutes] = useState(false);
   const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
@@ -761,13 +764,19 @@ export default function RoutesPage() {
     if (!id) return;
     await confirmDelete({
       title: "Excluir rota",
-      message: "Excluir esta rota? Esta ação não pode ser desfeita.",
+      message: "Tem certeza que deseja excluir a rota? Essa ação não pode ser desfeita.",
       confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`${API_ROUTES.routes}/${id}`);
-        setRoutes((current) => current.filter((item) => String(item.id) !== String(id)));
-        if (activeRouteId === id) {
-          handleNewRoute();
+        try {
+          await api.delete(`${API_ROUTES.routes}/${id}`);
+          setRoutes((current) => current.filter((item) => String(item.id) !== String(id)));
+          if (activeRouteId === id) {
+            handleNewRoute();
+          }
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
         }
       },
     });
@@ -1408,6 +1417,7 @@ export default function RoutesPage() {
       </div>
 
       <input ref={fileInputRef} type="file" accept=".kml" className="hidden" onChange={handleImportKml} />
+      <PageToast toast={toast} />
     </div>
   );
 }

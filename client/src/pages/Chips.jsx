@@ -420,19 +420,16 @@ export default function Chips() {
     if (!id) return;
     if (!isAdminGeneral) return;
     await confirmDelete({
-      title: "Remover chip",
-      message: "Remover este chip? Esta ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir chip",
+      message: "Tem certeza que deseja excluir o chip? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
           await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
           await load();
-          showToast("Chip removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível remover o chip.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },

@@ -412,9 +412,9 @@ export default function MirrorReceivers() {
   const handleRemove = async (mirror) => {
     if (!isAdminGeneral) return;
     await confirmDelete({
-      title: "Remover espelhamento",
-      message: "Remover espelhamento? Esta ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir espelhamento",
+      message: "Tem certeza que deseja excluir o espelhamento? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
           await api.delete(`${API_ROUTES.mirrors}/${mirror.id}`);
@@ -423,14 +423,9 @@ export default function MirrorReceivers() {
             setActiveMirror(null);
           }
           await loadMirrors();
-          showToast("Espelhamento removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message
-              || requestError?.message
-              || "Não foi possível remover o espelhamento.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },

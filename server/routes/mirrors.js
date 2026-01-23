@@ -136,7 +136,7 @@ function markTemporaryGroupExpired(mirror) {
   });
 }
 
-router.get("/mirrors/context", authorizePermission({ menuKey: "admin", pageKey: "mirrors" }), async (req, res, next) => {
+router.get("/mirrors/context", async (req, res, next) => {
   try {
     const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
     const ownerClientId = req.query?.ownerClientId ?? null;

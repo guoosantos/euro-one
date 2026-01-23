@@ -974,9 +974,9 @@ export default function Commands() {
       if (!commandId) return;
       const uiKey = getCommandKey(command);
       await confirmDelete({
-        title: "Remover comando personalizado",
-        message: "Deseja remover este comando personalizado? Esta ação não pode ser desfeita.",
-        confirmLabel: "Remover",
+        title: "Excluir comando personalizado",
+        message: "Tem certeza que deseja excluir o comando personalizado? Essa ação não pode ser desfeita.",
+        confirmLabel: "Excluir",
         onConfirm: async () => {
           setDeletingCommandId(commandId);
           try {
@@ -985,7 +985,10 @@ export default function Commands() {
             if (expandedCommandId === uiKey) {
               setExpandedCommandId(null);
             }
-            showToast("Comando removido.");
+            showToast("Excluído com sucesso.");
+          } catch (requestError) {
+            showToast("Falha ao excluir.", "error");
+            throw requestError;
           } finally {
             setDeletingCommandId(null);
           }

@@ -456,11 +456,17 @@ export default function ClientDetailsPage() {
       return;
     }
     await confirmDelete({
-      title: "Remover grupo de permissões",
-      message: `Remover grupo ${group.name}? Essa ação não pode ser desfeita.`,
-      confirmLabel: "Remover",
+      title: "Excluir grupo de permissões",
+      message: `Tem certeza que deseja excluir o grupo de permissões ${group.name}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await deleteGroup(group.id);
+        try {
+          await deleteGroup(group.id);
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   };
@@ -469,18 +475,15 @@ export default function ClientDetailsPage() {
     if (!client?.id || !isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir cliente",
-      message: `Excluir cliente ${client.name}? Essa ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o cliente ${client.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
           await api.delete(`${API_ROUTES.clients}/${client.id}`);
-          showToast("Cliente removido com sucesso.");
+          showToast("Excluído com sucesso.");
           navigate("/clients");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message || requestError?.message || "Não foi possível excluir o cliente.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },
@@ -550,12 +553,18 @@ export default function ClientDetailsPage() {
 
   const handleMirrorDelete = async (mirror) => {
     await confirmDelete({
-      title: "Remover espelhamento",
-      message: "Remover espelhamento? Essa ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir espelhamento",
+      message: "Tem certeza que deseja excluir o espelhamento? Essa ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await api.delete(`/mirrors/${mirror.id}`);
-        setMirrors((prev) => prev.filter((entry) => entry.id !== mirror.id));
+        try {
+          await api.delete(`/mirrors/${mirror.id}`);
+          setMirrors((prev) => prev.filter((entry) => entry.id !== mirror.id));
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   };

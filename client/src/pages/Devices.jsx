@@ -1222,13 +1222,18 @@ export default function Devices() {
       return;
     }
     await confirmDelete({
-      title: "Remover equipamento",
-      message: "Remover este equipamento? Esta ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir equipamento",
+      message: `Tem certeza que deseja excluir o equipamento ${id}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await CoreApi.deleteDevice(id, { clientId });
-        await load();
-        showToast("Equipamento removido", "success");
+        try {
+          await CoreApi.deleteDevice(id, { clientId });
+          await load();
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   }
@@ -1242,15 +1247,20 @@ export default function Devices() {
       return;
     }
     await confirmDelete({
-      title: "Remover equipamento",
-      message: "Remover este equipamento? Esta ação não pode ser desfeita.",
-      confirmLabel: "Remover",
+      title: "Excluir equipamento",
+      message: `Tem certeza que deseja excluir o equipamento ${conflictDevice.deviceId}? Essa ação não pode ser desfeita.`,
+      confirmLabel: "Excluir",
       onConfirm: async () => {
-        await CoreApi.deleteDevice(conflictDevice.deviceId, { clientId });
-        await load();
-        resetDeviceForm();
-        setConflictDevice(null);
-        showToast("Equipamento removido", "success");
+        try {
+          await CoreApi.deleteDevice(conflictDevice.deviceId, { clientId });
+          await load();
+          resetDeviceForm();
+          setConflictDevice(null);
+          showToast("Excluído com sucesso.");
+        } catch (requestError) {
+          showToast("Falha ao excluir.", "error");
+          throw requestError;
+        }
       },
     });
   }

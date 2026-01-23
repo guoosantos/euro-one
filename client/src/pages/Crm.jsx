@@ -13,6 +13,9 @@ import useCrmClients, { logCrmError } from "../lib/hooks/useCrmClients.js";
 import useCrmContacts from "../lib/hooks/useCrmContacts.jsx";
 import useCrmTags from "../lib/hooks/useCrmTags.js";
 import useCrmPipeline from "../lib/hooks/useCrmPipeline.js";
+import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import usePageToast from "../lib/hooks/usePageToast.js";
+import PageToast from "../components/ui/PageToast.jsx";
 
 const defaultForm = {
   name: "",
@@ -201,6 +204,8 @@ export default function Crm() {
   const [newTagColor, setNewTagColor] = useState("");
   const [activeInteraction, setActiveInteraction] = useState(null);
   const [cnpjError, setCnpjError] = useState(null);
+  const { confirmDelete } = useConfirmDialog();
+  const { toast, showToast } = usePageToast();
 
 const contactListParams = useMemo(() => {
   if (!hasAdminAccess) return { view: "mine" };
@@ -219,6 +224,27 @@ const {
 
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
+
+  const handleDeleteTag = useCallback(
+    async (tag) => {
+      if (!tag?.id) return;
+      await confirmDelete({
+        title: "Excluir tag",
+        message: `Tem certeza que deseja excluir a tag ${tag.name}? Essa ação não pode ser desfeita.`,
+        confirmLabel: "Excluir",
+        onConfirm: async () => {
+          try {
+            await deleteTag(tag.id);
+            showToast("Excluído com sucesso.");
+          } catch (requestError) {
+            showToast("Falha ao excluir.", "error");
+            throw requestError;
+          }
+        },
+      });
+    },
+    [confirmDelete, deleteTag, showToast],
+  );
 
   const interestBadge = useMemo(() => {
     const map = {
@@ -1044,7 +1070,7 @@ const {
                     <button
                       type="button"
                       className="hidden text-white/60 transition hover:text-red-300 group-hover:inline"
-                      onClick={() => deleteTag(tag.id)}
+                      onClick={() => handleDeleteTag(tag)}
                     >
                       ×
                     </button>
@@ -1641,6 +1667,7 @@ const {
           </div>
         </form>
       </Modal>
+      <PageToast toast={toast} />
     </div>
   );
 }

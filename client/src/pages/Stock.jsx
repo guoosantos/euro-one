@@ -667,20 +667,15 @@ export default function Stock() {
     if (!isAdminGeneral) return;
     await confirmDelete({
       title: "Excluir equipamento",
-      message: `Excluir equipamento ${device.uniqueId || device.id}? Essa ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o equipamento ${device.uniqueId || device.id}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
           await api.delete(`${API_ROUTES.core.devices}/${device.id}`);
           setDevices((prev) => prev.filter((entry) => String(entry.id) !== String(device.id)));
-          showToast("Equipamento removido com sucesso.");
+          showToast("Excluído com sucesso.");
         } catch (requestError) {
-          showToast(
-            requestError?.response?.data?.message
-              || requestError?.message
-              || "Não foi possível excluir o equipamento.",
-            "error",
-          );
+          showToast("Falha ao excluir.", "error");
           throw requestError;
         }
       },
