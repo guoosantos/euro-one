@@ -1219,6 +1219,13 @@ router.post(
 router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    console.info("[telemetry] request", {
+      clientIdReceived: req.query?.clientId ?? null,
+      clientIdResolved: clientId ?? null,
+      mirrorContext: req.mirrorContext
+        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+        : null,
+    });
     const includeUnlinked =
       ["manager", "admin"].includes(req.user?.role) &&
       String(req.query?.includeUnlinked).toLowerCase() === "true";
@@ -1377,6 +1384,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const allowedDeviceIds = devices
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
       .filter(Boolean);
+    console.info("[telemetry] dispositivos autorizados", {
+      clientId: clientId ?? null,
+      count: allowedDeviceIds.length,
+      deviceIds: allowedDeviceIds,
+    });
 
     if (!allowedDeviceIds.length && !includeUnlinked) {
       const emptyWarnings = [{ stage: "devices", message: "Nenhum equipamento vinculado encontrado para os veículos." }];
@@ -1675,6 +1687,13 @@ router.get(
   async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    console.info("[devices] request", {
+      clientIdReceived: req.query?.clientId ?? null,
+      clientIdResolved: clientId ?? null,
+      mirrorContext: req.mirrorContext
+        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+        : null,
+    });
 
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
@@ -1682,7 +1701,12 @@ router.get(
     const modelMap = new Map(models.map((item) => [item.id, item]));
     const chipMap = new Map(chips.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
-    const metadata = (await deps.fetchDevicesMetadata()) || [];
+    let metadata = [];
+    try {
+      metadata = (await deps.fetchDevicesMetadata()) || [];
+    } catch (metadataError) {
+      console.warn("[devices] falha ao consultar metadata do Traccar", metadataError?.message || metadataError);
+    }
     const traccarById = new Map(metadata.map((item) => [String(item.id), item]));
     const traccarByUniqueId = new Map(
       metadata.filter((item) => item.uniqueId).map((item) => [String(item.uniqueId), item]),
