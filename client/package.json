@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "bash ../scripts/prebuild-guard.sh && vite build",
+    "build": "bash ../scripts/prebuild-guard.sh && vite build && node ../scripts/write-build-version.js",
     "preview": "vite preview --port 5173 --strictPort",
     "test": "NODE_ENV=test node --test",
     "lint": "eslint \"src/lib/**/*.{js,jsx,ts,tsx}\" \"tests/**/*.js\"",

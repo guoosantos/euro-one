@@ -82,7 +82,7 @@ export async function resolveMirrorContext(req) {
   }
 
   const mirror = mirrors[0];
-  return {
+  const context = {
     ownerClientId: String(ownerClientId),
     targetClientId: String(req.user.clientId),
     mirrorId: String(mirror.id),
@@ -90,6 +90,14 @@ export async function resolveMirrorContext(req) {
     vehicleIds: resolveMirrorVehicleIds(mirror),
     vehicleGroupId: mirror.vehicleGroupId ?? null,
   };
+  console.info("[mirror] contexto ativo", {
+    mirrorModeEnabled: Boolean(config.features?.mirrorMode),
+    ownerClientId: context.ownerClientId,
+    targetClientId: context.targetClientId,
+    vehicleIdsCount: context.vehicleIds.length,
+    permissionGroupId: context.permissionGroupId,
+  });
+  return context;
 }
 
 export async function mirrorContextMiddleware(req, _res, next) {

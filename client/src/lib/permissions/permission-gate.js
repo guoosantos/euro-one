@@ -76,7 +76,7 @@ function toUiLevel(access) {
 }
 
 export function usePermissionResolver() {
-  const { user, role, tenantId } = useTenant();
+  const { user, role, tenantId, activeMirrorPermissionGroupId } = useTenant();
   const [permissionContext, setPermissionContext] = useState({
     permissions: null,
     isFull: true,
@@ -123,7 +123,7 @@ export function usePermissionResolver() {
     return () => {
       cancelled = true;
     };
-  }, [role, tenantId, user]);
+  }, [activeMirrorPermissionGroupId, role, tenantId, user]);
 
   const getPermission = useCallback(
     ({ menuKey, pageKey, subKey }) => {
