@@ -1,0 +1,14 @@
+{
+  "0e4779cf-86b6-43a3-8acd-34d6db78083e": {
+    "": {
+      "0": {
+        "displayName": "Evento desconhecido (0)",
+        "customName": "Evento desconhecido (0)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      }
+    }
+  }
+}

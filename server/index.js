@@ -9,7 +9,49 @@ import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
 import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-override-resolver.js";
 import { resolveItinerarySignatureOverrideConfig } from "./services/xdm/xdm-itinerary-signature.js";
-import { extractToken } from "./middleware/auth.js";
+
+/**
+ * IMPORTANTE:
+ * Não importa ./middleware/auth.js aqui, porque ele importa config.js cedo demais.
+ * Isso fazia o config.cors.origins “congelar” no default (localhost) antes do loadEnv().
+ * Então a gente mantém o extractToken local.
+ */
+function extractTokenFromCookies(req) {
+  if (req.cookies?.token) {
+    return req.cookies.token;
+  }
+
+  const cookieHeader = req.headers?.cookie || "";
+  return cookieHeader
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [key, ...rest] = pair.split("=");
+      return [key, rest.join("=")];
+    })
+    .reduce((acc, [key, value]) => (key === "token" ? value : acc), null);
+}
+
+function extractToken(req) {
+  const auth = req.headers?.authorization;
+  if (auth && auth.startsWith("Bearer ")) {
+    return auth.slice(7);
+  }
+
+  const cookieToken = extractTokenFromCookies(req);
+  if (cookieToken) {
+    return cookieToken;
+  }
+
+  try {
+    const url = new URL(req.originalUrl || req.url || "", "http://localhost");
+    const queryToken = url.searchParams.get("token");
+    return queryToken || null;
+  } catch {
+    return null;
+  }
+}
 
 const logErrorStack = (label, error) => {
   console.error(label, {
@@ -128,6 +170,7 @@ async function bootstrapServer() {
     configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
     secretLen: process.env.XDM_CLIENT_SECRET ? String(process.env.XDM_CLIENT_SECRET).length : 0,
   });
+
   const overrideConfig = getGeozoneGroupOverrideConfig();
   const overrideLogPayload = {
     overrideId: overrideConfig.overrideId,
@@ -140,6 +183,7 @@ async function bootstrapServer() {
   } else {
     console.warn("[startup] XDM override config inválido", overrideLogPayload);
   }
+
   const signatureConfig = resolveItinerarySignatureOverrideConfig();
   const signatureLogPayload = {
     overrideId: signatureConfig.overrideId,
@@ -193,12 +237,14 @@ async function bootstrapServer() {
   let stopGeocodeWorker = () => {};
   let stopGeocodeMonitor = () => {};
   const app = express();
+
   app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/ready", (_req, res) => {
     res.status(ready ? 200 : 503).json({ ok: ready, ready });
   });
 
   const server = http.createServer(app);
+
   server.on("error", (error) => {
     const code = error?.code;
     const reason =
@@ -250,7 +296,11 @@ async function bootstrapServer() {
     const addressModule = await importWithLog("./utils/address.js");
     if (addressModule?.initGeocodeCache) {
       try {
-        await runWithTimeout(() => addressModule.initGeocodeCache(), bootstrapTimeout, "initGeocodeCache");
+        await runWithTimeout(
+          () => addressModule.initGeocodeCache(),
+          bootstrapTimeout,
+          "initGeocodeCache",
+        );
       } catch (error) {
         console.warn("[startup] Falha ao hidratar cache de endereços", error?.message || error);
       }
@@ -374,7 +424,6 @@ async function bootstrapServer() {
           .filter(Boolean);
         if (!deviceIds.length) return;
 
-        // Este WebSocket usa o banco do Traccar via módulo traccarDb como fonte de dados em tempo quase real (arquitetura C).
         const positions = await traccarDbModule.fetchLatestPositionsWithFallback(deviceIds, null);
         const payload = JSON.stringify({
           type: "positions",
@@ -407,8 +456,6 @@ async function bootstrapServer() {
           liveSockets.delete(clientId);
           continue;
         }
-
-        // Não chamamos a API HTTP do Traccar diretamente neste fluxo.
         await pushTelemetryToClient(clientId, sockets);
       }
     };
@@ -500,12 +547,8 @@ async function bootstrapServer() {
     });
 
     const shutdown = () => {
-      if (stopSync) {
-        stopSync();
-      }
-      if (telemetryInterval) {
-        clearInterval(telemetryInterval);
-      }
+      if (stopSync) stopSync();
+      if (telemetryInterval) clearInterval(telemetryInterval);
       wss.close();
       stopGeocodeWorker();
       stopGeocodeMonitor();
