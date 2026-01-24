@@ -22,6 +22,7 @@ import {
 } from "../lib/permissions/permission-utils";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import usePageToast from "../lib/hooks/usePageToast.js";
+import { confirmDeleteAction } from "../lib/confirm-delete.js";
 
 const defaultUserAccess = {
   vehicleAccess: { mode: "all", vehicleIds: [] },
@@ -540,11 +541,12 @@ export default function Users() {
   async function handleUserDelete(entry) {
     if (!entry?.id) return;
     if (!isAdminGeneral) return;
-    await confirmDelete({
+    await confirmDeleteAction({
+      confirmDelete,
       title: "Excluir usuário",
       message: `Tem certeza que deseja excluir o usuário ${entry.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
-      onConfirm: async () => {
+      onDelete: async () => {
         try {
           await api.delete(`${API_ROUTES.users}/${entry.id}`);
           setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));

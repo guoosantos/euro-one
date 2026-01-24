@@ -39,6 +39,7 @@ import xdmRoutes from "./routes/xdm.js";
 import xdmAdminRoutes from "./routes/xdm-admin.js";
 import mirrorRoutes from "./routes/mirrors.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { formatVersionText, getVersionInfo } from "./utils/version.js";
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,6 +86,14 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+app.get("/api/version", (_req, res) => {
+  res.json(getVersionInfo());
+});
+
+app.get("/version.txt", (_req, res) => {
+  res.type("text/plain").send(formatVersionText(getVersionInfo()));
+});
 
 app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);

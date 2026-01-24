@@ -14,6 +14,7 @@ import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import usePageToast from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
+import { confirmDeleteAction } from "../lib/confirm-delete.js";
 
 const documentTypeOptions = ["CPF", "CNPJ", "Cédula de identidad", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora de Risco", "Companhias de Seguro"];
@@ -404,11 +405,12 @@ export default function Clients() {
   async function handleDeleteClient(client) {
     if (!client?.id) return;
     if (!isAdminGeneral) return;
-    await confirmDelete({
+    await confirmDeleteAction({
+      confirmDelete,
       title: "Excluir cliente",
       message: `Tem certeza que deseja excluir o cliente ${client.name}? Essa ação não pode ser desfeita.`,
       confirmLabel: "Excluir",
-      onConfirm: async () => {
+      onDelete: async () => {
         try {
           await api.delete(`${API_ROUTES.clients}/${client.id}`);
           setClients((prev) => prev.filter((entry) => String(entry.id) !== String(client.id)));

@@ -9,10 +9,11 @@ Guia rápido para subir e validar o backend do Euro One (PM2 + geração de rela
    ```bash
    npm install --workspaces --include-workspace-root
    ```
-3. Gere os artefatos do cliente (se for servir assets estáticos):
+3. Gere os artefatos do cliente (inclui version.json para validar deploy):
    ```bash
    npm run build --workspace client
    ```
+   - O build grava `client/dist/version.json` com o SHA do git para conferência em produção (`/api/version` e `/version.txt`).
 
 ## Variáveis de ambiente
 
@@ -30,6 +31,7 @@ pm2 logs euro-one-server --lines 200
 Para reiniciar após alterações:
 
 ```bash
+npm run build --workspace client
 pm2 restart ecosystem.config.cjs --only euro-one-server --update-env --time
 ```
 
@@ -49,6 +51,17 @@ HOST=127.0.0.1 PORT=5189 ./scripts/validate-server-start.sh
 ```
 
 O script executa `curl http://127.0.0.1:PORT/health` e `ss -ltnp | grep PORT`. Em caso de falha, imprime `pm2 logs euro-one-server --lines 200` e retorna erro.
+
+### Conferência de versão (backend + frontend)
+
+Para garantir que a atualização do backend também publicou o frontend correto:
+
+```bash
+curl http://127.0.0.1:PORT/api/version
+curl http://127.0.0.1:PORT/version.txt
+```
+
+O retorno mostra o SHA do backend (`server.gitSha`) e o SHA do build do frontend (`client.gitSha`). Se o frontend estiver desatualizado, refaça `npm run build --workspace client` e reinicie o PM2.
 
 ### Health x Ready
 
