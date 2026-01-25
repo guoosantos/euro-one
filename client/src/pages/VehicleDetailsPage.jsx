@@ -17,7 +17,7 @@ import EmptyState from "../components/ui/EmptyState.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
-import usePageToast from "../lib/hooks/usePageToast.js";
+import { usePageToast } from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
 
 const translateUnknownValue = (value) => {

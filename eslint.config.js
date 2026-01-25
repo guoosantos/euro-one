@@ -15,6 +15,7 @@ const ignores = [
   "client/src/components/**",
   "client/src/ui/**",
   "client/src/pages/**",
+  "!client/src/pages/VehicleDetailsPage.jsx",
   "client/src/routes/**",
   "client/src/App.jsx",
 ];
@@ -59,6 +60,12 @@ export default [
       "no-unused-vars": "off",
       "no-undef": "off",
       "react-hooks/exhaustive-deps": "off",
+    },
+  },
+  {
+    files: ["client/src/pages/VehicleDetailsPage.jsx"],
+    rules: {
+      "no-undef": "error",
     },
   },
   {

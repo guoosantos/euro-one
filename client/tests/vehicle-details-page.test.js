@@ -63,6 +63,7 @@ mock.module("../src/lib/hooks/useAdminGeneralAccess.js", {
 });
 
 mock.module("../src/lib/hooks/usePageToast.js", {
+  usePageToast: () => ({ toast: null, showToast: () => {} }),
   default: () => ({ toast: null, showToast: () => {} }),
 });
 
