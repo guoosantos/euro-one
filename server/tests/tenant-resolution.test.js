@@ -214,4 +214,24 @@ describe("tenant resolution", () => {
     assert.equal(tenant.accessType, "self-fallback");
     assert.equal(req.clientId, userClientId);
   });
+
+  it("mantém 403 para clientId inválido quando fallback está desligado", () => {
+    config.features.tenantFallbackToSelf = false;
+    const userClientId = "client-self-off";
+    const req = {
+      user: {
+        id: "user-self-off",
+        role: "user",
+        clientId: userClientId,
+        attributes: { clientIds: [userClientId] },
+      },
+      query: { clientId: "client-invalid" },
+      headers: {},
+    };
+
+    assert.throws(
+      () => resolveTenant(req, { requestedClientId: req.query.clientId, required: false }),
+      (error) => error?.status === 403,
+    );
+  });
 });
