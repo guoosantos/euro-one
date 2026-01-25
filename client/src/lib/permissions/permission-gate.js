@@ -75,122 +75,137 @@ function toUiLevel(access) {
   return UI_LEVELS[access] || UI_LEVELS.none;
 }
 
-export function usePermissionResolver() {
-  const { user, role, tenantId, activeMirrorPermissionGroupId } = useTenant();
-  const [permissionContext, setPermissionContext] = useState({
-    permissions: null,
-    isFull: true,
-    permissionGroupId: null,
-  });
-  const [loading, setLoading] = useState(false);
+export function createPermissionResolver({ apiClient = api, useTenantHook = useTenant } = {}) {
+  return function usePermissionResolver() {
+    const { user, role, tenantId, setTenantId, activeMirrorPermissionGroupId } = useTenantHook();
+    const [permissionContext, setPermissionContext] = useState({
+      permissions: null,
+      isFull: true,
+      permissionGroupId: null,
+    });
+    const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+    useEffect(() => {
+      let cancelled = false;
 
-    async function loadPermissionContext() {
-      if (!user) {
-        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
-        return;
-      }
-      if (role === "admin") {
-        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
-        return;
-      }
-      setLoading(true);
-      try {
-        const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
-        const response = await api.get("permissions/context", { params });
-        if (cancelled) return;
-        const payload = response?.data || {};
-        const permissions =
-          payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
-        setPermissionContext({
-          permissions,
-          isFull: Boolean(payload?.isFull || payload?.level === "full"),
-          permissionGroupId: payload?.permissionGroupId ?? null,
-        });
-      } catch (error) {
-        if (cancelled) return;
-        console.warn("Falha ao carregar permissões", error);
-        setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadPermissionContext();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeMirrorPermissionGroupId, role, tenantId, user]);
-
-  const getPermission = useCallback(
-    ({ menuKey, pageKey, subKey }) => {
-      if (role === "admin" || permissionContext.isFull) {
-        return {
-          level: UI_LEVELS.full,
-          hasAccess: true,
-          canShow: true,
-          canView: true,
-          canRead: true,
-          isFull: true,
-        };
-      }
-      if (!permissionContext.permissions) {
-        return {
-          level: UI_LEVELS.none,
-          hasAccess: false,
-          canShow: false,
-          canView: false,
-          canRead: false,
-          isFull: false,
-        };
+      async function loadPermissionContext() {
+        if (!user) {
+          setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+          return;
+        }
+        if (role === "admin") {
+          setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+          return;
+        }
+        setLoading(true);
+        try {
+          const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
+          const response = await apiClient.get("permissions/context", { params });
+          if (cancelled) return;
+          const payload = response?.data || {};
+          const permissions =
+            payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
+          setPermissionContext({
+            permissions,
+            isFull: Boolean(payload?.isFull || payload?.level === "full"),
+            permissionGroupId: payload?.permissionGroupId ?? null,
+          });
+        } catch (error) {
+          if (cancelled) return;
+          const status = error?.response?.status ?? error?.status;
+          if (
+            status === 403 &&
+            tenantId !== null &&
+            tenantId !== undefined &&
+            user?.clientId &&
+            tenantId !== user.clientId
+          ) {
+            setTenantId(user.clientId);
+            return;
+          }
+          console.warn("Falha ao carregar permissões", error);
+          setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
       }
 
-      if (loading) {
-        return {
-          level: UI_LEVELS.none,
-          hasAccess: false,
-          canShow: false,
-          canView: false,
-          canRead: false,
-          isFull: false,
-          loading: true,
-        };
-      }
+      loadPermissionContext();
 
-      const entry = resolvePermissionEntry(permissionContext.permissions, menuKey, pageKey, subKey);
-      const rawLevel = entry.visible
-        ? entry.access === "full"
-          ? "full"
-          : entry.access === "none"
-            ? "none"
-            : "read"
-        : "none";
-      const level = toUiLevel(rawLevel);
-      const hasAccess = entry.visible && entry.access !== "none" && entry.access !== null;
-      return {
-        level,
-        hasAccess,
-        canShow: entry.visible,
-        canView: hasAccess,
-        canRead: hasAccess,
-        isFull: level === UI_LEVELS.full,
+      return () => {
+        cancelled = true;
       };
-    },
-    [loading, permissionContext, role],
-  );
+    }, [activeMirrorPermissionGroupId, apiClient, role, setTenantId, tenantId, user]);
 
-  return useMemo(
-    () => ({
-      getPermission,
-      loading,
-      permissionGroupId: permissionContext.permissionGroupId,
-    }),
-    [getPermission, loading, permissionContext.permissionGroupId],
-  );
+    const getPermission = useCallback(
+      ({ menuKey, pageKey, subKey }) => {
+        if (role === "admin" || permissionContext.isFull) {
+          return {
+            level: UI_LEVELS.full,
+            hasAccess: true,
+            canShow: true,
+            canView: true,
+            canRead: true,
+            isFull: true,
+          };
+        }
+        if (!permissionContext.permissions) {
+          return {
+            level: UI_LEVELS.none,
+            hasAccess: false,
+            canShow: false,
+            canView: false,
+            canRead: false,
+            isFull: false,
+          };
+        }
+
+        if (loading) {
+          return {
+            level: UI_LEVELS.none,
+            hasAccess: false,
+            canShow: false,
+            canView: false,
+            canRead: false,
+            isFull: false,
+            loading: true,
+          };
+        }
+
+        const entry = resolvePermissionEntry(permissionContext.permissions, menuKey, pageKey, subKey);
+        const rawLevel = entry.visible
+          ? entry.access === "full"
+            ? "full"
+            : entry.access === "none"
+              ? "none"
+              : "read"
+          : "none";
+        const level = toUiLevel(rawLevel);
+        const hasAccess = entry.visible && entry.access !== "none" && entry.access !== null;
+        return {
+          level,
+          hasAccess,
+          canShow: entry.visible,
+          canView: hasAccess,
+          canRead: hasAccess,
+          isFull: level === UI_LEVELS.full,
+        };
+      },
+      [loading, permissionContext, role],
+    );
+
+    return useMemo(
+      () => ({
+        getPermission,
+        loading,
+        permissionGroupId: permissionContext.permissionGroupId,
+      }),
+      [getPermission, loading, permissionContext.permissionGroupId],
+    );
+  };
 }
+
+export const usePermissionResolver = createPermissionResolver();
 
 export function usePermissionGate({ menuKey, pageKey, subKey }) {
   const { getPermission, loading } = usePermissionResolver();
