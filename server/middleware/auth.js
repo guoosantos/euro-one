@@ -74,7 +74,7 @@ export async function authenticate(req, _res, next) {
     return next(accessError);
   }
   try {
-    resolveTenant(req, { required: false });
+    resolveTenant(req, { requestedClientId: req.user?.clientId ?? null, required: false });
   } catch (tenantError) {
     return next(tenantError);
   }
