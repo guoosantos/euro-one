@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { getFallbackClient, isFallbackEnabled } from "../services/fallback-data.js";
-import { normalizeAdminClientName } from "../utils/admin-general.js";
+import { isAdminGeneralClient, normalizeAdminClientName } from "../utils/admin-general.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -36,6 +36,11 @@ export async function getClientById(id) {
   }
   const record = await prisma.client.findUnique({ where: { id: String(id) } });
   return clone(record);
+}
+
+export async function getAdminGeneralClient() {
+  const clients = await listClients();
+  return clients.find((client) => isAdminGeneralClient(client)) || null;
 }
 
 export async function createClient({
@@ -96,6 +101,7 @@ export async function deleteClient(id) {
 export default {
   listClients,
   getClientById,
+  getAdminGeneralClient,
   createClient,
   updateClient,
   deleteClient,
