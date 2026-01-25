@@ -37,6 +37,9 @@ export function resolveExplicitClientIds(user) {
   if (Array.isArray(user.attributes?.clientIds)) {
     candidates.push(...user.attributes.clientIds);
   }
+  if (Array.isArray(user.attributes?.clientScopeIds)) {
+    candidates.push(...user.attributes.clientScopeIds);
+  }
   if (Array.isArray(user.attributes?.tenantIds)) {
     candidates.push(...user.attributes.tenantIds);
   }

@@ -18,6 +18,23 @@ const router = express.Router();
 
 router.use(authenticate);
 router.use(requireRole("manager", "admin"));
+router.use(async (req, _res, next) => {
+  try {
+    if (req.user?.role !== "admin") {
+      return next();
+    }
+    const adminGeneralClient = await getAdminGeneralClient();
+    if (!adminGeneralClient) {
+      throw createError(404, "Cliente ADMIN GERAL não encontrado");
+    }
+    if (!req.user.clientId || String(req.user.clientId) !== String(adminGeneralClient.id)) {
+      throw createError(403, "Acesso permitido apenas para o ADMIN GERAL");
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+});
 
 async function ensureClientAccess(sessionUser, clientId) {
   if (sessionUser.role === "admin") {

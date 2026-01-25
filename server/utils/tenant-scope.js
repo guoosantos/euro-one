@@ -3,7 +3,7 @@ import createError from "http-errors";
 import { resolveExplicitClientIds } from "../middleware/tenant.js";
 import { getClientById, listClients } from "../models/client.js";
 
-export async function resolveTenantScope(user) {
+export async function resolveTenantScope(user, { listClientsFn = listClients, clients = null } = {}) {
   if (!user) {
     return { isAdmin: false, clientIds: new Set() };
   }
@@ -20,10 +20,11 @@ export async function resolveTenantScope(user) {
 
   const parentClientId = user.clientId ? String(user.clientId) : null;
   if (parentClientId) {
-    const parentClient = await getClientById(parentClientId);
+    const parentClient =
+      user.client && String(user.client.id) === parentClientId ? user.client : await getClientById(parentClientId);
     if (parentClient?.attributes?.canCreateSubclients) {
-      const clients = await listClients();
-      clients.forEach((client) => {
+      const resolvedClients = Array.isArray(clients) ? clients : await listClientsFn();
+      resolvedClients.forEach((client) => {
         const parentId = client?.attributes?.parentClientId;
         if (parentId && String(parentId) === parentClientId) {
           clientIds.add(String(client.id));

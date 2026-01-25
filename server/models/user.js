@@ -268,12 +268,20 @@ export async function verifyUserCredentials(login, password, { allowFallback = f
   return user;
 }
 
-export async function deleteUser(id) {
-  const record = await prisma.user.delete({ where: { id: String(id) } }).catch(() => null);
-  if (!record) {
-    throw createError(404, "Usuário não encontrado");
+export async function deleteUser(id, { prismaClient = prisma } = {}) {
+  try {
+    await prismaClient.userPreference.deleteMany({ where: { userId: String(id) } });
+    const record = await prismaClient.user.delete({ where: { id: String(id) } });
+    if (!record) {
+      throw createError(404, "Usuário não encontrado");
+    }
+    return sanitizeUser(record);
+  } catch (error) {
+    if (error?.code === "P2025") {
+      throw createError(404, "Usuário não encontrado");
+    }
+    throw error;
   }
-  return sanitizeUser(record);
 }
 
 export async function deleteUsersByClientId(clientId) {

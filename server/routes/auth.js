@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 
 import { authenticate, signSession } from "../middleware/auth.js";
 import { listClients } from "../models/client.js";
+import { resolveTenantScope } from "../utils/tenant-scope.js";
 import { sanitizeUser, verifyUserCredentials } from "../models/user.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import {
@@ -415,8 +416,14 @@ async function buildSessionPayload(
       include: { client: true },
     });
 
-    const availableClients =
-      user.role === "admin" ? await listClientsFn() : user.client ? [user.client] : [];
+    let availableClients = [];
+    if (user.role === "admin") {
+      availableClients = await listClientsFn();
+    } else {
+      const allClients = await listClientsFn();
+      const scope = await resolveTenantScope(user, { listClientsFn, clients: allClients });
+      availableClients = allClients.filter((client) => scope.clientIds.has(String(client.id)));
+    }
 
     const preferredId = preference?.clientId || user.clientId || availableClients[0]?.id || null;
     const resolvedClient = availableClients.find((item) => String(item.id) === String(preferredId))
