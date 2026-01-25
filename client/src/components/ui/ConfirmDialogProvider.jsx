@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import useOverlayActivity from "../../lib/hooks/useOverlayActivity.js";
 import useApiMutation from "../../lib/hooks/useApiMutation.js";
 
@@ -61,35 +62,41 @@ export function ConfirmDialogProvider({ children }) {
 
   const value = useMemo(() => ({ confirmDelete }), [confirmDelete]);
 
+  const dialogMarkup = dialog ? (
+    <div className="modal-overlay" role="dialog" aria-modal="true">
+      <div className="modal max-w-md">
+        <div className="title">{dialog.title}</div>
+        <p className="mt-2 text-sm text-white/70">{dialog.message}</p>
+        {errorMessage ? (
+          <div className="mt-3 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+            {errorMessage}
+          </div>
+        ) : null}
+        <div className="footer">
+          <button type="button" className="btn" onClick={() => closeDialog(false)} disabled={loading}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn danger"
+            onClick={handleConfirm}
+            disabled={loading}
+          >
+            {loading ? "Excluindo..." : dialog.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <ConfirmDialogContext.Provider value={value}>
       {children}
-      {dialog ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal max-w-md">
-            <div className="title">{dialog.title}</div>
-            <p className="mt-2 text-sm text-white/70">{dialog.message}</p>
-            {errorMessage ? (
-              <div className="mt-3 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-                {errorMessage}
-              </div>
-            ) : null}
-            <div className="footer">
-              <button type="button" className="btn" onClick={() => closeDialog(false)} disabled={loading}>
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn danger"
-                onClick={handleConfirm}
-                disabled={loading}
-              >
-                {loading ? "Excluindo..." : dialog.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {dialogMarkup
+        ? typeof document !== "undefined"
+          ? createPortal(dialogMarkup, document.body)
+          : dialogMarkup
+        : null}
     </ConfirmDialogContext.Provider>
   );
 }

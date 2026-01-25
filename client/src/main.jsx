@@ -7,6 +7,7 @@ import App from "./App";
 import { queryClient } from "./lib/query";
 import { TenantProvider } from "./lib/tenant-context";
 import { installFiltersPolish } from "./lib/filters-polish";
+import ConfirmDialogProvider from "./components/ui/ConfirmDialogProvider.jsx";
 
 import "./styles.css";
 import "./styles/euro-ui.css";
@@ -23,9 +24,11 @@ createRoot(root).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <TenantProvider>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <ConfirmDialogProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </ConfirmDialogProvider>
       </TenantProvider>
     </QueryClientProvider>
   </React.StrictMode>,

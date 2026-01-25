@@ -23,7 +23,16 @@ export function Topbar({ title }) {
   const theme = useUI((state) => state.theme);
   const toggleTheme = useUI((state) => state.toggleTheme);
   const setLocale = useUI((state) => state.setLocale);
-  const { tenantId, setTenantId, tenant, tenants, hasAdminAccess, canSwitchTenant } = useTenant();
+  const {
+    tenantId,
+    setTenantId,
+    tenant,
+    tenants,
+    hasAdminAccess,
+    canSwitchTenant,
+    mirrorOwners,
+    isMirrorReceiver,
+  } = useTenant();
   const navigate = useNavigate();
   const { locale } = useTranslation();
 
@@ -38,6 +47,7 @@ export function Topbar({ title }) {
     () => (hasAdminAccess ? [{ id: "", name: "Todos os clientes" }, ...tenants] : tenants),
     [hasAdminAccess, tenants],
   );
+  const showMirrorOwnerLabel = isMirrorReceiver && Array.isArray(mirrorOwners) && mirrorOwners.length > 1;
 
   const fleetIndex = useMemo(() => {
     const { rows } = buildFleetState(devices, positions, { tenantId });
@@ -152,18 +162,25 @@ export function Topbar({ title }) {
         </form>
 
         <div className="flex items-center gap-2">
-          <select
-            value={tenantId ?? ""}
-            onChange={(event) => setTenantId(event.target.value || null)}
-            disabled={!canSwitchTenant || tenantOptions.length <= 1}
-            className="hidden h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white hover:border-primary/40 focus:border-primary/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:block"
-          >
-            {tenantOptions.map((item) => (
-              <option key={item.id ?? "all"} value={item.id ?? ""}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+          <div className="hidden flex-col items-start gap-1 md:flex">
+            {showMirrorOwnerLabel && (
+              <span className="text-[10px] uppercase tracking-[0.12em] text-white/50">
+                Cliente (owner)
+              </span>
+            )}
+            <select
+              value={tenantId ?? ""}
+              onChange={(event) => setTenantId(event.target.value || null)}
+              disabled={!canSwitchTenant || tenantOptions.length <= 1}
+              className="h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white hover:border-primary/40 focus:border-primary/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {tenantOptions.map((item) => (
+                <option key={item.id ?? "all"} value={item.id ?? ""}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="relative hidden items-center gap-2 md:flex">
             <Languages size={18} className="text-white/60" />
