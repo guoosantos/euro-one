@@ -199,7 +199,8 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     return tenant;
   }
 
-  if (config.features?.tenantFallbackToSelf && resolvedRequested && explicitClientIds.length === 0) {
+  const explicitWithoutSelf = explicitClientIds.filter((id) => String(id) !== userClientId);
+  if (config.features?.tenantFallbackToSelf && resolvedRequested && explicitWithoutSelf.length === 0) {
     console.warn("[tenant] fallback para clientId do usuário", {
       userId: user?.id ? String(user.id) : null,
       userClientId,
