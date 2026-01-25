@@ -10,6 +10,7 @@ import { createDevice, deleteDevice, updateDevice } from "../models/device.js";
 import { createMirror, deleteMirror } from "../models/mirror.js";
 import { createVehicle, deleteVehicle, updateVehicle } from "../models/vehicle.js";
 import contextRoutes from "../routes/context.js";
+import permissionsRoutes from "../routes/permissions.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
 
 const createdVehicles = [];
@@ -38,6 +39,7 @@ function setupApp() {
   const app = express();
   app.use(express.json());
   app.use("/api", contextRoutes);
+  app.use("/api", permissionsRoutes);
   app.use("/api/core", coreRoutes);
   app.use(errorHandler);
   return app;
@@ -213,6 +215,20 @@ describe("tenant resolution", () => {
     assert.equal(tenant.clientIdResolved, userClientId);
     assert.equal(tenant.accessType, "self-fallback");
     assert.equal(req.clientId, userClientId);
+  });
+
+  it("carrega permissions/context usando o tenant do usuário quando clientId inválido é enviado", async () => {
+    const userClientId = "client-self-permissions";
+    const app = setupApp();
+    const token = signSession({ id: "user-permissions", role: "user", clientId: userClientId });
+
+    const response = await callEndpoint(app, {
+      path: `/api/permissions/context?clientId=client-invalid`,
+      token,
+    });
+
+    assert.equal(response.status, 200);
+    assert.ok(Object.prototype.hasOwnProperty.call(response.payload || {}, "isFull"));
   });
 
   it("mantém 403 para clientId inválido quando fallback está desligado", () => {
