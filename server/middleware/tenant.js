@@ -199,6 +199,24 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     return tenant;
   }
 
+  if (config.features?.tenantFallbackToSelf && resolvedRequested && explicitClientIds.length === 0) {
+    console.warn("[tenant] fallback para clientId do usuário", {
+      userId: user?.id ? String(user.id) : null,
+      userClientId,
+      requestedClientId: String(resolvedRequested),
+    });
+    const tenant = {
+      requestedClientId: resolvedRequested,
+      clientIdResolved: userClientId,
+      mirrorContext: null,
+      accessType: "self-fallback",
+    };
+    req.tenant = tenant;
+    req.clientId = userClientId;
+    req.mirrorContext = null;
+    return tenant;
+  }
+
   const reason = explicitClientIds.length ? "not-linked" : "no-mirror-found";
   logDeniedAccess({ user, requestedClientId: resolvedRequested, reason });
   throw createError(403, "Sem acesso");
