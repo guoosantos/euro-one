@@ -127,6 +127,14 @@ function resolveMirrorVehicleNotFoundMessage(req) {
   return req.mirrorContext?.ownerClientId ? "Veículo não encontrado para este espelhamento" : "Veículo não encontrado";
 }
 
+function ensureVehicleMirrorAccess(req, vehicleId) {
+  if (!req?.tenant?.mirrorContext) return;
+  const allowedIds = new Set((req.tenant.mirrorContext.vehicleIds || []).map(String));
+  if (!allowedIds.has(String(vehicleId))) {
+    throw createError(403, "Sem acesso");
+  }
+}
+
 function dedupeDevices(devices = []) {
   const seen = new Set();
   const result = [];
@@ -1222,12 +1230,12 @@ router.post(
 
 router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const clientId = req.tenant?.clientIdResolved ?? null;
     console.info("[telemetry] request", {
       clientIdReceived: req.query?.clientId ?? null,
       clientIdResolved: clientId ?? null,
-      mirrorContext: req.mirrorContext
-        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+      mirrorContext: req.tenant?.mirrorContext
+        ? { ownerClientId: req.tenant.mirrorContext.ownerClientId, vehicleIds: req.tenant.mirrorContext.vehicleIds || [] }
         : null,
     });
     const includeUnlinked =
@@ -1253,10 +1261,10 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       user: req.user,
       clientId,
       includeMirrorsForNonReceivers: false,
-      mirrorContext: req.mirrorContext,
+      mirrorContext: req.tenant?.mirrorContext ?? null,
     });
     const accessVehicleIds = access.vehicles.map((vehicle) => String(vehicle.id)).filter(Boolean);
-    if (req.mirrorContext?.ownerClientId && hasVehicleFilter) {
+    if (req.tenant?.mirrorContext?.ownerClientId && hasVehicleFilter) {
       const allowedIdSet = new Set(accessVehicleIds);
       const allowedPlateSet = new Set(
         access.vehicles
@@ -1706,12 +1714,12 @@ router.get(
   authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" }),
   async (req, res, next) => {
   try {
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const clientId = req.tenant?.clientIdResolved ?? null;
     console.info("[devices] request", {
       clientIdReceived: req.query?.clientId ?? null,
       clientIdResolved: clientId ?? null,
-      mirrorContext: req.mirrorContext
-        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+      mirrorContext: req.tenant?.mirrorContext
+        ? { ownerClientId: req.tenant.mirrorContext.ownerClientId, vehicleIds: req.tenant.mirrorContext.vehicleIds || [] }
         : null,
     });
 
@@ -1719,7 +1727,7 @@ router.get(
       user: req.user,
       clientId,
       includeMirrorsForNonReceivers: false,
-      mirrorContext: req.mirrorContext,
+      mirrorContext: req.tenant?.mirrorContext ?? null,
     });
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
@@ -2745,7 +2753,7 @@ router.get(
   let onlyLinked = true;
   let clientId = null;
   try {
-    clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    clientId = req.tenant?.clientIdResolved ?? null;
     const accessibleOnly = isTruthyParam(req.query?.accessible);
     const query = String(req.query?.query || "").trim().toLowerCase();
     const { page, pageSize, start } = parsePagination(req.query);
@@ -2775,7 +2783,7 @@ router.get(
       user: req.user,
       clientId,
       includeMirrorsForNonReceivers: !accessibleOnly,
-      mirrorContext: req.mirrorContext,
+      mirrorContext: req.tenant?.mirrorContext ?? null,
     });
     let vehicles = access.vehicles;
     mirrorOwnerIds = access.mirrorOwnerIds;
@@ -2974,8 +2982,12 @@ router.get(
   async (req, res, next) => {
   try {
     const { id } = req.params;
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
-    const access = await getAccessibleVehicles({ user: req.user, clientId, mirrorContext: req.mirrorContext });
+    const clientId = req.tenant?.clientIdResolved ?? null;
+    const access = await getAccessibleVehicles({
+      user: req.user,
+      clientId,
+      mirrorContext: req.tenant?.mirrorContext ?? null,
+    });
     const isAccessible = access.vehicles.some((vehicle) => String(vehicle.id) === String(id));
     if (!isAccessible) {
       throw createError(404, resolveMirrorVehicleNotFoundMessage(req));
@@ -3302,6 +3314,7 @@ router.put(
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
+    ensureVehicleMirrorAccess(req, id);
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameClient(vehicle, clientId, "Veículo não encontrado");
 
@@ -3373,6 +3386,7 @@ router.delete(
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
+    ensureVehicleMirrorAccess(req, id);
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameClient(vehicle, clientId, "Veículo não encontrado");
     if (vehicle.deviceId) {

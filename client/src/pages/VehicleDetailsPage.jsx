@@ -218,7 +218,7 @@ function AdminBindingsTab({
 export default function VehicleDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { tenantId, user } = useTenant();
+  const { tenantId, user, tenants, setTenantId } = useTenant();
   const { confirmDelete } = useConfirmDialog();
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
@@ -230,6 +230,7 @@ export default function VehicleDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [linkEquipmentId, setLinkEquipmentId] = useState("");
   const [chipLinkId, setChipLinkId] = useState("");
@@ -491,6 +492,7 @@ export default function VehicleDetailsPage() {
 
   const reportSuccess = (message) => {
     setError(null);
+    setAccessDenied(false);
     setFeedback(message);
   };
 
@@ -498,6 +500,7 @@ export default function VehicleDetailsPage() {
     setLoading(true);
     setError(null);
     setFeedback(null);
+    setAccessDenied(false);
     try {
       const params = resolvedClientId ? { clientId: resolvedClientId } : {};
       params.accessible = true;
@@ -529,8 +532,9 @@ export default function VehicleDetailsPage() {
         setClients([]);
         setVehicleAttributes([]);
         setFeedback(null);
+        setAccessDenied(true);
         const mirrorMessage =
-          requestError?.response?.data?.message || "Veículo não encontrado para este espelhamento.";
+          requestError?.response?.data?.message || "Sem acesso ao veículo selecionado.";
         setError(new Error(mirrorMessage));
         return;
       }
@@ -539,6 +543,16 @@ export default function VehicleDetailsPage() {
       setLoading(false);
     }
   };
+
+  const handleSwitchTenant = useCallback(() => {
+    const nextTenant =
+      tenants.find((item) => String(item.id) !== String(tenantId)) ||
+      tenants[0];
+    if (nextTenant) {
+      setTenantId(nextTenant.id ?? null);
+    }
+    navigate("/vehicles");
+  }, [navigate, setTenantId, tenantId, tenants]);
 
   const handleLinkDevice = async (deviceId) => {
     if (!vehicle || !deviceId) return;
@@ -719,7 +733,24 @@ export default function VehicleDetailsPage() {
         }
       />
 
-      {error && (
+      {accessDenied && (
+        <DataCard>
+          <EmptyState
+            title="Sem acesso"
+            subtitle={error?.message || "Você não tem acesso a este veículo."}
+            action={(
+              <button
+                type="button"
+                onClick={handleSwitchTenant}
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+              >
+                Trocar cliente
+              </button>
+            )}
+          />
+        </DataCard>
+      )}
+      {error && !accessDenied && (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
           {error.message}
         </div>
@@ -737,7 +768,7 @@ export default function VehicleDetailsPage() {
         </DataCard>
       )}
 
-      {!loading && !vehicle && !error && (
+      {!loading && !vehicle && !error && !accessDenied && (
         <DataCard>
           <EmptyState
             title={isMirrorContextActive ? "Veículo não encontrado para este espelhamento." : "Veículo não encontrado."}
