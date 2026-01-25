@@ -132,7 +132,15 @@ app.use("/api/core", serviceOrderRoutes);
 app.use("/api/admin", xdmAdminRoutes);
 
 if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath));
+  app.use(
+    express.static(clientDistPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith("index.html") || filePath.endsWith("version.json")) {
+          res.setHeader("Cache-Control", "no-store");
+        }
+      },
+    }),
+  );
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api") || req.path.startsWith("/health") || req.path.startsWith("/ws")) {
       return next();
