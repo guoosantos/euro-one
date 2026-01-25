@@ -2,8 +2,8 @@ import jwt from "jsonwebtoken";
 import createError from "http-errors";
 
 import { config } from "../config.js";
-import { resolveMirrorContext } from "./mirror-context.js";
 import { enforceUserAccess } from "./user-access.js";
+import { resolveTenant } from "./tenant.js";
 
 export function signSession(payload) {
   return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
@@ -74,13 +74,9 @@ export async function authenticate(req, _res, next) {
     return next(accessError);
   }
   try {
-    const mirrorContext = await resolveMirrorContext(req);
-    if (mirrorContext) {
-      req.mirrorContext = mirrorContext;
-      req.clientId = mirrorContext.ownerClientId;
-    }
-  } catch (mirrorError) {
-    return next(mirrorError);
+    resolveTenant(req, { required: false });
+  } catch (tenantError) {
+    return next(tenantError);
   }
   return next();
 }

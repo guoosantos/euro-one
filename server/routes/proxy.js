@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
+import { resolveTenant } from "../middleware/tenant.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
@@ -127,7 +128,9 @@ function mergeById(primary = [], secondary = []) {
 }
 
 function resolveMirrorVehicleNotFoundMessage(req) {
-  return req.mirrorContext?.ownerClientId ? "Veículo não encontrado para este espelhamento" : "Veículo não encontrado";
+  return req.tenant?.mirrorContext?.ownerClientId
+    ? "Veículo não encontrado para este espelhamento"
+    : "Veículo não encontrado";
 }
 
 function resolveTraccarDeviceId(req, allowed = null) {
@@ -1998,12 +2001,13 @@ function parsePositiveNumber(value, fallback) {
 
 
 async function resolveAccessibleDeviceContext(req) {
-  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+  const tenant = req.tenant ?? resolveTenant(req, { requestedClientId: req.query?.clientId, required: false });
+  const clientId = tenant.clientIdResolved ?? null;
   const access = await getAccessibleVehicles({
     user: req.user,
     clientId,
     includeMirrorsForNonReceivers: false,
-    mirrorContext: req.mirrorContext,
+    mirrorContext: tenant.mirrorContext ?? null,
   });
   const vehicles = access.vehicles;
   const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
@@ -2012,11 +2016,11 @@ async function resolveAccessibleDeviceContext(req) {
     const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
     devices = mergeById(devices, extraDevices);
   }
-  const filteredDevices = devices.filter((device) => {
-    if (!device?.vehicleId) return false;
-    return vehicleIds.has(String(device.vehicleId));
-  });
-  return { clientId, vehicles, devices: filteredDevices, access };
+  const shouldRestrict = Boolean(tenant.mirrorContext);
+  const filteredDevices = shouldRestrict
+    ? devices.filter((device) => device?.vehicleId && vehicleIds.has(String(device.vehicleId)))
+    : devices;
+  return { clientId, vehicles, devices: filteredDevices, access, mirrorContext: tenant.mirrorContext ?? null };
 }
 
 async function resolveDeviceIdsToQuery(req) {
@@ -2616,8 +2620,8 @@ router.get("/telemetry", async (req, res) => {
 
 router.get("/devices", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const devices = listDevices({ clientId });
+    const { clientId, devices, mirrorContext } = await resolveAccessibleDeviceContext(req);
+    const resolvedDevices = mirrorContext ? devices : listDevices({ clientId });
     let metadata = [];
     let metadataError = null;
     let fallbackDevicesFromTraccar = null;
@@ -2661,7 +2665,7 @@ router.get("/devices", async (req, res, next) => {
           .json({ code: error.code, message: error.message });
       }
     }
-    const traccarIds = (devices.length ? devices : metadata)
+    const traccarIds = (resolvedDevices.length ? resolvedDevices : metadata)
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : device?.id != null ? String(device.id) : null))
       .filter(Boolean);
     const latestPositions = traccarIds.length ? await fetchLatestPositionsWithFallback(traccarIds, null) : [];
@@ -2672,8 +2676,8 @@ router.get("/devices", async (req, res, next) => {
     const traccarByUniqueId = new Map(metadata.map((item) => [String(item.uniqueId || ""), item]));
 
     const sourceDevices =
-      devices.length || !metadata.length
-        ? devices
+      resolvedDevices.length || !metadata.length
+        ? resolvedDevices
         : metadata.map((item) => ({
             id: item.id != null ? String(item.id) : null,
             traccarId: item.id != null ? String(item.id) : null,
@@ -2720,7 +2724,7 @@ router.get("/devices", async (req, res, next) => {
       };
     });
 
-    const responseDevices = !devices.length && metadataError && Array.isArray(fallbackDevicesFromTraccar)
+    const responseDevices = !resolvedDevices.length && metadataError && Array.isArray(fallbackDevicesFromTraccar)
       ? fallbackDevicesFromTraccar
       : data;
 
@@ -2849,8 +2853,8 @@ router.get("/positions/last", async (req, res) => {
     console.info("[positions/last] request", {
       clientIdReceived: req.query?.clientId ?? null,
       clientIdResolved: clientId ?? null,
-      mirrorContext: req.mirrorContext
-        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+      mirrorContext: req.tenant?.mirrorContext
+        ? { ownerClientId: req.tenant.mirrorContext.ownerClientId, vehicleIds: req.tenant.mirrorContext.vehicleIds || [] }
         : null,
       deviceIdsToQuery,
     });
@@ -2885,8 +2889,8 @@ router.get("/positions/last", async (req, res) => {
 
     console.warn("[positions/last] falha ao carregar posições", {
       clientId: req.query?.clientId ?? null,
-      mirrorContext: req.mirrorContext
-        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+      mirrorContext: req.tenant?.mirrorContext
+        ? { ownerClientId: req.tenant.mirrorContext.ownerClientId, vehicleIds: req.tenant.mirrorContext.vehicleIds || [] }
         : null,
       status: error?.status || error?.statusCode || null,
       message: error?.message || error,

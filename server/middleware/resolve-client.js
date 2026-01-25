@@ -1,4 +1,4 @@
-import createError from "http-errors";
+import { resolveTenant } from "./tenant.js";
 
 /**
  * Middleware que preenche clientId com base no usuário logado
@@ -7,16 +7,16 @@ import createError from "http-errors";
  */
 export function resolveClientIdMiddleware(req, _res, next) {
   try {
-    if (!req.clientId && req.user?.clientId) {
-      req.clientId = req.user.clientId;
+    const tenant = resolveTenant(req, { requestedClientId: req.body?.clientId || req.query?.clientId, required: false });
+    if (tenant?.clientIdResolved) {
+      req.clientId = tenant.clientIdResolved;
+      if (req.body && !req.body.clientId) {
+        req.body = { ...(req.body || {}), clientId: tenant.clientIdResolved };
+      }
     }
-    if ((!req.body || !req.body.clientId) && req.user?.clientId) {
-      req.body = { ...(req.body || {}), clientId: req.user.clientId };
-    }
-    // Se ainda não houver clientId, a validação da rota/modelo continuará tratando
     next();
   } catch (error) {
-    next(createError(400, error.message || "Falha ao resolver clientId"));
+    next(error);
   }
 }
 

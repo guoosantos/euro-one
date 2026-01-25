@@ -15,6 +15,16 @@ Guia rápido para subir e validar o backend do Euro One (PM2 + geração de rela
    ```
    - O build grava `client/dist/version.json` com o SHA do git para conferência em produção (`/api/version` e `/version.txt`).
 
+## Verificações antes do deploy
+
+Execute os checks locais para garantir que o frontend e o backend estão íntegros:
+
+```bash
+npm test
+npm run test --workspace server
+npm run build --workspace client
+```
+
 ## Variáveis de ambiente
 
 O backend carrega variáveis do `.env` localizado em `/home/ubuntu/euro-one/server/.env` quando `NODE_ENV=production`. Para evitar drift, deixe os `XDM_*` apenas no arquivo `.env` (ou configure `env_file` no PM2 apontando para esse caminho) e evite duplicar essas chaves em `ecosystem.config.cjs`. Se precisar priorizar o ambiente do processo, defina `DOTENV_OVERRIDE=false`.
