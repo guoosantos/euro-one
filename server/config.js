@@ -80,6 +80,7 @@ export const config = {
   features: {
     euroXlsxImport: process.env.FEATURE_EURO_XLSX_IMPORT === "true",
     mirrorMode: process.env.MIRROR_MODE_ENABLED === "true",
+    tenantFallbackToSelf: process.env.TENANT_FALLBACK_TO_SELF === "true",
   },
 };
 
