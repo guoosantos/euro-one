@@ -4,6 +4,7 @@ import { afterEach, describe, it } from "node:test";
 
 import { config } from "../config.js";
 import { signSession } from "../middleware/auth.js";
+import { resolveTenant } from "../middleware/tenant.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { createDevice, deleteDevice, updateDevice } from "../models/device.js";
 import { createMirror, deleteMirror } from "../models/mirror.js";
@@ -15,6 +16,7 @@ const createdVehicles = [];
 const createdDevices = [];
 const createdMirrors = [];
 const originalMirrorMode = config.features.mirrorMode;
+const originalTenantFallback = config.features.tenantFallbackToSelf;
 
 function buildVehicle({ clientId, plate, model }) {
   const vehicle = createVehicle({ clientId, plate, model, name: model, type: "Carro" });
@@ -81,6 +83,7 @@ afterEach(() => {
   });
   __resetCoreRouteMocks();
   config.features.mirrorMode = originalMirrorMode;
+  config.features.tenantFallbackToSelf = originalTenantFallback;
 });
 
 describe("tenant resolution", () => {
@@ -189,5 +192,26 @@ describe("tenant resolution", () => {
     });
 
     assert.ok([403, 404].includes(response.status));
+  });
+
+  it("faz fallback para o próprio tenant quando explicitClientIds só contém o cliente atual", () => {
+    config.features.tenantFallbackToSelf = true;
+    const userClientId = "client-self";
+    const req = {
+      user: {
+        id: "user-self",
+        role: "user",
+        clientId: userClientId,
+        attributes: { clientIds: [userClientId] },
+      },
+      query: { clientId: "client-invalid" },
+      headers: {},
+    };
+
+    const tenant = resolveTenant(req, { requestedClientId: req.query.clientId, required: false });
+
+    assert.equal(tenant.clientIdResolved, userClientId);
+    assert.equal(tenant.accessType, "self-fallback");
+    assert.equal(req.clientId, userClientId);
   });
 });
