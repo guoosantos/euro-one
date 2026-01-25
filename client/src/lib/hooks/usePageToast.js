@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export default function usePageToast(timeoutMs = 3500) {
+export function usePageToast(timeoutMs = 3500) {
   const [toast, setToast] = useState(null);
   const timerRef = useRef(null);
 
@@ -27,3 +27,5 @@ export default function usePageToast(timeoutMs = 3500) {
 
   return { toast, showToast, clearToast };
 }
+
+export default usePageToast;
