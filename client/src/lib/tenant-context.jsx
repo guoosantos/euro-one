@@ -45,15 +45,15 @@ function normaliseClients(payload, currentUser) {
     ];
   }
 
-    return list.map((client) => ({
-      id: client.id,
-      name: normalizeAdminClientName(client.companyName || client.name),
-      segment: client.attributes?.segment || "Frota",
-      deviceLimit: client.deviceLimit,
-      userLimit: client.userLimit,
-      attributes: client.attributes || {},
-    }));
-  }
+  return list.map((client) => ({
+    id: client.id,
+    name: normalizeAdminClientName(client.companyName || client.name),
+    segment: client.attributes?.segment || "Frota",
+    deviceLimit: client.deviceLimit,
+    userLimit: client.userLimit,
+    attributes: client.attributes || {},
+  }));
+}
 
 export function TenantProvider({ children }) {
   const stored = useMemo(() => getStoredSession(), []);
@@ -452,6 +452,8 @@ export function TenantProvider({ children }) {
       activeMirror,
       activeMirrorOwnerClientId,
       activeMirrorPermissionGroupId: activeMirror?.permissionGroupId ?? null,
+      mirrorOwners,
+      isMirrorReceiver: Boolean(!isAdmin && Array.isArray(mirrorOwners) && mirrorOwners.length > 0),
     };
   }, [
     tenantId,

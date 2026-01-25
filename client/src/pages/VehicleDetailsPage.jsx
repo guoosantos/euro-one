@@ -132,7 +132,7 @@ function AdminBindingsTab({
       type: form.type?.trim() || undefined,
       status: form.status || undefined,
       notes: form.notes?.trim() || undefined,
-      deviceId: autoPrimary ? null : form.deviceId || null,
+      deviceId: form.deviceId || null,
       clientId: form.clientId || vehicle.clientId,
       item: form.item?.trim() || undefined,
       identifier: form.identifier?.trim() || undefined,
@@ -242,6 +242,7 @@ export default function VehicleDetailsPage() {
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantId || user?.clientId || null;
+  const isMirrorContextActive = Boolean(user?.activeMirrorOwnerClientId);
 
   const trackedDeviceIds = useMemo(() => {
     if (!vehicle) return [];
@@ -527,8 +528,10 @@ export default function VehicleDetailsPage() {
         setChips([]);
         setClients([]);
         setVehicleAttributes([]);
-        setError(null);
         setFeedback(null);
+        const mirrorMessage =
+          requestError?.response?.data?.message || "Veículo não encontrado para este espelhamento.";
+        setError(new Error(mirrorMessage));
         return;
       }
       reportError(requestError, "Falha ao carregar veículo");
@@ -734,9 +737,12 @@ export default function VehicleDetailsPage() {
         </DataCard>
       )}
 
-      {!loading && !vehicle && (
+      {!loading && !vehicle && !error && (
         <DataCard>
-          <EmptyState title="Veículo não encontrado." subtitle="Verifique a placa ou tente novamente." />
+          <EmptyState
+            title={isMirrorContextActive ? "Veículo não encontrado para este espelhamento." : "Veículo não encontrado."}
+            subtitle="Verifique a placa ou tente novamente."
+          />
         </DataCard>
       )}
 
@@ -1011,16 +1017,16 @@ export default function VehicleDetailsPage() {
 
           {activeTab === "admin" && (
             <DataCard>
-          <AdminBindingsTab
-            vehicle={vehicle}
-            vehicleAttributes={vehicleAttributes}
-            clients={clients}
-            tenantId={tenantId}
-            user={user}
-            onSaveVehicle={handleSaveVehicle}
-            saving={saving}
-            onError={reportError}
-          />
+              <AdminBindingsTab
+                vehicle={vehicle}
+                vehicleAttributes={vehicleAttributes}
+                clients={clients}
+                tenantId={tenantId}
+                user={user}
+                onSaveVehicle={handleSaveVehicle}
+                saving={saving}
+                onError={reportError}
+              />
             </DataCard>
           )}
         </>

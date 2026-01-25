@@ -127,6 +127,58 @@ function friendlyErrorMessage(status, payload, statusText) {
   return statusText || "Erro na requisição";
 }
 
+const MIRROR_QUERY_ALLOWLIST = [
+  "/vehicles",
+  "/positions",
+  "/alerts",
+  "/reports",
+  "/events",
+  "/commands",
+  "/devices",
+  "/drivers",
+  "/geofences",
+  "/geofence-groups",
+  "/groups",
+  "/notifications",
+  "/tracker",
+  "/traccar",
+  "/tasks",
+  "/itineraries",
+  "/routes",
+  "/core/vehicles",
+  "/core/devices",
+  "/core/chips",
+  "/core/telemetry",
+  "/core/vehicle-attributes",
+  "/core/stock",
+];
+
+function resolveMirrorOwnerClientId(session) {
+  const ownerClientId = session?.user?.activeMirrorOwnerClientId ?? null;
+  if (!ownerClientId) return null;
+  if (session?.user?.role === "admin") return null;
+  return String(ownerClientId);
+}
+
+function resolvePathname(targetPath) {
+  if (!targetPath) return "";
+  const raw = String(targetPath);
+  if (/^https?:\/\//i.test(raw)) {
+    return new URL(raw).pathname;
+  }
+  return `/${raw.replace(/^\/+/, "")}`;
+}
+
+function shouldAttachMirrorClientId(targetPath) {
+  const pathname = resolvePathname(targetPath);
+  const normalised = pathname.replace(/^\/api\//, "/");
+  return MIRROR_QUERY_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
+}
+
+function hasExplicitClientParam(params) {
+  return Boolean(params?.clientId || params?.tenantId || params?.ownerClientId);
+}
+
 function buildUrl(path, params, { apiPrefix = true } = {}) {
   const targetPath = typeof path === "string" ? path : String(path || "");
   const isAbsolute = /^https?:\/\//i.test(targetPath);
@@ -189,16 +241,20 @@ async function request({
     }
   }
 
-  const finalUrl = buildUrl(url, params, { apiPrefix });
+  const storedSession = getStoredSession();
+  const mirrorOwnerClientId = resolveMirrorOwnerClientId(storedSession);
+  const shouldAttachMirrorQuery =
+    mirrorOwnerClientId && shouldAttachMirrorClientId(url) && !hasExplicitClientParam(params);
+  const nextParams = shouldAttachMirrorQuery ? { ...(params || {}), clientId: mirrorOwnerClientId } : params;
+
+  const finalUrl = buildUrl(url, nextParams, { apiPrefix });
   const resolvedHeaders = new Headers(headers);
   const authorization = resolveAuthorizationHeader();
   if (authorization && !resolvedHeaders.has("Authorization")) {
     resolvedHeaders.set("Authorization", authorization);
   }
-  const storedSession = getStoredSession();
-  const ownerClientId = storedSession?.user?.activeMirrorOwnerClientId ?? null;
-  if (ownerClientId && !resolvedHeaders.has("X-Owner-Client-Id")) {
-    resolvedHeaders.set("X-Owner-Client-Id", String(ownerClientId));
+  if (mirrorOwnerClientId && !resolvedHeaders.has("X-Owner-Client-Id")) {
+    resolvedHeaders.set("X-Owner-Client-Id", mirrorOwnerClientId);
   }
 
   const init = {
