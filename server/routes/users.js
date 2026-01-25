@@ -4,7 +4,8 @@ import createError from "http-errors";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission } from "../middleware/permissions.js";
-import { getClientById } from "../models/client.js";
+import { getAdminGeneralClient, getClientById } from "../models/client.js";
+import { ensureClientInScope, resolveTenantScope } from "../utils/tenant-scope.js";
 import {
   createUser,
   deleteUser,
@@ -18,13 +19,11 @@ const router = express.Router();
 router.use(authenticate);
 router.use(requireRole("manager", "admin"));
 
-function ensureClientAccess(sessionUser, clientId) {
+async function ensureClientAccess(sessionUser, clientId) {
   if (sessionUser.role === "admin") {
     return;
   }
-  if (!sessionUser.clientId || String(sessionUser.clientId) !== String(clientId)) {
-    throw createError(403, "Operação não permitida para este cliente");
-  }
+  await ensureClientInScope(sessionUser, clientId);
 }
 
 router.get(
@@ -38,10 +37,18 @@ router.get(
       const users = await listUsers({ clientId: filterClientId });
       return res.json({ users });
     }
-    if (!req.user.clientId) {
+
+    const scope = await resolveTenantScope(req.user);
+    const requestedClientId =
+      req.query?.clientId && req.query.clientId !== "" ? String(req.query.clientId) : null;
+    const targetClientId = requestedClientId || req.user.clientId;
+    if (!targetClientId) {
       return res.json({ users: [] });
     }
-    const users = await listUsers({ clientId: req.user.clientId });
+    if (!scope.clientIds.has(String(targetClientId))) {
+      throw createError(403, "Permissão insuficiente para acessar este cliente");
+    }
+    const users = await listUsers({ clientId: targetClientId });
     return res.json({ users });
   } catch (error) {
     return next(error);
@@ -64,13 +71,23 @@ router.post(
       throw createError(403, "Somente administradores podem criar papéis avançados");
     }
 
-    const targetClientId = req.user.role === "admin" ? clientId : req.user.clientId;
-    if (role !== "admin") {
+    let targetClientId = req.user.role === "admin" ? clientId : clientId || req.user.clientId;
+    let adminClientId = null;
+    if (role === "admin") {
+      const adminGeneralClient = await getAdminGeneralClient();
+      if (!adminGeneralClient) {
+        throw createError(404, "Cliente ADMIN GERAL não encontrado");
+      }
+      adminClientId = targetClientId ? String(targetClientId) : String(adminGeneralClient.id);
+      if (String(adminClientId) !== String(adminGeneralClient.id)) {
+        throw createError(400, "Administradores globais devem pertencer ao cliente EURO ONE");
+      }
+    } else {
       if (!targetClientId) {
         throw createError(400, "clientId é obrigatório para usuários não administradores");
       }
-      ensureClientAccess(req.user, targetClientId);
-      const client = getClientById(targetClientId);
+      await ensureClientAccess(req.user, targetClientId);
+      const client = await getClientById(targetClientId);
       if (!client) {
         throw createError(404, "Cliente associado não encontrado");
       }
@@ -82,7 +99,7 @@ router.post(
       username: resolvedUsername,
       password,
       role,
-      clientId: role === "admin" ? null : targetClientId,
+      clientId: role === "admin" ? adminClientId : targetClientId,
       attributes,
     });
     return res.status(201).json({ user });
@@ -104,24 +121,36 @@ router.put(
     }
 
     if (req.user.role !== "admin") {
-      ensureClientAccess(req.user, existing.clientId);
+      await ensureClientAccess(req.user, existing.clientId);
       if (existing.role === "admin") {
         throw createError(403, "Não é permitido atualizar administradores globais");
       }
       if (req.body.role && req.body.role !== "user") {
         throw createError(403, "Somente administradores podem alterar papéis");
       }
-      if (req.body.clientId && String(req.body.clientId) !== String(req.user.clientId)) {
-        throw createError(403, "Não é permitido mover usuários para outro cliente");
+      if (req.body.clientId) {
+        await ensureClientAccess(req.user, req.body.clientId);
       }
-    } else if (req.body.role && req.body.role !== "admin") {
-      const nextClientId = req.body.clientId ?? existing.clientId;
-      if (!nextClientId) {
-        throw createError(400, "clientId é obrigatório para usuários não administradores");
+    } else {
+      if (req.body.role && req.body.role !== "admin") {
+        const nextClientId = req.body.clientId ?? existing.clientId;
+        if (!nextClientId) {
+          throw createError(400, "clientId é obrigatório para usuários não administradores");
+        }
+        const client = await getClientById(nextClientId);
+        if (!client) {
+          throw createError(404, "Cliente associado não encontrado");
+        }
       }
-      const client = getClientById(nextClientId);
-      if (!client) {
-        throw createError(404, "Cliente associado não encontrado");
+      if (req.body.role === "admin" || existing.role === "admin") {
+        const adminGeneralClient = await getAdminGeneralClient();
+        if (!adminGeneralClient) {
+          throw createError(404, "Cliente ADMIN GERAL não encontrado");
+        }
+        const nextClientId = req.body.clientId ?? existing.clientId ?? null;
+        if (!nextClientId || String(nextClientId) !== String(adminGeneralClient.id)) {
+          throw createError(400, "Administradores globais devem pertencer ao cliente EURO ONE");
+        }
       }
     }
 
@@ -142,20 +171,20 @@ router.delete(
   "/users/:id",
   authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
   requireAdminGeneral,
-  (req, res, next) => {
+  async (req, res, next) => {
   try {
     const { id } = req.params;
-    const existing = getUserById(id, { includeSensitive: true });
+    const existing = await getUserById(id, { includeSensitive: true });
     if (!existing) {
       throw createError(404, "Usuário não encontrado");
     }
     if (req.user.role !== "admin") {
-      ensureClientAccess(req.user, existing.clientId);
+      await ensureClientAccess(req.user, existing.clientId);
       if (existing.role !== "user") {
         throw createError(403, "Somente administradores podem remover este usuário");
       }
     }
-    deleteUser(id);
+    await deleteUser(id);
     return res.status(204).send();
   } catch (error) {
     return next(error);
@@ -182,8 +211,8 @@ router.post(
       throw createError(404, "Usuário destino não encontrado");
     }
     if (req.user.role !== "admin") {
-      ensureClientAccess(req.user, source.clientId);
-      ensureClientAccess(req.user, target.clientId);
+      await ensureClientAccess(req.user, source.clientId);
+      await ensureClientAccess(req.user, target.clientId);
       if (String(source.clientId) !== String(target.clientId)) {
         throw createError(403, "Usuários devem pertencer ao mesmo cliente");
       }

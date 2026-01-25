@@ -85,6 +85,15 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
 - **Leitura (relatórios, histórico e telemetria de fallback):** feita direto no banco do Traccar através de `server/services/traccar-db.js`. Use as variáveis `TRACCAR_DB_*` para apontar para o banco oficial do Traccar (MySQL/Postgres). Consultas incluem viagens por período, últimas posições por dispositivo e eventos recentes.
 - **Escrita (criação/edição de dispositivos, grupos, comandos, etc.):** continua passando pela API REST do Traccar via `server/services/traccar.js` e `traccarProxy`, preservando regras de autenticação e efeito colateral controlado.
 
+## Admin geral, admin por cliente e subclientes
+
+- **Admin geral**: usuários com `role=admin` vinculados ao tenant **EURO ONE**. Eles enxergam todos os clientes e podem operar em qualquer tenant sem depender do `?clientId` para serem reconhecidos como admin geral.
+- **Admin por cliente (manager)**: usuários com `role=manager` atuam no(s) tenants que administram (seu próprio cliente, clientes explicitamente vinculados em `attributes.clientIds` e/ou subclientes permitidos).
+- **Subclientes**:
+  - Para permitir subclientes, defina `attributes.canCreateSubclients=true` no cliente pai.
+  - Ao criar um subcliente, o backend grava `attributes.parentClientId=<clientId do pai>`.
+  - O admin do cliente pai passa a ter acesso ao subcliente via escopo de tenant (e o subcliente também é adicionado em `attributes.clientIds` do usuário criador).
+
 ## Passos rápidos de execução
 
 ```bash

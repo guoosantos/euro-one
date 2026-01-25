@@ -189,7 +189,7 @@ export async function createUser({
       usernameNormalized: normalizedUsername,
       passwordHash,
       role: validatedRole,
-      clientId: validatedRole === "admin" ? null : clientId,
+      clientId: validatedRole === "admin" ? (clientId ?? null) : clientId,
       attributes,
     },
   });

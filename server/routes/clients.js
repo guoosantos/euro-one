@@ -9,8 +9,10 @@ import { listDevices } from "../models/device.js";
 import { listModels } from "../models/model.js";
 import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
-import { deleteUsersByClientId, listUsers } from "../models/user.js";
+import { deleteUsersByClientId, listUsers, updateUser } from "../models/user.js";
 import { deleteGroupsByClientId } from "../models/group.js";
+import { resolveExplicitClientIds } from "../middleware/tenant.js";
+import { ensureClientInScope, resolveTenantScope } from "../utils/tenant-scope.js";
 
 const router = express.Router();
 
@@ -72,12 +74,13 @@ router.get(
     if (req.user.role === "admin") {
       return res.json({ clients: clientsWithCounts });
     }
-    const clientId = req.user.clientId;
-    if (!clientId) {
+
+    const scope = await resolveTenantScope(req.user);
+    if (!scope.clientIds.size) {
       return res.json({ clients: [] });
     }
-    const client = clientsWithCounts.find((item) => String(item.id) === String(clientId)) || null;
-    return res.json({ clients: client ? [client] : [] });
+    const filtered = clientsWithCounts.filter((client) => scope.clientIds.has(String(client.id)));
+    return res.json({ clients: filtered });
   } catch (error) {
     return next(error);
   }
@@ -91,8 +94,8 @@ router.get(
   async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
-      throw createError(403, "Permissão insuficiente para visualizar este cliente");
+    if (req.user.role !== "admin") {
+      await ensureClientInScope(req.user, id);
     }
     const client = await getClientById(id);
     if (!client) {
@@ -112,8 +115,8 @@ router.get(
   async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
-      throw createError(403, "Permissão insuficiente para visualizar este cliente");
+    if (req.user.role !== "admin") {
+      await ensureClientInScope(req.user, id);
     }
     const client = await getClientById(id);
     if (!client) {
@@ -122,7 +125,7 @@ router.get(
 
     const vehicles = listVehicles({ clientId: id });
     const devices = listDevices({ clientId: id });
-    const users = listUsers({ clientId: id });
+    const users = await listUsers({ clientId: id });
     const mirrors = listMirrors({ ownerClientId: id });
     const models = listModels({ clientId: id, includeGlobal: true });
     const clientDirectory = await listClients();
@@ -180,19 +183,41 @@ router.get(
 router.post(
   "/clients",
   authorizePermission({ menuKey: "admin", pageKey: "clients", requireFull: true }),
-  requireRole("admin"),
+  requireRole("manager", "admin"),
   async (req, res, next) => {
   try {
     const { name, deviceLimit, userLimit, attributes = {} } = req.body || {};
     if (!name) {
       throw createError(400, "Nome é obrigatório");
     }
+    const nextAttributes = { companyName: attributes.companyName || name, ...attributes };
+    if (req.user.role !== "admin") {
+      if (!req.user.clientId) {
+        throw createError(403, "Cliente administrador não identificado");
+      }
+      const parentClient = await getClientById(req.user.clientId);
+      if (!parentClient) {
+        throw createError(404, "Cliente administrador não encontrado");
+      }
+      if (!parentClient.attributes?.canCreateSubclients) {
+        throw createError(403, "Cliente não habilitado para criar subclientes");
+      }
+      nextAttributes.parentClientId = String(req.user.clientId);
+    }
     const client = await createClient({
       name,
       deviceLimit,
       userLimit,
-      attributes: { companyName: attributes.companyName || name, ...attributes },
+      attributes: nextAttributes,
     });
+    if (req.user.role !== "admin") {
+      const userAttributes = { ...(req.user.attributes || {}) };
+      const currentClientIds = Array.isArray(userAttributes.clientIds) ? userAttributes.clientIds : [];
+      const explicitIds = resolveExplicitClientIds(req.user);
+      const merged = new Set([...currentClientIds, ...explicitIds, String(client.id)].map(String));
+      userAttributes.clientIds = Array.from(merged);
+      await updateUser(req.user.id, { attributes: userAttributes });
+    }
     return res.status(201).json({ client });
   } catch (error) {
     return next(error);
@@ -207,8 +232,8 @@ router.put(
   async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
-      throw createError(403, "Permissão insuficiente para atualizar este cliente");
+    if (req.user.role !== "admin") {
+      await ensureClientInScope(req.user, id);
     }
     const client = await updateClient(id, req.body || {});
     return res.json({ client });
@@ -236,10 +261,13 @@ router.delete(
   },
 );
 
-router.get("/clients/:id/users", requireRole("admin"), (req, res, next) => {
+router.get("/clients/:id/users", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const users = listUsers({ clientId: id });
+    if (req.user.role !== "admin") {
+      await ensureClientInScope(req.user, id);
+    }
+    const users = await listUsers({ clientId: id });
     return res.json({ users });
   } catch (error) {
     return next(error);
