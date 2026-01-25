@@ -425,23 +425,35 @@ async function buildSessionPayload(
       availableClients = allClients.filter((client) => scope.clientIds.has(String(client.id)));
     }
 
-    const preferredId = preference?.clientId || user.clientId || availableClients[0]?.id || null;
-    const resolvedClient = availableClients.find((item) => String(item.id) === String(preferredId))
-      || availableClients[0]
-      || null;
+    const availableClientIds = new Set(availableClients.map((client) => String(client.id)));
+    const preferredId =
+      preference?.clientId && availableClientIds.has(String(preference.clientId)) ? preference.clientId : null;
+    const userClientId = user.clientId ? String(user.clientId) : null;
+    const fallbackId =
+      userClientId && (availableClientIds.size === 0 || availableClientIds.has(userClientId))
+        ? userClientId
+        : availableClients[0]?.id || null;
+    const resolvedClientId = preferredId || fallbackId || null;
+    const resolvedClient =
+      (resolvedClientId
+        ? availableClients.find((item) => String(item.id) === String(resolvedClientId))
+        : null) || availableClients[0] || null;
 
-    if (!preference && resolvedClient) {
-      await prismaClient.userPreference
-        .upsert({
-          where: { userId: user.id },
-          update: { clientId: resolvedClient.id, updatedAt: new Date() },
-          create: { id: randomUUID(), userId: user.id, clientId: resolvedClient.id },
-        })
-        .catch(() => null);
+    if (resolvedClientId) {
+      const shouldUpdatePreference = !preference || String(preference.clientId) !== String(resolvedClientId);
+      if (shouldUpdatePreference) {
+        await prismaClient.userPreference
+          .upsert({
+            where: { userId: user.id },
+            update: { clientId: resolvedClientId, updatedAt: new Date() },
+            create: { id: randomUUID(), userId: user.id, clientId: resolvedClientId },
+          })
+          .catch(() => null);
+      }
     }
 
     const resolved = resolvedClient ? { ...resolvedClient } : null;
-    const userWithClient = { ...user, clientId: user.clientId ?? resolved?.id ?? null };
+    const userWithClient = { ...user, clientId: resolvedClientId ?? user.clientId ?? resolved?.id ?? null };
 
     if (!userWithClient.clientId && user.role !== "admin") {
       throw createError(400, "Usuário não vinculado a um cliente");
