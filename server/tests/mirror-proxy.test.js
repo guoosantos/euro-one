@@ -205,3 +205,30 @@ test("GET /api/events retorna apenas eventos dos veículos do espelho", async ()
   assert.equal(payload.events.length, 1);
   assert.equal(String(payload.events[0]?.deviceId), allowedTraccarId);
 });
+
+test("GET /api/devices?all=true retorna apenas devices do espelhamento", async () => {
+  const ownerId = `owner-proxy-dev-${randomUUID()}`;
+  const receiverId = `receiver-proxy-dev-${randomUUID()}`;
+  const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "MIR-3001" });
+  const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "MIR-3002" });
+  const allowedDevice = buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-905-${randomUUID()}`,
+    traccarId: String(Date.now()),
+    vehicleId: allowedVehicle.id,
+  });
+  buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-906-${randomUUID()}`,
+    traccarId: String(Date.now() + 1),
+    vehicleId: blockedVehicle.id,
+  });
+  buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+  const token = signSession({ id: "user-devices", role: "user", clientId: receiverId });
+  const { status, payload } = await callProxy({ path: `/api/devices?all=true&clientId=${ownerId}`, token });
+
+  assert.equal(status, 200);
+  assert.equal(payload.data.length, 1);
+  assert.equal(payload.data[0]?.uniqueId, allowedDevice.uniqueId);
+});

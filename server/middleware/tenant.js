@@ -125,6 +125,27 @@ function logMirrorApplied({ user, mirrorContext }) {
   });
 }
 
+function logTenantResolution({ user, tenant }) {
+  if (process.env.DEBUG_MIRROR !== "true") return;
+  console.info("[tenant] resolução", {
+    userId: user?.id ? String(user.id) : null,
+    userClientId: user?.clientId ? String(user.clientId) : null,
+    requestedClientId: tenant?.requestedClientId ? String(tenant.requestedClientId) : null,
+    resolvedClientId: tenant?.clientIdResolved ? String(tenant.clientIdResolved) : null,
+    accessType: tenant?.accessType || null,
+    mirrorContext: tenant?.mirrorContext
+      ? {
+          ownerClientId: tenant.mirrorContext.ownerClientId,
+          targetClientId: tenant.mirrorContext.targetClientId,
+          mirrorId: tenant.mirrorContext.mirrorId,
+          permissionGroupId: tenant.mirrorContext.permissionGroupId ?? null,
+          vehicleIds: tenant.mirrorContext.vehicleIds || [],
+          deviceIds: tenant.mirrorContext.deviceIds || [],
+        }
+      : null,
+  });
+}
+
 export function resolveTenant(req, { requestedClientId, required = true } = {}) {
   if (!req?.user) {
     throw createError(401, "Sessão não autenticada");
@@ -144,6 +165,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = existingMirror;
     logMirrorApplied({ user, mirrorContext: existingMirror });
+    logTenantResolution({ user, tenant });
     return tenant;
   }
 
@@ -162,6 +184,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.tenant = tenant;
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = null;
+    logTenantResolution({ user, tenant });
     return tenant;
   }
 
@@ -181,6 +204,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.tenant = tenant;
     req.clientId = userClientId;
     req.mirrorContext = null;
+    logTenantResolution({ user, tenant });
     return tenant;
   }
 
@@ -195,6 +219,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.tenant = tenant;
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = null;
+    logTenantResolution({ user, tenant });
     return tenant;
   }
 
@@ -210,6 +235,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = mirrorContext;
     logMirrorApplied({ user, mirrorContext });
+    logTenantResolution({ user, tenant });
     return tenant;
   }
 
@@ -229,6 +255,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.tenant = tenant;
     req.clientId = userClientId;
     req.mirrorContext = null;
+    logTenantResolution({ user, tenant });
     return tenant;
   }
 
