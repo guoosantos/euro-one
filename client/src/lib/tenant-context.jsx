@@ -18,6 +18,22 @@ import { normalizeAdminClientName } from "./admin-general.js";
 
 const TenantContext = createContext(null);
 
+const RECEIVER_TYPES = new Set([
+  "GERENCIADORA",
+  "SEGURADORA",
+  "GERENCIADORA DE RISCO",
+  "COMPANHIA DE SEGURO",
+]);
+
+function isReceiverClient(client) {
+  const type =
+    client?.attributes?.clientProfile?.clientType ||
+    client?.attributes?.clientType ||
+    client?.attributes?.segment ||
+    "";
+  return RECEIVER_TYPES.has(String(type).toUpperCase());
+}
+
 function normaliseClients(payload, currentUser) {
   let list = Array.isArray(payload?.clients)
     ? payload.clients
@@ -90,6 +106,7 @@ export function TenantProvider({ children }) {
   const [mirrorOwners, setMirrorOwners] = useState(null);
   const [activeMirror, setActiveMirror] = useState(null);
   const [activeMirrorOwnerClientId, setActiveMirrorOwnerClientId] = useState(null);
+  const [mirrorModeEnabled, setMirrorModeEnabled] = useState(null);
   const [loading, setLoading] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const [error, setError] = useState(null);
@@ -144,6 +161,9 @@ export function TenantProvider({ children }) {
         setTenants(effectiveTenants);
         setActiveMirror(contextPayload?.mirror || null);
         setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? null);
+        setMirrorModeEnabled(
+          typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
+        );
 
         if (nextUser) {
           const responseTenant = contextPayload?.clientId || payload.client?.id || payload.clientId || resolvedClientId || null;
@@ -197,6 +217,7 @@ export function TenantProvider({ children }) {
       setMirrorOwners(null);
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
+      setMirrorModeEnabled(null);
     }
     lastUserIdRef.current = currentId;
   }, [user?.id]);
@@ -233,6 +254,7 @@ export function TenantProvider({ children }) {
         }
         setActiveMirror(payload?.mirror || null);
         setActiveMirrorOwnerClientId(payload?.mirror?.ownerClientId ?? null);
+        setMirrorModeEnabled(typeof payload?.mirrorModeEnabled === "boolean" ? payload.mirrorModeEnabled : null);
       })
       .catch((contextError) => {
         if (!cancelled) {
@@ -253,6 +275,7 @@ export function TenantProvider({ children }) {
       setMirrorOwners(null);
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
+      setMirrorModeEnabled(null);
       setLoading(false);
       setInitialising(false);
     });
@@ -341,6 +364,9 @@ export function TenantProvider({ children }) {
         setTenantId(nextTenantId);
         setActiveMirror(contextPayload?.mirror || null);
         setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? null);
+        setMirrorModeEnabled(
+          typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
+        );
         setStoredSession({ token: responseToken, user: sessionUser });
       } catch (sessionError) {
         if (Number(sessionError?.status || sessionError?.response?.status) === 401) {
@@ -375,6 +401,7 @@ export function TenantProvider({ children }) {
       setMirrorOwners(null);
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
+      setMirrorModeEnabled(null);
     }
   }, []);
 
@@ -406,6 +433,10 @@ export function TenantProvider({ children }) {
     const tenant =
       tenants.find((item) => item.id === tenantId) ??
       (isAdmin && !tenantId ? { id: null, name: "Todos os clientes", segment: "Todas as frotas" } : tenants[0] ?? null);
+    const isMirrorReceiver = Boolean(
+      !isAdmin &&
+        ((Array.isArray(mirrorOwners) && mirrorOwners.length > 0) || (tenant ? isReceiverClient(tenant) : false)),
+    );
     return {
       tenantId,
       setTenantId,
@@ -427,7 +458,8 @@ export function TenantProvider({ children }) {
       activeMirrorOwnerClientId,
       activeMirrorPermissionGroupId: activeMirror?.permissionGroupId ?? null,
       mirrorOwners,
-      isMirrorReceiver: Boolean(!isAdmin && Array.isArray(mirrorOwners) && mirrorOwners.length > 0),
+      isMirrorReceiver,
+      mirrorModeEnabled,
     };
   }, [
     tenantId,
@@ -443,6 +475,7 @@ export function TenantProvider({ children }) {
     mirrorOwners,
     activeMirror,
     activeMirrorOwnerClientId,
+    mirrorModeEnabled,
   ]);
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;

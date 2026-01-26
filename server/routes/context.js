@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { config } from "../config.js";
+import { getEnvInfo } from "../utils/env.js";
 import { authenticate } from "../middleware/auth.js";
 import { resolveExplicitClientIds, resolveTenant } from "../middleware/tenant.js";
 import { getClientById, listClients } from "../models/client.js";
@@ -89,12 +90,25 @@ router.get("/context", async (req, res, next) => {
         }
       : null;
 
-    return res.json({
+    const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
+    const responsePayload = {
       clientId: tenant.clientIdResolved ?? null,
       clients,
       mirror,
-      mirrorModeEnabled: Boolean(config.features?.mirrorMode),
-    });
+      mirrorModeEnabled,
+    };
+
+    if (isAdmin) {
+      const envInfo = getEnvInfo();
+      responsePayload.envPathCarregado = envInfo.envPath;
+      responsePayload.dotenvOverride = envInfo.override;
+      responsePayload.features = {
+        mirrorModeEnabled,
+        tenantFallbackToSelfEnabled: Boolean(config.features?.tenantFallbackToSelf),
+      };
+    }
+
+    return res.json(responsePayload);
   } catch (error) {
     return next(error);
   }
