@@ -110,6 +110,12 @@ export function TenantProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const [error, setError] = useState(null);
+  const [permissionContext, setPermissionContext] = useState({
+    permissions: null,
+    isFull: true,
+    permissionGroupId: null,
+  });
+  const [permissionLoading, setPermissionLoading] = useState(false);
   const lastUserIdRef = useRef(stored?.user?.id ?? null);
 
   const fetchTenantContext = useCallback(async ({ clientId } = {}) => {
@@ -265,6 +271,65 @@ export function TenantProvider({ children }) {
       cancelled = true;
     };
   }, [fetchTenantContext, tenantId, tenants, token, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPermissionContext() {
+      if (!user) {
+        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        return;
+      }
+      if (user.role === "admin") {
+        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        return;
+      }
+      setPermissionLoading(true);
+      try {
+        const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
+        const response = await api.get(API_ROUTES.permissionsContext, { params });
+        if (cancelled) return;
+        const payload = response?.data || {};
+        const permissions =
+          payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
+        setPermissionContext({
+          permissions,
+          isFull: Boolean(payload?.isFull || payload?.level === "full"),
+          permissionGroupId: payload?.permissionGroupId ?? null,
+        });
+      } catch (permissionError) {
+        if (cancelled) return;
+        const status = permissionError?.response?.status ?? permissionError?.status;
+        if (
+          status === 403 &&
+          tenantId !== null &&
+          tenantId !== undefined &&
+          user?.clientId &&
+          tenantId !== user.clientId
+        ) {
+          setTenantId(user.clientId);
+          return;
+        }
+        console.warn("Falha ao carregar permissões", permissionError);
+        setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+      } finally {
+        if (!cancelled) setPermissionLoading(false);
+      }
+    }
+
+    if (!token) {
+      setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    loadPermissionContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMirror, setTenantId, tenantId, token, user]);
 
   useEffect(() => {
     const unsubscribe = registerUnauthorizedHandler(() => {
@@ -460,6 +525,8 @@ export function TenantProvider({ children }) {
       mirrorOwners,
       isMirrorReceiver,
       mirrorModeEnabled,
+      permissionContext,
+      permissionLoading,
     };
   }, [
     tenantId,
@@ -476,6 +543,8 @@ export function TenantProvider({ children }) {
     activeMirror,
     activeMirrorOwnerClientId,
     mirrorModeEnabled,
+    permissionContext,
+    permissionLoading,
   ]);
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;

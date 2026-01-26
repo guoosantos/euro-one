@@ -27,6 +27,11 @@ export function useAlerts({
           clientId: parsedParams.clientId ?? tenantId,
         },
       });
+      if (response?.error) {
+        setError(response.error);
+        setData([]);
+        return;
+      }
       const list = Array.isArray(response?.data?.data)
         ? response.data.data
         : Array.isArray(response?.data?.alerts)

@@ -37,7 +37,10 @@ router.use(authenticate);
 
 router.get("/context", async (req, res, next) => {
   try {
-    const tenant = resolveTenant(req, { requestedClientId: req.query?.clientId, required: false });
+    const ownerHeader = req.get("X-Owner-Client-Id");
+    const requestedClientId =
+      config.features?.mirrorMode && ownerHeader ? ownerHeader : req.query?.clientId;
+    const tenant = resolveTenant(req, { requestedClientId, required: false });
     const user = req.user;
     if (!user) {
       throw createError(401, "Sessão não autenticada");

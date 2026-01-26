@@ -19,6 +19,7 @@ import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import { usePageToast } from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -219,6 +220,7 @@ export default function VehicleDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { tenantId, user, tenants, setTenantId } = useTenant();
+  const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
   const { confirmDelete } = useConfirmDialog();
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
@@ -255,7 +257,7 @@ export default function VehicleDetailsPage() {
 
   const { getDevicePosition, getDeviceStatus, getDeviceLastSeen, getDeviceCoordinates } = useTraccarDevices({
     deviceIds: trackedDeviceIds,
-    enabled: trackedDeviceIds.length > 0,
+    enabled: trackedDeviceIds.length > 0 && vehiclesPermission.hasAccess,
   });
 
   const detailedVehicle = useMemo(() => {

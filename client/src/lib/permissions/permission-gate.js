@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
-import api from "../api.js";
 import { useTenant } from "../tenant-context.jsx";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
@@ -75,71 +74,15 @@ function toUiLevel(access) {
   return UI_LEVELS[access] || UI_LEVELS.none;
 }
 
-export function createPermissionResolver({ apiClient = api, useTenantHook = useTenant } = {}) {
+export function createPermissionResolver({ useTenantHook = useTenant } = {}) {
   return function usePermissionResolver() {
-    const { user, role, tenantId, setTenantId, activeMirrorPermissionGroupId } = useTenantHook();
-    const [permissionContext, setPermissionContext] = useState({
-      permissions: null,
-      isFull: true,
-      permissionGroupId: null,
-    });
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-      let cancelled = false;
-
-      async function loadPermissionContext() {
-        if (!user) {
-          setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
-          return;
-        }
-        if (role === "admin") {
-          setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
-          return;
-        }
-        setLoading(true);
-        try {
-          const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
-          const response = await apiClient.get("permissions/context", { params });
-          if (cancelled) return;
-          const payload = response?.data || {};
-          const permissions =
-            payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
-          setPermissionContext({
-            permissions,
-            isFull: Boolean(payload?.isFull || payload?.level === "full"),
-            permissionGroupId: payload?.permissionGroupId ?? null,
-          });
-        } catch (error) {
-          if (cancelled) return;
-          const status = error?.response?.status ?? error?.status;
-          if (
-            status === 403 &&
-            tenantId !== null &&
-            tenantId !== undefined &&
-            user?.clientId &&
-            tenantId !== user.clientId
-          ) {
-            setTenantId(user.clientId);
-            return;
-          }
-          console.warn("Falha ao carregar permissões", error);
-          setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
-        } finally {
-          if (!cancelled) setLoading(false);
-        }
-      }
-
-      loadPermissionContext();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [activeMirrorPermissionGroupId, apiClient, role, setTenantId, tenantId, user]);
+    const { role, permissionContext, permissionLoading } = useTenantHook();
+    const context = permissionContext ?? { permissions: null, isFull: true, permissionGroupId: null };
+    const loading = Boolean(permissionLoading);
 
     const getPermission = useCallback(
       ({ menuKey, pageKey, subKey }) => {
-        if (role === "admin" || permissionContext.isFull) {
+        if (role === "admin" || context.isFull) {
           return {
             level: UI_LEVELS.full,
             hasAccess: true,
@@ -149,7 +92,7 @@ export function createPermissionResolver({ apiClient = api, useTenantHook = useT
             isFull: true,
           };
         }
-        if (!permissionContext.permissions) {
+        if (!context.permissions) {
           return {
             level: UI_LEVELS.none,
             hasAccess: false,
@@ -172,7 +115,7 @@ export function createPermissionResolver({ apiClient = api, useTenantHook = useT
           };
         }
 
-        const entry = resolvePermissionEntry(permissionContext.permissions, menuKey, pageKey, subKey);
+        const entry = resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
         const rawLevel = entry.visible
           ? entry.access === "full"
             ? "full"
@@ -191,16 +134,16 @@ export function createPermissionResolver({ apiClient = api, useTenantHook = useT
           isFull: level === UI_LEVELS.full,
         };
       },
-      [loading, permissionContext, role],
+      [context, loading, role],
     );
 
     return useMemo(
       () => ({
         getPermission,
         loading,
-        permissionGroupId: permissionContext.permissionGroupId,
+        permissionGroupId: context.permissionGroupId,
       }),
-      [getPermission, loading, permissionContext.permissionGroupId],
+      [getPermission, loading, context.permissionGroupId],
     );
   };
 }
@@ -222,14 +165,22 @@ export function usePermissions() {
     },
     [getPermission],
   );
+  const canAccess = useCallback(
+    (permission) => {
+      if (!permission) return true;
+      return getPermission(permission).hasAccess;
+    },
+    [getPermission],
+  );
 
   return useMemo(
     () => ({
       getPermission,
       canShow,
+      canAccess,
       loading,
     }),
-    [canShow, getPermission, loading],
+    [canAccess, canShow, getPermission, loading],
   );
 }
 

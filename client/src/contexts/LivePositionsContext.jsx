@@ -6,6 +6,7 @@ import { useTranslation } from "../lib/i18n.js";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -20,11 +21,14 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
   const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const canAccessMonitoring = monitoringPermission.hasAccess;
 
   const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
 
   const fetchPositions = useCallback(async () => {
+    if (!canAccessMonitoring) return [];
     const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, { params });
     if (error) {
       const status = Number(error?.response?.status ?? error?.status);
@@ -38,14 +42,14 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
       throw normalised;
     }
     return normalise(payload);
-  }, [params, t]);
+  }, [canAccessMonitoring, params, t]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchPositions,
     intervalMs: autoRefresh.intervalMs,
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && canAccessMonitoring,
     paused: autoRefresh.paused,
-    dependencies: [tenantId, isAuthenticated],
+    dependencies: [canAccessMonitoring, tenantId, isAuthenticated],
     resetOnChange: true,
   });
 
@@ -70,12 +74,12 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
     () => ({
       data: filteredData,
       positions: filteredData,
-      loading,
+      loading: canAccessMonitoring ? loading : false,
       error,
       refresh,
       fetchedAt: lastUpdated,
     }),
-    [filteredData, error, lastUpdated, loading, refresh],
+    [canAccessMonitoring, filteredData, error, lastUpdated, loading, refresh],
   );
 
   return <LivePositionsContext.Provider value={value}>{children}</LivePositionsContext.Provider>;

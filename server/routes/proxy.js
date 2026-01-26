@@ -3,6 +3,7 @@ import express from "express";
 import createError from "http-errors";
 import { randomUUID } from "node:crypto";
 
+import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
@@ -2002,7 +2003,10 @@ function parsePositiveNumber(value, fallback) {
 
 
 async function resolveAccessibleDeviceContext(req) {
-  const tenant = resolveTenant(req, { requestedClientId: req.query?.clientId, required: false });
+  const ownerHeader = req.get("X-Owner-Client-Id");
+  const requestedClientId =
+    config.features?.mirrorMode && ownerHeader ? ownerHeader : req.query?.clientId;
+  const tenant = resolveTenant(req, { requestedClientId, required: false });
   const clientId = getEffectiveClientId(req) ?? tenant.clientIdResolved ?? null;
   const access = await getAccessibleVehicles({
     user: req.user,

@@ -84,6 +84,7 @@ export default function ServiceOrdersList() {
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
+  const [forbidden, setForbidden] = useState(false);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
@@ -106,6 +107,13 @@ export default function ServiceOrdersList() {
   }, [user]);
 
   const fetchOrders = async ({ force = false } = {}) => {
+    if (!listPermission.hasAccess) {
+      setForbidden(true);
+      setLoading(false);
+      setItems([]);
+      setError(null);
+      return;
+    }
     const now = Date.now();
     if (!force && retryCooldownRef.current > now) {
       return;
@@ -126,6 +134,12 @@ export default function ServiceOrdersList() {
       retryCooldownRef.current = 0;
     } catch (error) {
       const statusCode = error?.response?.status ?? error?.status;
+      if (statusCode === 403) {
+        setForbidden(true);
+        setError(null);
+        setItems([]);
+        return;
+      }
       console.error("Falha ao buscar ordens de serviço", {
         params: Object.fromEntries(params.entries()),
         status: statusCode,
@@ -167,6 +181,7 @@ export default function ServiceOrdersList() {
 
   useEffect(() => {
     if (!listPermission.canShow) return;
+    setForbidden(false);
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, clientId, listPermission.canShow]);
@@ -230,6 +245,14 @@ export default function ServiceOrdersList() {
       setActiveType(availableTypeChips[0].key);
     }
   }, [activeType, availableTypeChips]);
+
+  if (forbidden || (!listPermission.loading && !listPermission.canShow)) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] items-center justify-center">
+        <DataState state="info" tone="muted" title="Sem permissão para acessar ordens de serviço" />
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (loading) return;

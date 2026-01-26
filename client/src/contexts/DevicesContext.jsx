@@ -6,6 +6,7 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 
 function normaliseDeviceList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -20,9 +21,12 @@ export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
   const { tenantId, isAuthenticated } = useTenant();
   const { accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const canAccessDevices = devicesPermission.hasAccess;
 
   const fetchDevices = useCallback(async () => {
+    if (!canAccessDevices) return [];
     const params = tenantId ? { clientId: tenantId } : undefined;
     const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, { params });
     if (apiError) {
@@ -43,14 +47,14 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
         }))
       : [];
-  }, [t, tenantId]);
+  }, [canAccessDevices, t, tenantId]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchDevices,
     intervalMs: autoRefresh.intervalMs,
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && canAccessDevices,
     paused: autoRefresh.paused,
-    dependencies: [tenantId, isAuthenticated],
+    dependencies: [canAccessDevices, tenantId, isAuthenticated],
     resetOnChange: true,
   });
 
@@ -70,7 +74,7 @@ export function DevicesProvider({ children, interval = 60_000 }) {
     () => ({
       data: filteredDevices,
       devices: filteredDevices,
-      loading,
+      loading: canAccessDevices ? loading : false,
       error,
       refresh,
       fetchedAt: lastUpdated,
@@ -83,7 +87,7 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           }) || "",
       },
     }),
-    [filteredDevices, error, lastUpdated, loading, refresh, t],
+    [canAccessDevices, filteredDevices, error, lastUpdated, loading, refresh, t],
   );
 
   return <DevicesContext.Provider value={value}>{children}</DevicesContext.Provider>;

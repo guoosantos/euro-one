@@ -26,6 +26,7 @@ import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
@@ -383,6 +384,7 @@ export default function Monitoring() {
   const [searchParams] = useSearchParams();
 
   const { tenantId, user, tenant } = useTenant();
+  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
@@ -393,8 +395,17 @@ export default function Monitoring() {
     reload: reloadTasks,
   } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
   const { vehicles } = useVehicles();
-  const pendingAlertsRefresh = useAutoRefresh({ enabled: true, intervalMs: 30_000, pauseWhenOverlayOpen: true });
-  const conjugatedAlertsRefresh = useAutoRefresh({ enabled: true, intervalMs: 60_000, pauseWhenOverlayOpen: true });
+  const canAccessMonitoring = monitoringPermission.hasAccess;
+  const pendingAlertsRefresh = useAutoRefresh({
+    enabled: canAccessMonitoring,
+    intervalMs: 30_000,
+    pauseWhenOverlayOpen: true,
+  });
+  const conjugatedAlertsRefresh = useAutoRefresh({
+    enabled: canAccessMonitoring,
+    intervalMs: 60_000,
+    pauseWhenOverlayOpen: true,
+  });
   const { alerts: pendingAlerts } = useAlerts({
     params: { status: "pending" },
     refreshInterval: pendingAlertsRefresh.intervalMs,
