@@ -279,14 +279,13 @@ async function bootstrapServer() {
     }
 
     const mirrorPermissionsModule = await importWithLog("./scripts/backfill-mirror-permissions.js");
-    if (typeof mirrorPermissionsModule?.default === "function") {
+    const runBackfill =
+      mirrorPermissionsModule?.backfillMirrorPermissions ?? mirrorPermissionsModule?.default;
+    if (typeof runBackfill === "function") {
       try {
-        await mirrorPermissionsModule.default();
+        await runBackfill({ logger: console });
       } catch (error) {
-        console.warn(
-          "[mirror] falha ao executar backfill de permissionGroupId",
-          error?.message || error,
-        );
+        console.warn("[mirror] falha ao executar backfill de permissionGroupId", error);
       }
     }
 

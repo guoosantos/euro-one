@@ -15,9 +15,17 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
       subpages: {
         alerts: "read",
         "alerts-conjugated": "read",
+        positions: "read",
+        telemetry: "read",
       },
     },
-    services: "read",
+    services: {
+      visible: true,
+      access: "read",
+      subpages: {
+        "service-orders": "read",
+      },
+    },
     trips: "read",
     devices: {
       visible: true,
