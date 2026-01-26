@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTenant } from "../tenant-context.jsx";
-import { usePermissions } from "../permissions/permission-gate.js";
+import { usePermissionGate } from "../permissions/permission-gate.js";
 
 export function useConjugatedAlerts({
   params = {},
@@ -11,8 +11,12 @@ export function useConjugatedAlerts({
   enabled = true,
 } = {}) {
   const { tenantId } = useTenant();
-  const { canAccess } = usePermissions();
-  const canAccessAlerts = canAccess("primary", "monitoring");
+  const alertsPermission = usePermissionGate({
+    menuKey: "primary",
+    pageKey: "monitoring",
+    subKey: "alerts-conjugated",
+  });
+  const canAccessAlerts = alertsPermission.hasAccess;
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

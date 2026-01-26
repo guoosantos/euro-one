@@ -1,6 +1,7 @@
 import express from "express";
 
 import { authenticate } from "../middleware/auth.js";
+import { authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { listDevices } from "../models/device.js";
 import { listVehicles } from "../models/vehicle.js";
@@ -54,7 +55,15 @@ export function filterAlertsByVehicleAccess(alerts = [], allowedVehicleIds = nul
   return alerts.filter((alert) => alert?.vehicleId && allowedVehicleIds.has(String(alert.vehicleId)));
 }
 
-router.get("/alerts", async (req, res, next) => {
+router.get(
+  "/alerts",
+  authorizePermissionOrEmpty({
+    menuKey: "primary",
+    pageKey: "monitoring",
+    subKey: "alerts",
+    emptyPayload: { data: [], total: 0 },
+  }),
+  async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const access = await getAccessibleVehicles({
@@ -94,7 +103,8 @@ router.get("/alerts", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 router.patch("/alerts/:id/handle", async (req, res, next) => {
   try {
@@ -144,7 +154,15 @@ router.patch("/alerts/:id/handle", async (req, res, next) => {
   }
 });
 
-router.get("/alerts/conjugated", async (req, res, next) => {
+router.get(
+  "/alerts/conjugated",
+  authorizePermissionOrEmpty({
+    menuKey: "primary",
+    pageKey: "monitoring",
+    subKey: "alerts-conjugated",
+    emptyPayload: { data: [], total: 0 },
+  }),
+  async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const windowHours = parsePositiveNumber(req.query?.windowHours, 5);
@@ -243,6 +261,7 @@ router.get("/alerts/conjugated", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 export default router;

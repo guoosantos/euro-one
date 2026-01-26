@@ -4,7 +4,7 @@ import createError from "http-errors";
 import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
-import { authorizePermission } from "../middleware/permissions.js";
+import { authorizePermission, MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 import { getClientById, listClients } from "../models/client.js";
 import { createGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
 import { createMirror, deleteMirror, getMirrorById, listMirrors, updateMirror } from "../models/mirror.js";
@@ -85,6 +85,39 @@ function resolveAllowedVehicleIds(req) {
       });
   }
   return allowedIds;
+}
+
+function buildDefaultMirrorPermissions() {
+  const perms = JSON.parse(JSON.stringify(MIRROR_FALLBACK_PERMISSIONS));
+  perms.admin = perms.admin || {};
+  perms.admin.users = perms.admin.users || {};
+  perms.admin.users.visible = true;
+  perms.admin.users.access = "read";
+  perms.admin.users.subpages = perms.admin.users.subpages || {};
+  perms.admin.users.subpages["users-vehicle-groups"] = "full";
+  return perms;
+}
+
+function ensureMirrorPermissionGroup(ownerClientId) {
+  const groups = listGroups({ clientId: ownerClientId });
+  let defaultGroup = groups.find(
+    (group) =>
+      group?.attributes?.kind === "PERMISSION_GROUP"
+      && group?.name === "MIRROR_TARGET_READ"
+      && String(group.clientId) === String(ownerClientId),
+  );
+  if (!defaultGroup) {
+    defaultGroup = createGroup({
+      name: "MIRROR_TARGET_READ",
+      clientId: ownerClientId,
+      description: "Grupo padrão de leitura para espelho (inclui criação de grupos de veículos)",
+      attributes: {
+        kind: "PERMISSION_GROUP",
+        permissions: buildDefaultMirrorPermissions(),
+      },
+    });
+  }
+  return defaultGroup;
 }
 
 function resolveMirrorVehicleIds(mirror) {
@@ -312,10 +345,6 @@ router.post(
       endAt = null,
     } = req.body || {};
 
-    if (!permissionGroupId) {
-      throw createError(400, "Espelho precisa de grupo de permissão");
-    }
-
     const resolvedOwnerId = req.user.role === "admin" ? ownerClientId : req.user.clientId;
     if (!resolvedOwnerId) {
       throw createError(400, "ownerClientId é obrigatório");
@@ -361,13 +390,15 @@ router.post(
       throw createError(403, "Veículos informados não disponíveis para este usuário");
     }
 
+    const resolvedPermissionGroupId = permissionGroupId || ensureMirrorPermissionGroup(resolvedOwnerId).id;
+
     const mirror = createMirror({
       ownerClientId: resolvedOwnerId,
       targetClientId,
       targetType,
       vehicleIds: resolvedVehicleIds,
       vehicleGroupId: resolvedVehicleGroupId,
-      permissionGroupId,
+      permissionGroupId: resolvedPermissionGroupId,
       startAt,
       endAt,
       createdBy: req.user?.id || null,
@@ -392,9 +423,6 @@ router.put(
     if (!existing) {
       throw createError(404, "Espelhamento não encontrado");
     }
-    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "permissionGroupId") || !req.body?.permissionGroupId) {
-      throw createError(400, "Espelho precisa de grupo de permissão");
-    }
     const isOwner = String(req.user.clientId) === String(existing.ownerClientId);
     const isTarget = String(req.user.clientId) === String(existing.targetClientId);
     if (req.user.role !== "admin" && !isOwner && !isTarget) {
@@ -415,11 +443,15 @@ router.put(
     }
 
     if (req.user.role !== "admin" && isTarget && !isOwner) {
-      const mirror = updateMirror(id, { permissionGroupId: req.body.permissionGroupId });
+      const nextPermissionGroupId = req.body?.permissionGroupId || ensureMirrorPermissionGroup(existing.ownerClientId).id;
+      const mirror = updateMirror(id, { permissionGroupId: nextPermissionGroupId });
       return res.json({ mirror });
     }
 
     const updates = { ...(req.body || {}) };
+    if (Object.prototype.hasOwnProperty.call(updates, "permissionGroupId") && !updates.permissionGroupId) {
+      updates.permissionGroupId = ensureMirrorPermissionGroup(existing.ownerClientId).id;
+    }
     let resolvedVehicleGroupId = updates.vehicleGroupId ? String(updates.vehicleGroupId) : existing.vehicleGroupId || null;
     let resolvedVehicleIds = Array.isArray(updates.vehicleIds)
       ? updates.vehicleIds.map(String)

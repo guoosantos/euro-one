@@ -26,7 +26,6 @@ import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
-import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
@@ -383,9 +382,10 @@ export default function Monitoring() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const { tenantId, user, tenant } = useTenant();
-  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
-  const canAccessMonitoring = monitoringPermission.hasAccess;
+  const { tenantId, user, tenant, canAccess } = useTenant();
+  const canAccessMonitoring = canAccess("primary", "monitoring");
+  const canAccessAlerts = canAccess("primary", "monitoring", "alerts");
+  const canAccessConjugatedAlerts = canAccess("primary", "monitoring", "alerts-conjugated");
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
@@ -409,12 +409,12 @@ export default function Monitoring() {
   const { alerts: pendingAlerts } = useAlerts({
     params: { status: "pending" },
     refreshInterval: pendingAlertsRefresh.intervalMs,
-    enabled: pendingAlertsRefresh.enabled,
+    enabled: pendingAlertsRefresh.enabled && canAccessAlerts,
   });
   const { alerts: conjugatedAlerts } = useConjugatedAlerts({
     params: { windowHours: 5 },
     refreshInterval: conjugatedAlertsRefresh.intervalMs,
-    enabled: conjugatedAlertsRefresh.enabled,
+    enabled: conjugatedAlertsRefresh.enabled && canAccessConjugatedAlerts,
   });
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
 

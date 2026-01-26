@@ -2040,7 +2040,7 @@ async function resolveAccessibleDeviceContext(req) {
 }
 
 async function resolveDeviceIdsToQuery(req) {
-  const { clientId, devices, vehicles } = await resolveAccessibleDeviceContext(req);
+  const { clientId, devices, vehicles, mirrorContext } = await resolveAccessibleDeviceContext(req);
   const allowedDeviceIds = devices
     .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
     .filter(Boolean);
@@ -2048,6 +2048,10 @@ async function resolveDeviceIdsToQuery(req) {
   const filteredDeviceIds = parseDeviceIds(req.query?.deviceId || req.query?.deviceIds);
   if (filteredDeviceIds.some((value) => !/^\d+$/.test(value))) {
     throw createError(400, "Parâmetros inválidos.");
+  }
+
+  if (mirrorContext && allowedDeviceIds.length === 0) {
+    return { clientId, deviceIdsToQuery: [], devices, vehicles, mirrorContext };
   }
 
   const deviceIdsToQuery = filteredDeviceIds.length
@@ -2058,7 +2062,7 @@ async function resolveDeviceIdsToQuery(req) {
     throw createError(404, "Dispositivo não encontrado para este cliente.");
   }
 
-  return { clientId, deviceIdsToQuery, devices, vehicles };
+  return { clientId, deviceIdsToQuery, devices, vehicles, mirrorContext };
 }
 
 function buildDeviceLookup(clientDevices = [], metadata = []) {
@@ -2634,9 +2638,20 @@ router.get("/telemetry", async (req, res) => {
  * === Devices ===
  */
 
-router.get("/devices", async (req, res, next) => {
+router.get(
+  "/devices",
+  authorizePermissionOrEmpty({
+    menuKey: "primary",
+    pageKey: "devices",
+    subKey: "devices-list",
+    emptyPayload: { data: [], devices: [], error: null },
+  }),
+  async (req, res, next) => {
   try {
     const { clientId, devices, mirrorContext } = await resolveAccessibleDeviceContext(req);
+    if (mirrorContext && devices.length === 0) {
+      return res.status(200).json({ data: [], devices: [], error: null });
+    }
     const resolvedDevices = mirrorContext ? devices : listDevices({ clientId });
     let metadata = [];
     let metadataError = null;
@@ -2752,7 +2767,8 @@ router.get("/devices", async (req, res, next) => {
 
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
-});
+  },
+);
 
 router.get("/devices/:id", async (req, res, next) => {
   try {
@@ -2852,7 +2868,14 @@ router.get("/positions", async (req, res, next) => {
 });
 
 // /positions/last (compat)
-router.get("/positions/last", async (req, res) => {
+router.get(
+  "/positions/last",
+  authorizePermissionOrEmpty({
+    menuKey: "primary",
+    pageKey: "monitoring",
+    emptyPayload: { data: [], positions: [], error: null },
+  }),
+  async (req, res) => {
   const rawDeviceId = req.query?.deviceId ?? req.query?.deviceIds;
   const requestedIds = parseDeviceIds(rawDeviceId);
 
@@ -2866,6 +2889,9 @@ router.get("/positions/last", async (req, res) => {
 
   try {
     const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
+    if (req.tenant?.mirrorContext && deviceIdsToQuery.length === 0) {
+      return res.status(200).json({ data: [], positions: [], error: null });
+    }
     console.info("[positions/last] request", {
       clientIdReceived: req.query?.clientId ?? null,
       clientIdResolved: clientId ?? null,
@@ -2913,7 +2939,8 @@ router.get("/positions/last", async (req, res) => {
     });
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
-});
+  },
+);
 
 /**
  * === Events (usa /reports/events) ===

@@ -15,8 +15,10 @@ import api, {
 } from "./api.js";
 import { API_ROUTES } from "./api-routes.js";
 import { normalizeAdminClientName } from "./admin-general.js";
+import { resolvePermissionEntry } from "./permissions/permission-gate.js";
 
 const TenantContext = createContext(null);
+const MIRROR_OWNER_STORAGE_KEY = "euro-one.mirror.owner-client-id";
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -91,12 +93,40 @@ function resolveValidTenantId({ currentTenantId, suggestedTenantId, tenants, isA
   return fallback ?? null;
 }
 
+function getStoredMirrorOwnerId() {
+  if (typeof window === "undefined") return null;
+  try {
+    const sessionValue = window.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY);
+    if (sessionValue) return sessionValue;
+    const localValue = window.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY);
+    return localValue || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function setStoredMirrorOwnerId(value) {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) {
+      window.sessionStorage?.setItem(MIRROR_OWNER_STORAGE_KEY, value);
+      window.localStorage?.setItem(MIRROR_OWNER_STORAGE_KEY, value);
+    } else {
+      window.sessionStorage?.removeItem(MIRROR_OWNER_STORAGE_KEY);
+      window.localStorage?.removeItem(MIRROR_OWNER_STORAGE_KEY);
+    }
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
 export function TenantProvider({ children }) {
   const stored = useMemo(() => getStoredSession(), []);
   const hasStoredTenantId =
     stored?.user && Object.prototype.hasOwnProperty.call(stored.user, "tenantId");
   const storedTenantId = hasStoredTenantId ? stored.user.tenantId : null;
-  const storedActiveMirrorOwnerClientId = stored?.user?.activeMirrorOwnerClientId ?? null;
+  const storedActiveMirrorOwnerClientId =
+    stored?.user?.activeMirrorOwnerClientId ?? getStoredMirrorOwnerId() ?? null;
   const storedMirrorContextMode = stored?.user?.mirrorContextMode ?? null;
 
   const [tenantId, setTenantId] = useState(
@@ -294,12 +324,13 @@ export function TenantProvider({ children }) {
       if (payload.mode !== "target") return;
       const owners = normaliseClients(payload.owners || [], user);
       if (!owners.length) return;
-      const storedOwnerId = storedActiveMirrorOwnerClientId;
+      const storedOwnerId = getStoredMirrorOwnerId() ?? storedActiveMirrorOwnerClientId;
       const selectedOwnerId =
         owners.find((owner) => String(owner.id) === String(storedOwnerId))?.id ?? owners[0].id;
       setMirrorOwners(owners);
       setTenants(owners);
       setActiveMirrorOwnerClientId(selectedOwnerId);
+      setStoredMirrorOwnerId(selectedOwnerId);
 
       const ownerPayload = await fetchMirrorContext({ ownerClientId: selectedOwnerId });
       if (cancelled || !ownerPayload) return;
@@ -315,6 +346,15 @@ export function TenantProvider({ children }) {
       cancelled = true;
     };
   }, [fetchMirrorContext, storedActiveMirrorOwnerClientId, token, user]);
+
+  useEffect(() => {
+    if (!user || user.role === "admin") return;
+    if (activeMirrorOwnerClientId) {
+      setStoredMirrorOwnerId(String(activeMirrorOwnerClientId));
+    } else {
+      setStoredMirrorOwnerId(null);
+    }
+  }, [activeMirrorOwnerClientId, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -637,6 +677,21 @@ export function TenantProvider({ children }) {
     setStoredSession({ token, user: nextUser });
   }, [activeMirror, activeMirrorOwnerClientId, mirrorContextMode, tenantId, token, user]);
 
+  const canAccess = useCallback(
+    (menuKey, pageKey, subKey) => {
+      if (!menuKey || !pageKey) return true;
+      if (user?.role === "admin" || permissionContext?.isFull) {
+        return true;
+      }
+      if (!permissionContext?.permissions) {
+        return false;
+      }
+      const entry = resolvePermissionEntry(permissionContext.permissions, menuKey, pageKey, subKey);
+      return Boolean(entry.visible && entry.access && entry.access !== "none");
+    },
+    [permissionContext?.isFull, permissionContext?.permissions, user?.role],
+  );
+
   const value = useMemo(() => {
     const isAdmin = user?.role === "admin";
     const canSwitchTenant = isAdmin || (Array.isArray(mirrorOwners) && mirrorOwners.length > 0);
@@ -673,6 +728,7 @@ export function TenantProvider({ children }) {
       mirrorContextMode,
       permissionContext,
       permissionLoading,
+      canAccess,
     };
   }, [
     tenantId,
@@ -692,6 +748,7 @@ export function TenantProvider({ children }) {
     mirrorContextMode,
     permissionContext,
     permissionLoading,
+    canAccess,
   ]);
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;

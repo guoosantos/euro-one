@@ -279,9 +279,9 @@ async function bootstrapServer() {
     }
 
     const mirrorPermissionsModule = await importWithLog("./scripts/backfill-mirror-permissions.js");
-    if (mirrorPermissionsModule?.backfillMirrorPermissions) {
+    if (typeof mirrorPermissionsModule?.default === "function") {
       try {
-        await mirrorPermissionsModule.backfillMirrorPermissions({ logger: console });
+        await mirrorPermissionsModule.default();
       } catch (error) {
         console.warn(
           "[mirror] falha ao executar backfill de permissionGroupId",

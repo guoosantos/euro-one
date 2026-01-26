@@ -1,90 +1,47 @@
-import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
-import { createGroup, listGroups, updateGroup } from "../models/group.js";
 import { listMirrors, updateMirror } from "../models/mirror.js";
+import { listGroups, createGroup } from "../models/group.js";
+import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 
-const DEFAULT_PERMISSION_GROUP_NAME = "MIRROR_TARGET_READ";
-const DEFAULT_PERMISSION_GROUP_DESCRIPTION = "Permissões padrão para espelhamento (somente leitura).";
+/*
+ * Script de backfill para garantir que todos os espelhos tenham um grupo de permissão associado.
+ * Ele cria (ou reutiliza) um grupo padrão por owner chamado "MIRROR_TARGET_READ" baseado nas permissões de fallback,
+ * adicionando permissão total para a subpágina de grupos de veículos (users-vehicle-groups).
+ */
 
-function buildDefaultPermissions() {
-  return {
-    ...MIRROR_FALLBACK_PERMISSIONS,
-    admin: {
-      users: {
-        visible: true,
-        access: "read",
-        subpages: {
-          "users-vehicle-groups": "full",
-        },
-      },
-    },
-  };
+function buildDefaultMirrorPermissions() {
+  const perms = JSON.parse(JSON.stringify(MIRROR_FALLBACK_PERMISSIONS));
+  perms.admin = perms.admin || {};
+  perms.admin.users = perms.admin.users || {};
+  perms.admin.users.visible = true;
+  perms.admin.users.access = 'read';
+  perms.admin.users.subpages = perms.admin.users.subpages || {};
+  perms.admin.users.subpages['users-vehicle-groups'] = 'full';
+  return perms;
 }
 
-export function ensureMirrorPermissionGroup(clientId, { logger = console } = {}) {
-  if (!clientId) {
-    throw new Error("clientId é obrigatório para criar o grupo MIRROR_TARGET_READ.");
-  }
-
-  const permissions = buildDefaultPermissions();
-  const attributes = {
-    kind: "PERMISSION_GROUP",
-    permissions,
-  };
-
-  const existing = listGroups({ clientId }).find((group) => group.name === DEFAULT_PERMISSION_GROUP_NAME);
-  if (existing) {
-    const updated = updateGroup(existing.id, {
-      name: DEFAULT_PERMISSION_GROUP_NAME,
-      description: DEFAULT_PERMISSION_GROUP_DESCRIPTION,
-      attributes,
-    });
-    logger?.info?.("[mirror] grupo de permissão padrão atualizado", {
-      groupId: updated.id,
-      clientId: updated.clientId,
-    });
-    return updated;
-  }
-
-  const created = createGroup({
-    name: DEFAULT_PERMISSION_GROUP_NAME,
-    description: DEFAULT_PERMISSION_GROUP_DESCRIPTION,
-    clientId,
-    attributes,
-  });
-  logger?.info?.("[mirror] grupo de permissão padrão criado", {
-    groupId: created.id,
-    clientId: created.clientId,
-  });
-  return created;
-}
-
-export async function backfillMirrorPermissions({ logger = console } = {}) {
+export default async function backfillMirrorPermissions() {
   const mirrors = listMirrors();
-  const groupCache = new Map();
-  let updated = 0;
-
-  mirrors.forEach((mirror) => {
-    if (mirror.permissionGroupId) return;
-
-    const clientId = mirror.ownerClientId;
-    if (!clientId) return;
-
-    const cacheKey = String(clientId);
-    let group = groupCache.get(cacheKey);
-    if (!group) {
-      group = ensureMirrorPermissionGroup(clientId, { logger });
-      groupCache.set(cacheKey, group);
+  for (const mirror of mirrors) {
+    if (mirror.permissionGroupId) continue;
+    const ownerId = mirror.ownerClientId;
+    const groups = listGroups({ clientId: ownerId });
+    let defaultGroup = groups.find(
+      (g) =>
+        g?.attributes?.kind === 'PERMISSION_GROUP' &&
+        g?.name === 'MIRROR_TARGET_READ' &&
+        String(g.clientId) === String(ownerId)
+    );
+    if (!defaultGroup) {
+      defaultGroup = createGroup({
+        name: 'MIRROR_TARGET_READ',
+        clientId: ownerId,
+        description: 'Grupo padrão de leitura para espelho (inclui criação de grupos de veículos)',
+        attributes: {
+          kind: 'PERMISSION_GROUP',
+          permissions: buildDefaultMirrorPermissions(),
+        },
+      });
     }
-
-    updateMirror(mirror.id, { permissionGroupId: group.id });
-    updated += 1;
-  });
-
-  logger?.info?.("[mirror] backfill de permissionGroupId concluído", {
-    total: mirrors.length,
-    updated,
-    groups: groupCache.size,
-  });
-
-  return { total: mirrors.length, updated, groups: groupCache.size };
+    updateMirror(mirror.id, { permissionGroupId: defaultGroup.id });
+  }
 }
