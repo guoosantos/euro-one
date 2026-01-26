@@ -140,6 +140,7 @@ const MIRROR_QUERY_ALLOWLIST = [
   "/geofences",
   "/geofence-groups",
   "/groups",
+  "/users",
   "/notifications",
   "/tracker",
   "/traccar",
@@ -153,23 +154,27 @@ const MIRROR_QUERY_ALLOWLIST = [
   "/core/telemetry",
   "/core/vehicle-attributes",
   "/core/stock",
+  "/core/service-orders",
+  "/core/technicians",
 ];
 
 function resolveMirrorOwnerClientId(session) {
-  if (session?.user?.mirrorContextMode !== "target") return null;
+  if (session?.user?.role === "admin") return null;
   const ownerClientId =
     session?.user?.activeMirrorOwnerClientId ??
     (() => {
       try {
-        return window?.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY)
-          || window?.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY)
-          || null;
+        return (
+          window?.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY) ||
+          window?.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY) ||
+          null
+        );
       } catch (_error) {
         return null;
       }
     })();
   if (!ownerClientId) return null;
-  if (session?.user?.role === "admin") return null;
+  if (session?.user?.mirrorContextMode && session.user.mirrorContextMode !== "target") return null;
   return String(ownerClientId);
 }
 
@@ -256,6 +261,7 @@ async function request({
 
   const storedSession = getStoredSession();
   const mirrorOwnerClientId = resolveMirrorOwnerClientId(storedSession);
+  // Em modo mirror target, injetamos o clientId do OWNER para garantir dados espelhados.
   const shouldAttachMirrorQuery =
     mirrorOwnerClientId && shouldAttachMirrorClientId(url) && !hasExplicitClientParam(params);
   const nextParams = shouldAttachMirrorQuery ? { ...(params || {}), clientId: mirrorOwnerClientId } : params;

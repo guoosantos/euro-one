@@ -1,11 +1,13 @@
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
+import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { getClientById } from "../models/client.js";
 import { createGroup, deleteGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { isAdminGeneralClient } from "../utils/admin-general.js";
+import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
 
 const router = express.Router();
 
@@ -65,47 +67,122 @@ function mergeGroups(primary = [], secondary = []) {
   return Array.from(map.values());
 }
 
-router.get("/groups", (req, res, next) => {
+function resolveMirrorVehicleScope(req) {
+  const vehicleIds = getEffectiveVehicleIds(req);
+  if (!req.mirrorContext) return null;
+  if (!vehicleIds || vehicleIds.length === 0) return [];
+  return vehicleIds.map(String);
+}
+
+function ensureGroupWriteRole(req) {
+  if (!req?.user) {
+    throw createError(401, "Sessão não autenticada");
+  }
+  if (req.mirrorContext) {
+    return;
+  }
+  const role = req.user.role;
+  if (role === "admin" || role === "manager") {
+    return;
+  }
+  throw createError(403, "Permissão insuficiente");
+}
+
+function normaliseVehicleIds(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
+function applyMirrorVehicleScope(group, allowedVehicleIds) {
+  if (!allowedVehicleIds) return group;
+  if (!group?.attributes || group.attributes.kind !== "VEHICLE_GROUP") return group;
+  const vehicleIds = normaliseVehicleIds(group.attributes.vehicleIds);
+  const scoped = vehicleIds.filter((id) => allowedVehicleIds.has(String(id)));
+  return {
+    ...group,
+    attributes: {
+      ...group.attributes,
+      vehicleIds: scoped,
+    },
+  };
+}
+
+router.get(
+  "/groups",
+  authorizePermissionOrEmpty({
+    menuKey: "admin",
+    pageKey: "users",
+    emptyPayload: { groups: [] },
+  }),
+  (req, res, next) => {
   try {
     const scope = req.user.role === "admin" ? "admin" : "user";
     const globalPermissionGroups = listGroups()
       .filter((group) => group.attributes?.kind === "PERMISSION_GROUP" && isGlobalPermissionGroup(group));
+    const mirrorVehicleScope = resolveMirrorVehicleScope(req);
+    const allowedVehicleIds = mirrorVehicleScope ? new Set(mirrorVehicleScope) : null;
+    const effectiveClientId = req.mirrorContext?.ownerClientId || req.user.clientId;
     if (req.user.role === "admin") {
       const { clientId } = req.query;
       const filterClientId = clientId === "" || typeof clientId === "undefined" ? undefined : clientId;
       const cacheKey = buildGroupCacheKey(filterClientId, scope);
-      const cached = getCachedGroups(cacheKey);
-      if (cached) {
-        return res.json(cached);
+      if (!req.mirrorContext) {
+        const cached = getCachedGroups(cacheKey);
+        if (cached) {
+          return res.json(cached);
+        }
       }
       const groups = filterClientId === undefined
         ? listGroups()
         : mergeGroups(listGroups({ clientId: filterClientId }), globalPermissionGroups);
-      const payload = { groups };
-      cacheGroups(cacheKey, payload);
+      const filteredGroups = allowedVehicleIds
+        ? groups
+          .filter((group) => group?.attributes?.kind === "VEHICLE_GROUP")
+          .map((group) => applyMirrorVehicleScope(group, allowedVehicleIds))
+          .filter((group) => group.attributes?.vehicleIds?.length)
+        : groups;
+      const payload = { groups: filteredGroups };
+      if (!req.mirrorContext) {
+        cacheGroups(cacheKey, payload);
+      }
       return res.json(payload);
     }
 
-    if (!req.user.clientId) {
+    if (!effectiveClientId) {
       return res.json({ groups: [] });
     }
 
-    const cacheKey = buildGroupCacheKey(req.user.clientId, scope);
-    const cached = getCachedGroups(cacheKey);
-    if (cached) {
-      return res.json(cached);
+    const cacheKey = buildGroupCacheKey(effectiveClientId, scope);
+    if (!req.mirrorContext) {
+      const cached = getCachedGroups(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
     }
-    const groups = mergeGroups(listGroups({ clientId: req.user.clientId }), globalPermissionGroups);
-    const payload = { groups };
-    cacheGroups(cacheKey, payload);
+    const groups = mergeGroups(listGroups({ clientId: effectiveClientId }), globalPermissionGroups);
+    const filteredGroups = allowedVehicleIds
+      ? groups
+        .filter((group) => group?.attributes?.kind === "VEHICLE_GROUP")
+        .map((group) => applyMirrorVehicleScope(group, allowedVehicleIds))
+        .filter((group) => group.attributes?.vehicleIds?.length)
+      : groups;
+    const payload = { groups: filteredGroups };
+    if (!req.mirrorContext) {
+      cacheGroups(cacheKey, payload);
+    }
     return res.json(payload);
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/groups", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/groups",
+  authorizePermission({ menuKey: "admin", pageKey: "users", subKey: "users-vehicle-groups", requireFull: true }),
+  async (req, res, next) => {
   try {
+    ensureGroupWriteRole(req);
     const { name, description = null, attributes = {}, clientId } = req.body || {};
     if (!name) {
       throw createError(400, "Nome é obrigatório");
@@ -115,16 +192,31 @@ router.post("/groups", requireRole("manager", "admin"), async (req, res, next) =
     if (req.user.role !== "admin") {
       targetClientId = req.user.clientId;
     }
+    if (req.mirrorContext) {
+      targetClientId = req.mirrorContext.ownerClientId;
+    }
     if (!targetClientId) {
       throw createError(400, "clientId é obrigatório");
     }
 
-    const client = await getClientById(targetClientId);
+    let client = null;
+    try {
+      client = await getClientById(targetClientId);
+    } catch (error) {
+      if (req.mirrorContext && error?.status === 503) {
+        client = { id: targetClientId, name: null, attributes: {} };
+      } else {
+        throw error;
+      }
+    }
     if (!client) {
       throw createError(404, "Cliente associado não encontrado");
     }
 
     const nextAttributes = { ...attributes };
+    if (req.mirrorContext && nextAttributes.kind !== "VEHICLE_GROUP") {
+      throw createError(403, "Espelho permite apenas grupos de veículos");
+    }
     if (
       nextAttributes.kind === "PERMISSION_GROUP"
       && (await isAdminGeneralUser(req.user))
@@ -134,6 +226,14 @@ router.post("/groups", requireRole("manager", "admin"), async (req, res, next) =
     } else {
       delete nextAttributes.scope;
       delete nextAttributes.isGlobal;
+    }
+    const mirrorVehicleScope = resolveMirrorVehicleScope(req);
+    if (mirrorVehicleScope && nextAttributes.kind === "VEHICLE_GROUP") {
+      const allowedVehicleIds = new Set(mirrorVehicleScope);
+      const scopedVehicleIds = normaliseVehicleIds(nextAttributes.vehicleIds).filter((id) =>
+        allowedVehicleIds.has(String(id)),
+      );
+      nextAttributes.vehicleIds = scopedVehicleIds;
     }
 
     const group = createGroup({
@@ -148,10 +248,15 @@ router.post("/groups", requireRole("manager", "admin"), async (req, res, next) =
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.put("/groups/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/groups/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "users", subKey: "users-vehicle-groups", requireFull: true }),
+  async (req, res, next) => {
   try {
+    ensureGroupWriteRole(req);
     const { id } = req.params;
     const existing = getGroupById(id);
     if (!existing) {
@@ -162,7 +267,14 @@ router.put("/groups/:id", requireRole("manager", "admin"), async (req, res, next
       throw createError(403, "Perfis globais só podem ser alterados pelo ADMIN GERAL");
     }
 
-    if (req.user.role !== "admin") {
+    if (req.mirrorContext) {
+      if (String(existing.clientId) !== String(req.mirrorContext.ownerClientId)) {
+        throw createError(404, "Grupo não encontrado");
+      }
+      if (existing.attributes?.kind !== "VEHICLE_GROUP") {
+        throw createError(403, "Espelho permite apenas grupos de veículos");
+      }
+    } else if (req.user.role !== "admin") {
       ensureClientAccess(req.user, existing.clientId);
       if (req.body?.clientId && String(req.body.clientId) !== String(req.user.clientId)) {
         throw createError(403, "Não é permitido mover grupos para outro cliente");
@@ -191,16 +303,34 @@ router.put("/groups/:id", requireRole("manager", "admin"), async (req, res, next
       }
     }
 
+    if (req.mirrorContext) {
+      if (updates.attributes?.kind && updates.attributes.kind !== "VEHICLE_GROUP") {
+        throw createError(403, "Espelho permite apenas grupos de veículos");
+      }
+      const mirrorVehicleScope = resolveMirrorVehicleScope(req);
+      if (mirrorVehicleScope && updates.attributes?.vehicleIds) {
+        const allowedVehicleIds = new Set(mirrorVehicleScope);
+        updates.attributes.vehicleIds = normaliseVehicleIds(updates.attributes.vehicleIds).filter((vehicleId) =>
+          allowedVehicleIds.has(String(vehicleId)),
+        );
+      }
+    }
+
     const group = updateGroup(id, updates);
     invalidateGroupCache();
     return res.json({ group });
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.delete("/groups/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.delete(
+  "/groups/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "users", subKey: "users-vehicle-groups", requireFull: true }),
+  async (req, res, next) => {
   try {
+    ensureGroupWriteRole(req);
     const { id } = req.params;
     const existing = getGroupById(id);
     if (!existing) {
@@ -209,7 +339,14 @@ router.delete("/groups/:id", requireRole("manager", "admin"), async (req, res, n
     if (isGlobalPermissionGroup(existing) && !(await isAdminGeneralUser(req.user))) {
       throw createError(403, "Perfis globais só podem ser removidos pelo ADMIN GERAL");
     }
-    if (req.user.role !== "admin") {
+    if (req.mirrorContext) {
+      if (String(existing.clientId) !== String(req.mirrorContext.ownerClientId)) {
+        throw createError(404, "Grupo não encontrado");
+      }
+      if (existing.attributes?.kind !== "VEHICLE_GROUP") {
+        throw createError(403, "Espelho permite apenas grupos de veículos");
+      }
+    } else if (req.user.role !== "admin") {
       ensureClientAccess(req.user, existing.clientId);
     }
     deleteGroup(id);
@@ -218,6 +355,7 @@ router.delete("/groups/:id", requireRole("manager", "admin"), async (req, res, n
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 export default router;

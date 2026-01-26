@@ -37,6 +37,9 @@ function resolveOwnerClientId(req) {
   if (headerValue) return String(headerValue);
   const queryClientId = req?.query?.clientId ?? req?.query?.tenantId;
   if (queryClientId !== undefined && queryClientId !== null && queryClientId !== "") {
+    if (req?.user?.clientId && String(queryClientId) === String(req.user.clientId)) {
+      return null;
+    }
     return String(queryClientId);
   }
   return null;
@@ -80,13 +83,15 @@ export async function resolveMirrorContext(req) {
     vehicleIds: resolveMirrorVehicleIds(mirror),
     vehicleGroupId: mirror.vehicleGroupId ?? null,
   };
-  console.info("[mirror] contexto ativo", {
-    mirrorModeEnabled: Boolean(config.features?.mirrorMode),
-    ownerClientId: context.ownerClientId,
-    targetClientId: context.targetClientId,
-    vehicleIdsCount: context.vehicleIds.length,
-    permissionGroupId: context.permissionGroupId,
-  });
+  if (process.env.DEBUG_MIRROR === "true") {
+    console.info("[mirror] contexto ativo", {
+      mirrorModeEnabled: Boolean(config.features?.mirrorMode),
+      ownerClientId: context.ownerClientId,
+      targetClientId: context.targetClientId,
+      vehicleIdsCount: context.vehicleIds.length,
+      permissionGroupId: context.permissionGroupId,
+    });
+  }
   return context;
 }
 
