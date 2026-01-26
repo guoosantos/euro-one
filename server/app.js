@@ -39,7 +39,6 @@ import serviceOrderRoutes from "./routes/service-orders.js";
 import xdmRoutes from "./routes/xdm.js";
 import xdmAdminRoutes from "./routes/xdm-admin.js";
 import mirrorRoutes from "./routes/mirrors.js";
-import { backfillMirrorPermissionGroups } from "./services/mirror-permission-backfill.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { formatVersionText, getVersionInfo } from "./utils/version.js";
 
@@ -88,10 +87,6 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-
-void backfillMirrorPermissionGroups().catch((error) => {
-  console.warn("[mirror] falha ao executar backfill de permissionGroupId", error?.message || error);
-});
 
 app.get("/api/version", (_req, res) => {
   res.json(getVersionInfo());
