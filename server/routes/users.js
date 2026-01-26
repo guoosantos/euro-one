@@ -17,8 +17,8 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
-router.use(requireRole("manager", "admin"));
-router.use(async (req, _res, next) => {
+router.use("/users", requireRole("manager", "admin"));
+router.use("/users", async (req, _res, next) => {
   try {
     if (req.user?.role !== "admin") {
       return next();
