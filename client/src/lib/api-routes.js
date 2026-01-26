@@ -65,6 +65,7 @@ export const API_ROUTES = {
   clients: "clients",
   users: "users",
   mirrors: "mirrors",
+  mirrorsContext: "mirrors/context",
   geofenceGroups: "geofence-groups",
   models: "models",
   geofences: "geofences",

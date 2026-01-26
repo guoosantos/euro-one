@@ -157,6 +157,7 @@ function resolveMirrorOwnerClientId(session) {
   const ownerClientId = session?.user?.activeMirrorOwnerClientId ?? null;
   if (!ownerClientId) return null;
   if (session?.user?.role === "admin") return null;
+  if (session?.user?.mirrorContextMode && session.user.mirrorContextMode !== "target") return null;
   return String(ownerClientId);
 }
 
