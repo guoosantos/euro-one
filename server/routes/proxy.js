@@ -2019,6 +2019,9 @@ async function resolveAccessibleDeviceContext(req) {
   const vehicleIds = new Set(
     (effectiveVehicleIds ?? vehicles.map((vehicle) => String(vehicle.id))).map(String),
   );
+  const mirrorDeviceIds = tenant.mirrorContext?.deviceIds?.length
+    ? new Set(tenant.mirrorContext.deviceIds.map(String))
+    : null;
   let devices = listDevices({ clientId });
   if (access.mirrorOwnerIds.length) {
     const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
@@ -2026,7 +2029,12 @@ async function resolveAccessibleDeviceContext(req) {
   }
   const shouldRestrict = Boolean(tenant.mirrorContext);
   const filteredDevices = shouldRestrict
-    ? devices.filter((device) => device?.vehicleId && vehicleIds.has(String(device.vehicleId)))
+    ? devices.filter(
+        (device) =>
+          device?.vehicleId &&
+          vehicleIds.has(String(device.vehicleId)) &&
+          (!mirrorDeviceIds || mirrorDeviceIds.has(String(device.id))),
+      )
     : devices;
   return { clientId, vehicles, devices: filteredDevices, access, mirrorContext: tenant.mirrorContext ?? null };
 }

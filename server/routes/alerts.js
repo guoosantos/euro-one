@@ -157,12 +157,20 @@ router.get("/alerts/conjugated", async (req, res, next) => {
     const allowedVehicleIds = new Set(
       effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
     );
+    const allowedDeviceIds = req.mirrorContext?.deviceIds?.length
+      ? new Set(req.mirrorContext.deviceIds.map(String))
+      : null;
     let devices = listDevices({ clientId });
     if (access.mirrorOwnerIds.length) {
       const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
       devices = mergeById(devices, extraDevices);
     }
-    devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
+    devices = devices.filter(
+      (device) =>
+        device?.vehicleId &&
+        allowedVehicleIds.has(String(device.vehicleId)) &&
+        (!allowedDeviceIds || allowedDeviceIds.has(String(device.id))),
+    );
     const deviceByTraccarId = new Map(
       devices
         .filter((device) => device?.traccarId != null)
