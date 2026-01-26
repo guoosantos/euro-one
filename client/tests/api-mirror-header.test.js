@@ -48,9 +48,54 @@ test("api adiciona X-Owner-Client-Id em chamadas do modo espelho", async () => {
   assert.deepEqual(captured, ["owner-123", "owner-123", "owner-123", "owner-123"]);
 });
 
+test("api envia X-Owner-Client-Id com mirrorContextMode indefinido quando owner está salvo", async () => {
+  const dom = setupDom();
+  dom.window.localStorage.setItem("euro-one.mirror.owner-client-id", "owner-storage-1");
+  setStoredSession({
+    token: "token",
+    user: { id: "user-4", role: "user" },
+  });
+
+  let headerValue = "unset";
+  globalThis.fetch = async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    headerValue = headers.get("X-Owner-Client-Id");
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await api.get("/alerts");
+
+  assert.equal(headerValue, "owner-storage-1");
+});
+
 test("api não adiciona X-Owner-Client-Id quando mirror não está ativo", async () => {
   setupDom();
   setStoredSession({ token: "token", user: { id: "user-2", role: "user", activeMirrorOwnerClientId: null } });
+
+  let headerValue = "unset";
+  globalThis.fetch = async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    headerValue = headers.get("X-Owner-Client-Id");
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await api.get("/alerts");
+
+  assert.equal(headerValue, null);
+});
+
+test("api não adiciona X-Owner-Client-Id quando mirrorContextMode não é target", async () => {
+  setupDom();
+  setStoredSession({
+    token: "token",
+    user: { id: "user-3", role: "user", activeMirrorOwnerClientId: "owner-321", mirrorContextMode: "owner" },
+  });
 
   let headerValue = "unset";
   globalThis.fetch = async (_url, init) => {

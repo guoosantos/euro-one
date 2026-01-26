@@ -27,4 +27,8 @@ test("resolvePermissionContext aplica fallback quando mirror não tem permission
     context.permissions?.primary?.monitoring?.subpages?.["alerts-conjugated"],
     "read",
   );
+  assert.equal(
+    context.permissions?.admin?.users?.subpages?.["users-vehicle-groups"],
+    "full",
+  );
 });
