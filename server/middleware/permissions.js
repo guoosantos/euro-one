@@ -100,6 +100,15 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
       },
     },
   },
+  admin: {
+    users: {
+      visible: true,
+      access: "read",
+      subpages: {
+        "users-vehicle-groups": "full",
+      },
+    },
+  },
 };
 
 function normaliseLevel(value) {

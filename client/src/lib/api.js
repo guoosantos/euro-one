@@ -146,6 +146,7 @@ const MIRROR_QUERY_ALLOWLIST = [
   "/tasks",
   "/itineraries",
   "/routes",
+  "/home",
   "/core/vehicles",
   "/core/devices",
   "/core/chips",
@@ -155,6 +156,7 @@ const MIRROR_QUERY_ALLOWLIST = [
 ];
 
 function resolveMirrorOwnerClientId(session) {
+  if (session?.user?.mirrorContextMode !== "target") return null;
   const ownerClientId =
     session?.user?.activeMirrorOwnerClientId ??
     (() => {

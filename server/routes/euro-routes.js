@@ -27,7 +27,7 @@ router.get("/euro/routes/:id", async (req, res, next) => {
     }
     const clientId = resolveClientId(req, req.query?.clientId || route.clientId, { required: true });
     if (clientId && String(route.clientId) !== String(clientId) && req.user.role !== "admin") {
-      throw createError(403, "Rota não pertence ao cliente informado");
+      throw createError(404, "Rota não encontrada");
     }
     return res.json({ data: route, error: null });
   } catch (error) {
@@ -53,7 +53,7 @@ router.put("/euro/routes/:id", requireRole("manager", "admin"), async (req, res,
     }
     const clientId = resolveClientId(req, req.body?.clientId || existing.clientId, { required: true });
     if (clientId && String(existing.clientId) !== String(clientId) && req.user.role !== "admin") {
-      throw createError(403, "Rota não pertence ao cliente informado");
+      throw createError(404, "Rota não encontrada");
     }
     const updated = await updateRoute(req.params.id, { ...req.body, clientId: existing.clientId });
     return res.json({ data: updated, error: null });
@@ -70,7 +70,7 @@ router.delete("/euro/routes/:id", requireRole("manager", "admin"), async (req, r
     }
     const clientId = resolveClientId(req, req.query?.clientId || route.clientId, { required: true });
     if (clientId && String(route.clientId) !== String(clientId) && req.user.role !== "admin") {
-      throw createError(403, "Rota não pertence ao cliente informado");
+      throw createError(404, "Rota não encontrada");
     }
     await deleteRoute(req.params.id);
     return res.status(204).send();
