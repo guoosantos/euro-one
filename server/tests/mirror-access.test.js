@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { signSession } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
+import { createGroup, deleteGroup } from "../models/group.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { createVehicle, deleteVehicle } from "../models/vehicle.js";
 import { createDevice, deleteDevice, updateDevice } from "../models/device.js";
@@ -17,6 +19,7 @@ import { filterAlertsByVehicleAccess } from "../routes/alerts.js";
 const createdVehicles = [];
 const createdDevices = [];
 const createdMirrors = [];
+const createdGroups = [];
 const originalMirrorMode = config.features.mirrorMode;
 
 function buildVehicle({ clientId, plate, model, type = "Carro" }) {
@@ -41,11 +44,22 @@ function buildDevice({ clientId, uniqueId, vehicleId = null, traccarId = null })
 }
 
 function buildMirror({ ownerClientId, targetClientId, vehicleIds = [] }) {
+  const permissionGroup = createGroup({
+    name: `Mirror permissions ${randomUUID()}`,
+    description: "Grupo de permissões para teste de mirror",
+    clientId: ownerClientId,
+    attributes: {
+      kind: "PERMISSION_GROUP",
+      permissions: MIRROR_FALLBACK_PERMISSIONS,
+    },
+  });
+  createdGroups.push(permissionGroup.id);
   const mirror = createMirror({
     ownerClientId,
     targetClientId,
     vehicleIds,
     targetType: "GERENCIADORA",
+    permissionGroupId: permissionGroup.id,
   });
   createdMirrors.push(mirror.id);
   return mirror;
@@ -104,6 +118,13 @@ afterEach(() => {
   createdMirrors.splice(0).forEach((id) => {
     try {
       deleteMirror(id);
+    } catch (_error) {
+      // ignora limpeza
+    }
+  });
+  createdGroups.splice(0).forEach((id) => {
+    try {
+      deleteGroup(id);
     } catch (_error) {
       // ignora limpeza
     }
@@ -183,6 +204,16 @@ describe("mirror access (core routes)", () => {
     const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "MMM-1002", model: "Modelo N" });
     buildDevice({ clientId: ownerId, uniqueId: "DEV-1", vehicleId: allowedVehicle.id });
     buildDevice({ clientId: ownerId, uniqueId: "DEV-2", vehicleId: blockedVehicle.id });
+    const permissionGroup = createGroup({
+      name: `Mirror permissions ${randomUUID()}`,
+      description: "Grupo de permissões para teste de mirror",
+      clientId: ownerId,
+      attributes: {
+        kind: "PERMISSION_GROUP",
+        permissions: MIRROR_FALLBACK_PERMISSIONS,
+      },
+    });
+    createdGroups.push(permissionGroup.id);
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
@@ -193,7 +224,7 @@ describe("mirror access (core routes)", () => {
             mode: "target",
             ownerClientId: String(ownerHeader),
             vehicleIds: [allowedVehicle.id],
-            permissionGroupId: null,
+            permissionGroupId: permissionGroup.id,
           };
           req.clientId = String(ownerHeader);
         }
@@ -231,6 +262,16 @@ describe("mirror access (core routes)", () => {
     const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "DDD-2001", model: "Modelo D" });
     const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "DDD-2002", model: "Modelo E" });
     buildDevice({ clientId: ownerId, uniqueId: "DEV-3", vehicleId: allowedVehicle.id, traccarId: "101" });
+    const permissionGroup = createGroup({
+      name: `Mirror permissions ${randomUUID()}`,
+      description: "Grupo de permissões para teste de mirror",
+      clientId: ownerId,
+      attributes: {
+        kind: "PERMISSION_GROUP",
+        permissions: MIRROR_FALLBACK_PERMISSIONS,
+      },
+    });
+    createdGroups.push(permissionGroup.id);
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
@@ -241,7 +282,7 @@ describe("mirror access (core routes)", () => {
             mode: "target",
             ownerClientId: String(ownerHeader),
             vehicleIds: [allowedVehicle.id],
-            permissionGroupId: null,
+            permissionGroupId: permissionGroup.id,
           };
           req.clientId = String(ownerHeader);
         }
@@ -292,6 +333,16 @@ describe("mirror access (core routes)", () => {
       vehicleId: blockedVehicle.id,
       traccarId: blockedTraccarId,
     });
+    const permissionGroup = createGroup({
+      name: `Mirror permissions ${randomUUID()}`,
+      description: "Grupo de permissões para teste de mirror",
+      clientId: ownerId,
+      attributes: {
+        kind: "PERMISSION_GROUP",
+        permissions: MIRROR_FALLBACK_PERMISSIONS,
+      },
+    });
+    createdGroups.push(permissionGroup.id);
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
@@ -302,7 +353,7 @@ describe("mirror access (core routes)", () => {
             mode: "target",
             ownerClientId: String(ownerHeader),
             vehicleIds: [allowedVehicle.id],
-            permissionGroupId: null,
+            permissionGroupId: permissionGroup.id,
           };
           req.clientId = String(ownerHeader);
         }

@@ -312,6 +312,10 @@ router.post(
       endAt = null,
     } = req.body || {};
 
+    if (!permissionGroupId) {
+      throw createError(400, "Espelho precisa de grupo de permissão");
+    }
+
     const resolvedOwnerId = req.user.role === "admin" ? ownerClientId : req.user.clientId;
     if (!resolvedOwnerId) {
       throw createError(400, "ownerClientId é obrigatório");
@@ -388,6 +392,9 @@ router.put(
     if (!existing) {
       throw createError(404, "Espelhamento não encontrado");
     }
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "permissionGroupId") || !req.body?.permissionGroupId) {
+      throw createError(400, "Espelho precisa de grupo de permissão");
+    }
     const isOwner = String(req.user.clientId) === String(existing.ownerClientId);
     const isTarget = String(req.user.clientId) === String(existing.targetClientId);
     if (req.user.role !== "admin" && !isOwner && !isTarget) {
@@ -408,7 +415,7 @@ router.put(
     }
 
     if (req.user.role !== "admin" && isTarget && !isOwner) {
-      const mirror = updateMirror(id, { permissionGroupId: req.body?.permissionGroupId || null });
+      const mirror = updateMirror(id, { permissionGroupId: req.body.permissionGroupId });
       return res.json({ mirror });
     }
 

@@ -333,8 +333,13 @@ export default function MirrorReceivers() {
     setSaving(true);
     try {
       if (isReceiverEditing) {
+        if (!form.permissionGroupId) {
+          setFormError("Selecione o grupo de permissão do espelho.");
+          setSaving(false);
+          return;
+        }
         await api.put(`${API_ROUTES.mirrors}/${activeMirror.id}`, {
-          permissionGroupId: form.permissionGroupId || null,
+          permissionGroupId: form.permissionGroupId,
         });
       } else {
         const targets = form.targetClientIds.filter(Boolean);
@@ -359,6 +364,11 @@ export default function MirrorReceivers() {
           setSaving(false);
           return;
         }
+        if (!form.permissionGroupId) {
+          setFormError("Selecione o grupo de permissão do espelho.");
+          setSaving(false);
+          return;
+        }
         if (!form.startAt || !form.endAt) {
           setFormError("Informe o período de início e fim.");
           setSaving(false);
@@ -380,7 +390,7 @@ export default function MirrorReceivers() {
           ownerClientId,
           vehicleGroupId: formMode === "group" ? form.vehicleGroupId : null,
           vehicleIds: formMode === "single" ? form.vehicleIds : [],
-          permissionGroupId: form.permissionGroupId || null,
+          permissionGroupId: form.permissionGroupId,
           startAt: startDate.toISOString(),
           endAt: endDate.toISOString(),
         };
@@ -774,7 +784,7 @@ export default function MirrorReceivers() {
           </div>
 
           <label className="text-sm">
-            <span className="block text-xs uppercase tracking-wide text-white/60">Grupo de permissões</span>
+            <span className="block text-xs uppercase tracking-wide text-white/60">Grupo de permissão do espelho</span>
             <select
               value={form.permissionGroupId}
               onChange={(event) => setForm((prev) => ({ ...prev, permissionGroupId: event.target.value }))}
@@ -788,6 +798,7 @@ export default function MirrorReceivers() {
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-amber-200">As permissões do receiver serão limitadas por este grupo.</p>
           </label>
 
           <div className="grid gap-3 md:grid-cols-2">
