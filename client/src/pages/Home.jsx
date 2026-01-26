@@ -11,7 +11,6 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { formatAddress } from "../lib/format-address.js";
 import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
-import { usePermissions } from "../lib/permissions/permission-gate.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 
@@ -27,10 +26,11 @@ const COMMUNICATION_BUCKETS = [
 ];
 export default function Home() {
   const { t, locale } = useTranslation();
-  const { tenantId } = useTenant();
+  const { tenantId, canAccess } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
-  const { canAccess } = usePermissions();
-  const canAccessMonitoring = canAccess({ menuKey: "primary", pageKey: "monitoring" });
+  const canAccessMonitoring = canAccess("primary", "monitoring");
+  const canAccessAlerts = canAccess("primary", "monitoring", "alerts");
+  const canAccessConjugatedAlerts = canAccess("primary", "monitoring", "alerts-conjugated");
 
   const { vehicles, loading: loadingVehicles } = useVehicles({ enabled: canAccessMonitoring });
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
@@ -41,11 +41,11 @@ export default function Home() {
   });
   const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({
     params: { status: "pending" },
-    enabled: canAccessMonitoring,
+    enabled: canAccessMonitoring && canAccessAlerts,
   });
   const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
     params: { windowHours: 5 },
-    enabled: canAccessMonitoring,
+    enabled: canAccessMonitoring && canAccessConjugatedAlerts,
   });
 
   const positionByDevice = useMemo(() => {

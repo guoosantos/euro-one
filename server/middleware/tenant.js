@@ -9,12 +9,10 @@ import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 function pickRequestedClientId(req, providedClientId) {
   const ownerHeader = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
   const user = req?.user;
-  const isAdmin = user?.role === "admin";
   if (
     config.features?.mirrorMode
     && ownerHeader
     && user
-    && !isAdmin
     && String(ownerHeader) !== String(user.clientId)
   ) {
     return String(ownerHeader);
@@ -102,6 +100,11 @@ function resolveMirrorContext({ user, ownerClientId }) {
     vehicleGroupId: mirror.vehicleGroupId ?? null,
     deviceIds,
   };
+}
+
+function isPermissionContextRequest(req) {
+  const path = req?.originalUrl || req?.url || "";
+  return path.includes("/permissions/context");
 }
 
 function logDeniedAccess({ user, requestedClientId, reason }) {
@@ -208,21 +211,6 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     return tenant;
   }
 
-  const explicitClientIds = resolveExplicitClientIds(user);
-  if (explicitClientIds.some((id) => String(id) === String(resolvedRequested))) {
-    const tenant = {
-      requestedClientId: resolvedRequested,
-      clientIdResolved: String(resolvedRequested),
-      mirrorContext: null,
-      accessType: "linked",
-    };
-    req.tenant = tenant;
-    req.clientId = tenant.clientIdResolved;
-    req.mirrorContext = null;
-    logTenantResolution({ user, tenant });
-    return tenant;
-  }
-
   const mirrorContext = resolveMirrorContext({ user, ownerClientId: resolvedRequested });
   if (mirrorContext) {
     const tenant = {
@@ -239,8 +227,24 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     return tenant;
   }
 
+  const explicitClientIds = resolveExplicitClientIds(user);
+  if (explicitClientIds.some((id) => String(id) === String(resolvedRequested))) {
+    const tenant = {
+      requestedClientId: resolvedRequested,
+      clientIdResolved: String(resolvedRequested),
+      mirrorContext: null,
+      accessType: "linked",
+    };
+    req.tenant = tenant;
+    req.clientId = tenant.clientIdResolved;
+    req.mirrorContext = null;
+    logTenantResolution({ user, tenant });
+    return tenant;
+  }
+
   const explicitWithoutSelf = explicitClientIds.filter((id) => String(id) !== userClientId);
-  if (config.features?.tenantFallbackToSelf && resolvedRequested && explicitWithoutSelf.length === 0) {
+  const allowSelfFallback = config.features?.tenantFallbackToSelf || isPermissionContextRequest(req);
+  if (allowSelfFallback && resolvedRequested && explicitWithoutSelf.length === 0) {
     console.warn("[tenant] fallback para clientId do usuário", {
       userId: user?.id ? String(user.id) : null,
       userClientId,

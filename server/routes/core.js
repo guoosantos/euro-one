@@ -1711,7 +1711,12 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
 router.get(
   "/devices",
-  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" }),
+  authorizePermissionOrEmpty({
+    menuKey: "primary",
+    pageKey: "devices",
+    subKey: "devices-list",
+    emptyPayload: { devices: [], data: [], error: null },
+  }),
   async (req, res, next) => {
   try {
     const clientId = req.tenant?.clientIdResolved ?? null;
@@ -1729,6 +1734,9 @@ router.get(
       includeMirrorsForNonReceivers: false,
       mirrorContext: req.tenant?.mirrorContext ?? null,
     });
+    if (req.tenant?.mirrorContext && access.vehicles.length === 0) {
+      return res.status(200).json({ devices: [], data: [], error: null });
+    }
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
     let vehicles = access.vehicles;

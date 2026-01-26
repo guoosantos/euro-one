@@ -17,6 +17,7 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
         "alerts-conjugated": "read",
       },
     },
+    services: "read",
     trips: "read",
     devices: {
       visible: true,
@@ -165,6 +166,18 @@ export async function resolvePermissionContext(req) {
   }
 
   const shouldDebugMirror = process.env.DEBUG_MIRROR === "true";
+  const logMirrorPermissions = ({ permissionGroupIdUsed, usedFallback }) => {
+    if (!shouldDebugMirror) return;
+    console.info("[permissions] mirror context", {
+      userId: req.user?.id ? String(req.user.id) : null,
+      userClientId: req.user?.clientId ? String(req.user.clientId) : null,
+      ownerClientId: req.mirrorContext?.ownerClientId ? String(req.mirrorContext.ownerClientId) : null,
+      targetClientId: req.mirrorContext?.targetClientId ? String(req.mirrorContext.targetClientId) : null,
+      mirrorId: req.mirrorContext?.mirrorId ? String(req.mirrorContext.mirrorId) : null,
+      permissionGroupIdUsed: permissionGroupIdUsed ? String(permissionGroupIdUsed) : null,
+      usedFallback: Boolean(usedFallback),
+    });
+  };
 
   if (req.user.role === "admin") {
     return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
@@ -173,24 +186,20 @@ export async function resolvePermissionContext(req) {
   const mirrorPermissionGroupId = req.mirrorContext?.permissionGroupId ?? null;
   if (req.mirrorContext) {
     if (!mirrorPermissionGroupId) {
+      logMirrorPermissions({ permissionGroupIdUsed: null, usedFallback: true });
       return { permissions: MIRROR_FALLBACK_PERMISSIONS, level: null, isFull: false, permissionGroupId: null };
     }
 
     const mirrorGroup = getGroupById(mirrorPermissionGroupId);
-    const permissions = mirrorGroup?.attributes?.permissions || {};
+    const permissions = mirrorGroup?.attributes?.permissions || null;
     const isPermissionGroup = mirrorGroup?.attributes?.kind === "PERMISSION_GROUP";
 
-    if (!mirrorGroup || !isPermissionGroup || Object.keys(permissions).length === 0) {
-      if (shouldDebugMirror) {
-        console.info("[permissions] fallback mirror group", {
-          mirrorGroupId: mirrorPermissionGroupId,
-          mirrorGroupExists: Boolean(mirrorGroup),
-          mirrorGroupKind: mirrorGroup?.attributes?.kind || null,
-        });
-      }
+    if (!mirrorGroup || !isPermissionGroup || !permissions || Object.keys(permissions).length === 0) {
+      logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: true });
       return { permissions: MIRROR_FALLBACK_PERMISSIONS, level: null, isFull: false, permissionGroupId: null };
     }
 
+    logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: false });
     return { permissions, level: null, isFull: false, permissionGroupId: mirrorPermissionGroupId };
   }
 

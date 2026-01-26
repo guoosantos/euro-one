@@ -1,5 +1,6 @@
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
+const MIRROR_OWNER_STORAGE_KEY = "euro-one.mirror.owner-client-id";
 
 const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
 const FALLBACK_BASE_URL = "http://localhost:3001/api";
@@ -154,10 +155,19 @@ const MIRROR_QUERY_ALLOWLIST = [
 ];
 
 function resolveMirrorOwnerClientId(session) {
-  const ownerClientId = session?.user?.activeMirrorOwnerClientId ?? null;
+  const ownerClientId =
+    session?.user?.activeMirrorOwnerClientId ??
+    (() => {
+      try {
+        return window?.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY)
+          || window?.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY)
+          || null;
+      } catch (_error) {
+        return null;
+      }
+    })();
   if (!ownerClientId) return null;
   if (session?.user?.role === "admin") return null;
-  if (session?.user?.mirrorContextMode && session.user.mirrorContextMode !== "target") return null;
   return String(ownerClientId);
 }
 

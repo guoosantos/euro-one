@@ -66,3 +66,25 @@ test("api não adiciona X-Owner-Client-Id quando mirror não está ativo", async
 
   assert.equal(headerValue, null);
 });
+
+test("api não adiciona X-Owner-Client-Id para admins mesmo com owner ativo", async () => {
+  setupDom();
+  setStoredSession({
+    token: "token",
+    user: { id: "admin-1", role: "admin", activeMirrorOwnerClientId: "owner-999" },
+  });
+
+  let headerValue = "unset";
+  globalThis.fetch = async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    headerValue = headers.get("X-Owner-Client-Id");
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await api.get("/alerts");
+
+  assert.equal(headerValue, null);
+});
