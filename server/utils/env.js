@@ -3,7 +3,7 @@ import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
 let loaded = false;
-const envLog = { value: false };
+const envLog = { value: false, envPath: null, override: false };
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const productionEnvPath = "/home/ubuntu/euro-one/server/.env";
@@ -87,6 +87,8 @@ export async function loadEnv() {
   if (loaded) return;
   const envPath = resolveEnvPath();
   const override = shouldOverrideEnv(envPath);
+  envLog.envPath = envPath || null;
+  envLog.override = override;
   if (!envLog.value) {
     console.info("[startup] env carregado", {
       envPath: envPath || null,
@@ -118,4 +120,11 @@ export async function loadEnv() {
   const raw = readFileSync(envPath, "utf-8");
   applyEnv(raw, { override });
   loaded = true;
+}
+
+export function getEnvInfo() {
+  return {
+    envPath: envLog.envPath ?? null,
+    override: Boolean(envLog.override),
+  };
 }

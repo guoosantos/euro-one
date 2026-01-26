@@ -32,7 +32,7 @@ export default function Layout({ children, title, hideTitle = false }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
   const locale = useUI((state) => state.locale);
-  const { tenant } = useTenant();
+  const { tenant, isMirrorReceiver, mirrorModeEnabled } = useTenant();
   const accentColor = tenant?.brandColor;
   const showMonitoringTopbar = useUI((state) => state.monitoringTopbarVisible !== false);
   const showGeofencesTopbar = useUI((state) => state.geofencesTopbarVisible !== false);
@@ -96,6 +96,13 @@ export default function Layout({ children, title, hideTitle = false }) {
           (isRoutesPage && showRoutesTopbar)) && <Topbar title={isFullWidthPage ? null : title} />}
 
         <section className={`app-shell__content ${isFullWidthPage ? "p-0" : "p-6"}`}>
+          {isMirrorReceiver && mirrorModeEnabled === false && (
+            <div className={isFullWidthPage ? "px-6 pt-6" : undefined}>
+              <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 shadow-sm">
+                Espelhamento desativado no servidor (MIRROR_MODE_ENABLED).
+              </div>
+            </div>
+          )}
           {isFullWidthPage ? (
             // 🔵 Páginas fullscreen (monitoring / realtime)
             <div className="flex min-h-0 w-full flex-1 flex-col bg-[#0b0f17]">
