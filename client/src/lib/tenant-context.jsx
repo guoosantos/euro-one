@@ -96,6 +96,8 @@ export function TenantProvider({ children }) {
   const hasStoredTenantId =
     stored?.user && Object.prototype.hasOwnProperty.call(stored.user, "tenantId");
   const storedTenantId = hasStoredTenantId ? stored.user.tenantId : null;
+  const storedActiveMirrorOwnerClientId = stored?.user?.activeMirrorOwnerClientId ?? null;
+  const storedMirrorContextMode = stored?.user?.mirrorContextMode ?? null;
 
   const [tenantId, setTenantId] = useState(
     hasStoredTenantId ? storedTenantId : stored?.user?.clientId ?? null,
@@ -105,8 +107,11 @@ export function TenantProvider({ children }) {
   const [tenants, setTenants] = useState([]);
   const [mirrorOwners, setMirrorOwners] = useState(null);
   const [activeMirror, setActiveMirror] = useState(null);
-  const [activeMirrorOwnerClientId, setActiveMirrorOwnerClientId] = useState(null);
+  const [activeMirrorOwnerClientId, setActiveMirrorOwnerClientId] = useState(
+    storedActiveMirrorOwnerClientId,
+  );
   const [mirrorModeEnabled, setMirrorModeEnabled] = useState(null);
+  const [mirrorContextMode, setMirrorContextMode] = useState(storedMirrorContextMode);
   const [loading, setLoading] = useState(false);
   const [initialising, setInitialising] = useState(true);
   const [error, setError] = useState(null);
@@ -132,6 +137,17 @@ export function TenantProvider({ children }) {
         return { error: contextError, status };
       }
       throw contextError;
+    }
+  }, []);
+
+  const fetchMirrorContext = useCallback(async ({ ownerClientId } = {}) => {
+    try {
+      const params = ownerClientId ? { ownerClientId } : undefined;
+      const response = await api.get(API_ROUTES.mirrorsContext, { params });
+      return response?.data || null;
+    } catch (mirrorError) {
+      console.warn("Falha ao carregar contexto de mirror", mirrorError);
+      return null;
     }
   }, []);
 
@@ -185,7 +201,7 @@ export function TenantProvider({ children }) {
         setMirrorOwners(mirrorOwnerList);
         setTenants(effectiveTenants);
         setActiveMirror(contextPayload?.mirror || null);
-        setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? null);
+        setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? storedActiveMirrorOwnerClientId);
         setMirrorModeEnabled(
           typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
         );
@@ -239,7 +255,7 @@ export function TenantProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [fetchTenantContext, hasStoredTenantId, storedTenantId, tenantId, token]);
+  }, [fetchTenantContext, hasStoredTenantId, storedActiveMirrorOwnerClientId, storedTenantId, tenantId, token]);
 
   useEffect(() => {
     const currentId = user?.id ?? null;
@@ -250,11 +266,47 @@ export function TenantProvider({ children }) {
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
       setMirrorModeEnabled(null);
+      setMirrorContextMode(null);
       setPermissionLoaded(false);
       setPermissionTenantId(null);
     }
     lastUserIdRef.current = currentId;
   }, [user?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrapMirrorContext() {
+      if (!user || !token) return;
+      if (user.role === "admin") {
+        setMirrorContextMode("admin");
+        return;
+      }
+      const payload = await fetchMirrorContext();
+      if (cancelled || !payload) return;
+      if (typeof payload.mirrorModeEnabled === "boolean") {
+        setMirrorModeEnabled(payload.mirrorModeEnabled);
+      }
+      if (payload.mode) {
+        setMirrorContextMode(payload.mode);
+      }
+      if (payload.mode !== "target") return;
+      const owners = normaliseClients(payload.owners || [], user);
+      if (!owners.length) return;
+      const storedOwnerId = storedActiveMirrorOwnerClientId;
+      const selectedOwnerId =
+        owners.find((owner) => String(owner.id) === String(storedOwnerId))?.id ?? owners[0].id;
+      setMirrorOwners(owners);
+      setTenants(owners);
+      setActiveMirrorOwnerClientId(selectedOwnerId);
+    }
+
+    bootstrapMirrorContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchMirrorContext, storedActiveMirrorOwnerClientId, token, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,6 +361,28 @@ export function TenantProvider({ children }) {
       cancelled = true;
     };
   }, [fetchTenantContext, tenantId, tenants, token, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user || !token || mirrorContextMode !== "target" || !activeMirrorOwnerClientId) {
+      return () => {};
+    }
+
+    async function loadActiveMirror() {
+      const payload = await fetchMirrorContext({ ownerClientId: activeMirrorOwnerClientId });
+      if (cancelled || !payload) return;
+      if (typeof payload.mirrorModeEnabled === "boolean") {
+        setMirrorModeEnabled(payload.mirrorModeEnabled);
+      }
+      setActiveMirror(payload.activeMirror || null);
+    }
+
+    loadActiveMirror();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMirrorOwnerClientId, fetchMirrorContext, mirrorContextMode, token, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -400,6 +474,7 @@ export function TenantProvider({ children }) {
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
       setMirrorModeEnabled(null);
+      setMirrorContextMode(null);
       setLoading(false);
       setInitialising(false);
     });
@@ -526,6 +601,7 @@ export function TenantProvider({ children }) {
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
       setMirrorModeEnabled(null);
+      setMirrorContextMode(null);
     }
   }, []);
 
@@ -536,7 +612,8 @@ export function TenantProvider({ children }) {
     if (
       user.tenantId === tenantId &&
       user.activeMirrorOwnerClientId === activeMirrorOwnerClientId &&
-      user.activeMirrorPermissionGroupId === activePermissionGroupId
+      user.activeMirrorPermissionGroupId === activePermissionGroupId &&
+      user.mirrorContextMode === mirrorContextMode
     ) {
       setStoredSession({ token, user });
       return;
@@ -546,10 +623,11 @@ export function TenantProvider({ children }) {
       tenantId,
       activeMirrorOwnerClientId,
       activeMirrorPermissionGroupId: activePermissionGroupId,
+      mirrorContextMode,
     };
     setUser(nextUser);
     setStoredSession({ token, user: nextUser });
-  }, [activeMirror, activeMirrorOwnerClientId, tenantId, token, user]);
+  }, [activeMirror, activeMirrorOwnerClientId, mirrorContextMode, tenantId, token, user]);
 
   const value = useMemo(() => {
     const isAdmin = user?.role === "admin";
@@ -584,6 +662,7 @@ export function TenantProvider({ children }) {
       mirrorOwners,
       isMirrorReceiver,
       mirrorModeEnabled,
+      mirrorContextMode,
       permissionContext,
       permissionLoading,
     };
@@ -602,6 +681,7 @@ export function TenantProvider({ children }) {
     activeMirror,
     activeMirrorOwnerClientId,
     mirrorModeEnabled,
+    mirrorContextMode,
     permissionContext,
     permissionLoading,
   ]);
