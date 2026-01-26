@@ -8,6 +8,17 @@ import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, updateDevice } from "../models/device.js";
 import { getVehicleById } from "../models/vehicle.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
+
+let serviceOrderRouteMocks = {};
+
+export function __setServiceOrderRouteMocks(mocks = {}) {
+  serviceOrderRouteMocks = { ...serviceOrderRouteMocks, ...mocks };
+}
+
+export function __resetServiceOrderRouteMocks() {
+  serviceOrderRouteMocks = {};
+}
 
 const router = express.Router();
 
@@ -205,6 +216,40 @@ function computeWarrantyEndDate(startDate, warrantyDays) {
   return end.toISOString().slice(0, 10);
 }
 
+function resolveMirrorVehicleScope(req) {
+  const vehicleIds = getEffectiveVehicleIds(req);
+  if (!req.mirrorContext) return null;
+  if (!vehicleIds || vehicleIds.length === 0) return [];
+  return vehicleIds.map(String);
+}
+
+async function listServiceOrders({ where }) {
+  if (serviceOrderRouteMocks.listServiceOrders) {
+    return serviceOrderRouteMocks.listServiceOrders({ where });
+  }
+  return prisma.serviceOrder.findMany({
+    where,
+    include: {
+      vehicle: { select: { id: true, plate: true, name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+}
+
+async function findServiceOrderById({ id, clientId, include }) {
+  if (serviceOrderRouteMocks.findServiceOrderById) {
+    return serviceOrderRouteMocks.findServiceOrderById({ id, clientId, include });
+  }
+  return prisma.serviceOrder.findFirst({
+    where: {
+      id: String(id),
+      clientId,
+    },
+    include,
+  });
+}
+
 function updateInstallationWarranty({ clientId, equipmentsData, serviceDate, warrantyFromInstallation }) {
   if (!serviceDate || !Array.isArray(equipmentsData) || equipmentsData.length === 0) {
     return { updated: 0 };
@@ -257,7 +302,7 @@ router.get(
   authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" }),
   async (req, res, next) => {
   try {
-    if (!isPrismaAvailable()) {
+    if (!isPrismaAvailable() && !serviceOrderRouteMocks.listServiceOrders) {
       return res.json({ ok: true, items: [] });
     }
     const hasClientFilter = Boolean(req.query?.clientId);
@@ -269,6 +314,13 @@ router.get(
         : resolveClientId(req, req.query?.clientId, { required: true });
     const { status, vehicleId, q } = req.query || {};
     const search = String(q || "").trim();
+    const mirrorVehicleIds = resolveMirrorVehicleScope(req);
+    if (Array.isArray(mirrorVehicleIds) && mirrorVehicleIds.length === 0) {
+      return res.json({ ok: true, items: [] });
+    }
+    if (vehicleId && Array.isArray(mirrorVehicleIds) && !mirrorVehicleIds.includes(String(vehicleId))) {
+      return res.json({ ok: true, items: [] });
+    }
 
     const where = {
       ...(clientId ? { clientId } : {}),
@@ -294,17 +346,19 @@ router.get(
           }
         : {}),
     };
+    if (Array.isArray(mirrorVehicleIds) && mirrorVehicleIds.length) {
+      where.vehicleId = where.vehicleId
+        ? String(where.vehicleId)
+        : { in: mirrorVehicleIds.map(String) };
+    }
 
-    const items = await prisma.serviceOrder.findMany({
-      where,
-      include: {
-        vehicle: { select: { id: true, plate: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 500,
-    });
+    const items = await listServiceOrders({ where });
+    const filteredItems =
+      Array.isArray(mirrorVehicleIds) && mirrorVehicleIds.length
+        ? items.filter((item) => item?.vehicleId && mirrorVehicleIds.includes(String(item.vehicleId)))
+        : items;
 
-    return res.json({ ok: true, items });
+    return res.json({ ok: true, items: filteredItems });
   } catch (error) {
     if (error?.status && error.status < 500) {
       return res.status(error.status).json({
@@ -343,11 +397,9 @@ router.get(
   try {
     ensurePrisma();
     const clientId = resolveClientId(req, req.query?.clientId, { required: true });
-    const item = await prisma.serviceOrder.findFirst({
-      where: {
-        id: String(req.params.id),
-        clientId,
-      },
+    const item = await findServiceOrderById({
+      id: req.params.id,
+      clientId,
       include: {
         vehicle: { select: { id: true, plate: true, name: true } },
       },
@@ -355,6 +407,12 @@ router.get(
 
     if (!item) {
       throw createError(404, "OS não encontrada");
+    }
+    const mirrorVehicleIds = resolveMirrorVehicleScope(req);
+    if (Array.isArray(mirrorVehicleIds) && mirrorVehicleIds.length) {
+      if (!item.vehicleId || !mirrorVehicleIds.includes(String(item.vehicleId))) {
+        throw createError(404, "OS não encontrada");
+      }
     }
 
     return res.json({ ok: true, item });
@@ -370,11 +428,9 @@ router.get(
   try {
     ensurePrisma();
     const clientId = resolveClientId(req, req.query?.clientId, { required: true });
-    const item = await prisma.serviceOrder.findFirst({
-      where: {
-        id: String(req.params.id),
-        clientId,
-      },
+    const item = await findServiceOrderById({
+      id: req.params.id,
+      clientId,
       include: {
         vehicle: {
           select: {
@@ -395,6 +451,12 @@ router.get(
 
     if (!item) {
       throw createError(404, "OS não encontrada");
+    }
+    const mirrorVehicleIds = resolveMirrorVehicleScope(req);
+    if (Array.isArray(mirrorVehicleIds) && mirrorVehicleIds.length) {
+      if (!item.vehicleId || !mirrorVehicleIds.includes(String(item.vehicleId))) {
+        throw createError(404, "OS não encontrada");
+      }
     }
 
     const pdfDoc = await PDFDocument.create();

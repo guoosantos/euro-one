@@ -385,6 +385,7 @@ export default function Monitoring() {
 
   const { tenantId, user, tenant } = useTenant();
   const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
+  const canAccessMonitoring = monitoringPermission.hasAccess;
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
@@ -393,9 +394,8 @@ export default function Monitoring() {
     loading: tasksLoading,
     error: tasksError,
     reload: reloadTasks,
-  } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
-  const { vehicles } = useVehicles();
-  const canAccessMonitoring = monitoringPermission.hasAccess;
+  } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]), { enabled: canAccessMonitoring });
+  const { vehicles } = useVehicles({ enabled: canAccessMonitoring });
   const pendingAlertsRefresh = useAutoRefresh({
     enabled: canAccessMonitoring,
     intervalMs: 30_000,

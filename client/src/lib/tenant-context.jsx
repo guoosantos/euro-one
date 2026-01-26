@@ -143,7 +143,8 @@ export function TenantProvider({ children }) {
   const fetchMirrorContext = useCallback(async ({ ownerClientId } = {}) => {
     try {
       const params = ownerClientId ? { ownerClientId } : undefined;
-      const response = await api.get(API_ROUTES.mirrorsContext, { params });
+      const headers = ownerClientId ? { "X-Owner-Client-Id": ownerClientId } : undefined;
+      const response = await api.get(API_ROUTES.mirrorsContext, { params, headers });
       return response?.data || null;
     } catch (mirrorError) {
       console.warn("Falha ao carregar contexto de mirror", mirrorError);
@@ -299,6 +300,13 @@ export function TenantProvider({ children }) {
       setMirrorOwners(owners);
       setTenants(owners);
       setActiveMirrorOwnerClientId(selectedOwnerId);
+
+      const ownerPayload = await fetchMirrorContext({ ownerClientId: selectedOwnerId });
+      if (cancelled || !ownerPayload) return;
+      if (typeof ownerPayload.mirrorModeEnabled === "boolean") {
+        setMirrorModeEnabled(ownerPayload.mirrorModeEnabled);
+      }
+      setActiveMirror(ownerPayload.activeMirror || null);
     }
 
     bootstrapMirrorContext();

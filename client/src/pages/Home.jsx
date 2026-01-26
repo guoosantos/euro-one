@@ -32,9 +32,13 @@ export default function Home() {
   const { canAccess } = usePermissions();
   const canAccessMonitoring = canAccess({ menuKey: "primary", pageKey: "monitoring" });
 
-  const { vehicles, loading: loadingVehicles } = useVehicles();
-  const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
-  const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+  const { vehicles, loading: loadingVehicles } = useVehicles({ enabled: canAccessMonitoring });
+  const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
+    enabled: canAccessMonitoring,
+  });
+  const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]), {
+    enabled: canAccessMonitoring,
+  });
   const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({
     params: { status: "pending" },
     enabled: canAccessMonitoring,
