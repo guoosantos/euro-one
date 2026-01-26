@@ -33,12 +33,12 @@ function isMirrorActive(mirror, now = new Date()) {
 }
 
 function resolveOwnerClientId(req) {
+  const headerValue = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
+  if (headerValue) return String(headerValue);
   const queryClientId = req?.query?.clientId ?? req?.query?.tenantId;
   if (queryClientId !== undefined && queryClientId !== null && queryClientId !== "") {
     return String(queryClientId);
   }
-  const headerValue = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
-  if (headerValue) return String(headerValue);
   return null;
 }
 

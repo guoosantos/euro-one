@@ -1,5 +1,5 @@
 import { listMirrors, updateMirror } from "../models/mirror.js";
-import { listGroups, createGroup } from "../models/group.js";
+import { listGroups, createGroup, updateGroup } from "../models/group.js";
 import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 
 /*
@@ -13,13 +13,14 @@ function buildDefaultMirrorPermissions() {
   perms.admin = perms.admin || {};
   perms.admin.users = perms.admin.users || {};
   perms.admin.users.visible = true;
-  perms.admin.users.access = 'read';
+  perms.admin.users.access = "read";
   perms.admin.users.subpages = perms.admin.users.subpages || {};
-  perms.admin.users.subpages['users-vehicle-groups'] = 'full';
+  perms.admin.users.subpages["users-vehicle-groups"] = "full";
   return perms;
 }
 
 export default async function backfillMirrorPermissions() {
+  const defaultPermissions = buildDefaultMirrorPermissions();
   const mirrors = listMirrors();
   for (const mirror of mirrors) {
     if (mirror.permissionGroupId) continue;
@@ -27,18 +28,27 @@ export default async function backfillMirrorPermissions() {
     const groups = listGroups({ clientId: ownerId });
     let defaultGroup = groups.find(
       (g) =>
-        g?.attributes?.kind === 'PERMISSION_GROUP' &&
-        g?.name === 'MIRROR_TARGET_READ' &&
+        g?.attributes?.kind === "PERMISSION_GROUP" &&
+        g?.name === "MIRROR_TARGET_READ" &&
         String(g.clientId) === String(ownerId)
     );
     if (!defaultGroup) {
       defaultGroup = createGroup({
-        name: 'MIRROR_TARGET_READ',
+        name: "MIRROR_TARGET_READ",
         clientId: ownerId,
-        description: 'Grupo padrão de leitura para espelho (inclui criação de grupos de veículos)',
+        description: "Grupo padrão de leitura para espelho (inclui criação de grupos de veículos)",
         attributes: {
-          kind: 'PERMISSION_GROUP',
-          permissions: buildDefaultMirrorPermissions(),
+          kind: "PERMISSION_GROUP",
+          permissions: defaultPermissions,
+        },
+      });
+    } else {
+      defaultGroup = updateGroup(defaultGroup.id, {
+        description: defaultGroup.description || "Grupo padrão de leitura para espelho (inclui criação de grupos de veículos)",
+        attributes: {
+          ...defaultGroup.attributes,
+          kind: "PERMISSION_GROUP",
+          permissions: defaultPermissions,
         },
       });
     }
