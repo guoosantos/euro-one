@@ -15,6 +15,9 @@ import { createMirror, deleteMirror } from "../models/mirror.js";
 import alertRoutes from "../routes/alerts.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
 import { filterAlertsByVehicleAccess } from "../routes/alerts.js";
+import { upsertAlertFromEvent } from "../services/alerts.js";
+import { __resetTraccarDbForTests, __setTraccarDbTestOverrides } from "../services/traccar-db.js";
+import { saveCollection } from "../services/storage.js";
 
 const createdVehicles = [];
 const createdDevices = [];
@@ -130,6 +133,8 @@ afterEach(() => {
     }
   });
   __resetCoreRouteMocks();
+  __resetTraccarDbForTests();
+  saveCollection("vehicle-alerts", {});
   config.features.mirrorMode = originalMirrorMode;
 });
 
@@ -192,6 +197,91 @@ describe("/api/alerts", () => {
     assert.equal(status, 200);
     assert.deepEqual(payload.data, []);
     assert.equal(payload.total, 0);
+  });
+
+  it("retorna apenas alertas dos veículos permitidos no espelhamento", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-alerts-filter";
+    const receiverId = "receiver-alerts-filter";
+    const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "ALT-1001", model: "Modelo A" });
+    const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "ALT-1002", model: "Modelo B" });
+    buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+    upsertAlertFromEvent({
+      clientId: ownerId,
+      event: { id: "evt-allowed", eventTime: new Date().toISOString() },
+      configuredEvent: { requiresHandling: true, active: true },
+      vehicleId: allowedVehicle.id,
+    });
+    upsertAlertFromEvent({
+      clientId: ownerId,
+      event: { id: "evt-blocked", eventTime: new Date().toISOString() },
+      configuredEvent: { requiresHandling: true, active: true },
+      vehicleId: blockedVehicle.id,
+    });
+
+    const token = signSession({ id: "user-alerts-filter", role: "user", clientId: receiverId });
+    const { status, payload } = await callAlerts({ clientId: ownerId, token });
+
+    assert.equal(status, 200);
+    assert.equal(payload.data.length, 1);
+    assert.equal(payload.data[0]?.vehicleId, allowedVehicle.id);
+  });
+});
+
+describe("/api/alerts/conjugated (mirror)", () => {
+  it("consulta apenas devices do espelhamento", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-alerts-conjugated";
+    const receiverId = "receiver-alerts-conjugated";
+    const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "CON-1001", model: "Modelo C" });
+    const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "CON-1002", model: "Modelo D" });
+    const allowedTraccarId = String(Date.now());
+    const blockedTraccarId = String(Number(allowedTraccarId) + 1);
+    buildDevice({
+      clientId: ownerId,
+      uniqueId: `DEV-CON-1-${randomUUID()}`,
+      vehicleId: allowedVehicle.id,
+      traccarId: allowedTraccarId,
+    });
+    buildDevice({
+      clientId: ownerId,
+      uniqueId: `DEV-CON-2-${randomUUID()}`,
+      vehicleId: blockedVehicle.id,
+      traccarId: blockedTraccarId,
+    });
+    buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+    let requestedDeviceIds = [];
+    __setTraccarDbTestOverrides({
+      fetchEventsWithFallback: async (deviceIds) => {
+        requestedDeviceIds = [...deviceIds];
+        return deviceIds.map((deviceId) => ({
+          id: `evt-${deviceId}`,
+          deviceId: Number(deviceId),
+          eventTime: new Date().toISOString(),
+          attributes: {},
+        }));
+      },
+    });
+
+    const token = signSession({ id: "user-alerts-conjugated", role: "user", clientId: receiverId });
+    const app = express();
+    app.use(express.json());
+    app.use("/api", alertRoutes);
+    app.use(errorHandler);
+
+    const server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const response = await fetch(`${baseUrl}/api/alerts/conjugated?clientId=${ownerId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const payload = await response.json();
+    server.close();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(requestedDeviceIds, [allowedTraccarId]);
+    assert.ok(Array.isArray(payload.data));
   });
 });
 

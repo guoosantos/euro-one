@@ -9,7 +9,14 @@ const DEFAULT_LEVEL = "none";
 export const MIRROR_FALLBACK_PERMISSIONS = {
   primary: {
     home: "read",
-    monitoring: "read",
+    monitoring: {
+      visible: true,
+      access: "read",
+      subpages: {
+        alerts: "read",
+        "alerts-conjugated": "read",
+      },
+    },
     trips: "read",
     devices: {
       visible: true,
@@ -157,6 +164,8 @@ export async function resolvePermissionContext(req) {
     throw createError(401, "Sessão não autenticada");
   }
 
+  const shouldDebugMirror = process.env.DEBUG_MIRROR === "true";
+
   if (req.user.role === "admin") {
     return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
   }
@@ -168,10 +177,19 @@ export async function resolvePermissionContext(req) {
     }
 
     const mirrorGroup = getGroupById(mirrorPermissionGroupId);
-    const permissions =
-      mirrorGroup?.attributes?.kind === "PERMISSION_GROUP"
-        ? mirrorGroup?.attributes?.permissions || {}
-        : mirrorGroup?.attributes?.permissions || {};
+    const permissions = mirrorGroup?.attributes?.permissions || {};
+    const isPermissionGroup = mirrorGroup?.attributes?.kind === "PERMISSION_GROUP";
+
+    if (!mirrorGroup || !isPermissionGroup || Object.keys(permissions).length === 0) {
+      if (shouldDebugMirror) {
+        console.info("[permissions] fallback mirror group", {
+          mirrorGroupId: mirrorPermissionGroupId,
+          mirrorGroupExists: Boolean(mirrorGroup),
+          mirrorGroupKind: mirrorGroup?.attributes?.kind || null,
+        });
+      }
+      return { permissions: MIRROR_FALLBACK_PERMISSIONS, level: null, isFull: false, permissionGroupId: null };
+    }
 
     return { permissions, level: null, isFull: false, permissionGroupId: mirrorPermissionGroupId };
   }
