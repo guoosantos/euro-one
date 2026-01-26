@@ -11,6 +11,7 @@ import { createMirror, deleteMirror } from "../models/mirror.js";
 import { createVehicle, deleteVehicle, updateVehicle } from "../models/vehicle.js";
 import contextRoutes from "../routes/context.js";
 import permissionsRoutes from "../routes/permissions.js";
+import userRoutes from "../routes/users.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
 
 const createdVehicles = [];
@@ -41,6 +42,15 @@ function setupApp() {
   app.use("/api", contextRoutes);
   app.use("/api", permissionsRoutes);
   app.use("/api/core", coreRoutes);
+  app.use(errorHandler);
+  return app;
+}
+
+function setupAppWithUsersAndPermissions() {
+  const app = express();
+  app.use(express.json());
+  app.use("/api", userRoutes);
+  app.use("/api", permissionsRoutes);
   app.use(errorHandler);
   return app;
 }
@@ -224,6 +234,20 @@ describe("tenant resolution", () => {
 
     const response = await callEndpoint(app, {
       path: `/api/permissions/context?clientId=client-invalid`,
+      token,
+    });
+
+    assert.equal(response.status, 200);
+    assert.ok(Object.prototype.hasOwnProperty.call(response.payload || {}, "isFull"));
+  });
+
+  it("permite permissions/context com role user quando userRoutes é montado antes", async () => {
+    const userClientId = "client-user-permissions";
+    const app = setupAppWithUsersAndPermissions();
+    const token = signSession({ id: "user-permissions-order", role: "user", clientId: userClientId });
+
+    const response = await callEndpoint(app, {
+      path: "/api/permissions/context",
       token,
     });
 
