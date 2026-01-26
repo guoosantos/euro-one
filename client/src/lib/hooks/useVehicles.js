@@ -72,7 +72,7 @@ export function formatVehicleLabel(vehicle) {
   return plate || name || vehicle?.identifier || vehicle?.id || "Veículo";
 }
 
-export function useVehicles({ includeUnlinked = false, accessible = true } = {}) {
+export function useVehicles({ includeUnlinked = false, accessible = true, enabled = true } = {}) {
   const { tenantId } = useTenant();
   const cacheKey = `${tenantId ?? "all"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
   const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
@@ -80,6 +80,12 @@ export function useVehicles({ includeUnlinked = false, accessible = true } = {})
   const [error, setError] = useState(null);
 
   const fetchVehicles = useCallback(async ({ force = false } = {}) => {
+    if (!enabled) {
+      setLoading(false);
+      setError(null);
+      setVehicles([]);
+      return;
+    }
     const now = Date.now();
     const cooldownUntil = vehiclesCooldowns.get(cacheKey) || 0;
     if (!force && cooldownUntil > now) {
@@ -105,6 +111,11 @@ export function useVehicles({ includeUnlinked = false, accessible = true } = {})
       vehiclesCooldowns.delete(cacheKey);
     } catch (requestError) {
       const status = requestError?.status || requestError?.response?.status;
+      if (status === 403) {
+        setVehicles([]);
+        setError(null);
+        return;
+      }
       if (status === 503) {
         vehiclesCooldowns.set(cacheKey, now + 30_000);
         const unavailable = new Error("Telemetria indisponível no momento. Tente novamente em instantes.");
@@ -128,7 +139,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true } = {})
     } finally {
       setLoading(false);
     }
-  }, [accessible, cacheKey, includeUnlinked, tenantId]);
+  }, [accessible, cacheKey, enabled, includeUnlinked, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});
@@ -138,7 +149,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true } = {})
     const cached = vehiclesCache.get(cacheKey) || [];
     setVehicles((prev) => (compareVehicleEntries(prev, cached) ? prev : cached));
     setError(null);
-  }, [cacheKey]);
+  }, [cacheKey, enabled]);
 
   useEffect(() => {
     const handleReset = () => {

@@ -67,6 +67,9 @@ router.get("/alerts", async (req, res, next) => {
     const allowedVehicleIds = new Set(
       effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
     );
+    if (req.mirrorContext?.ownerClientId && allowedVehicleIds.size === 0) {
+      return res.json({ data: [], total: 0 });
+    }
     if (req.mirrorContext?.ownerClientId && req.query?.vehicleId) {
       const requested = String(req.query.vehicleId);
       if (!allowedVehicleIds.has(requested)) {

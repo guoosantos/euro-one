@@ -4,7 +4,7 @@ import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { CoreApi } from "../coreApi.js";
 
-export default function useTasks(params = {}) {
+export default function useTasks(params = {}, { enabled = true } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
 
@@ -33,6 +33,12 @@ export default function useTasks(params = {}) {
   const shouldRun = lastHashRef.current !== currentHash;
 
   useEffect(() => {
+    if (!enabled) {
+      setTasks([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (!shouldRun) return;
 
     lastHashRef.current = currentHash;
@@ -63,6 +69,11 @@ export default function useTasks(params = {}) {
       .catch((err) => {
         if (cancelled) return;
         const status = err?.response?.status ?? err?.status;
+        if (status === 403) {
+          setTasks([]);
+          setError(null);
+          return;
+        }
         console.error("[tasks] Falha ao carregar tasks", {
           endpoint: "/core/tasks",
           params: resolvedParams,
@@ -86,7 +97,7 @@ export default function useTasks(params = {}) {
     return () => {
       cancelled = true;
     };
-  }, [currentHash, shouldRun, t, resolvedParams.clientId]);
+  }, [currentHash, enabled, shouldRun, t, resolvedParams.clientId]);
 
   const reload = useCallback(() => {
     setReloadKey((current) => current + 1);
