@@ -4,6 +4,7 @@ import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import usePolling from "./usePolling.js";
 import { toDeviceKey } from "./useDevices.helpers.js";
+import { usePermissionGate } from "../permissions/permission-gate.js";
 
 function normaliseDeviceList(payload) {
   if (!payload) return [];
@@ -14,21 +15,28 @@ function normaliseDeviceList(payload) {
 }
 
 export function useTraccarDevices({ enabled = true, intervalMs = 15_000, deviceIds = [] } = {}) {
+  const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
+  const canAccessDevices = devicesPermission.hasAccess;
   const normalizedDeviceIds = useMemo(
     () => (Array.isArray(deviceIds) ? deviceIds : [deviceIds]).map((value) => toDeviceKey(value)).filter(Boolean),
     [deviceIds],
   );
 
   const { data, loading, error, lastUpdated, refresh } = usePolling(async () => {
+    if (!canAccessDevices) return [];
     const params = { all: true };
     if (normalizedDeviceIds.length) {
       params.deviceIds = normalizedDeviceIds.join(",");
     }
 
-    const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.devices, { params });
+    const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.devices, {
+      params,
+      suppressForbidden: true,
+      forbiddenFallbackData: [],
+    });
     if (requestError) throw requestError;
     return normaliseDeviceList(payload);
-  }, { enabled, intervalMs });
+  }, { enabled: enabled && canAccessDevices, intervalMs, dependencies: [canAccessDevices] });
 
   const byId = useMemo(() => {
     const map = new Map();

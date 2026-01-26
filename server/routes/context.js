@@ -4,6 +4,7 @@ import createError from "http-errors";
 import { config } from "../config.js";
 import { getEnvInfo } from "../utils/env.js";
 import { authenticate } from "../middleware/auth.js";
+import { resolvePermissionContext } from "../middleware/permissions.js";
 import { resolveExplicitClientIds, resolveTenant } from "../middleware/tenant.js";
 import { getClientById, listClients } from "../models/client.js";
 import { listMirrors } from "../models/mirror.js";
@@ -94,11 +95,13 @@ router.get("/context", async (req, res, next) => {
       : null;
 
     const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
+    const permissionContext = await resolvePermissionContext(req);
     const responsePayload = {
       clientId: tenant.clientIdResolved ?? null,
       clients,
       mirror,
       mirrorModeEnabled,
+      permissionContext,
     };
 
     if (isAdmin) {
