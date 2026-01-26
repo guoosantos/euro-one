@@ -8,7 +8,15 @@ import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 function pickRequestedClientId(req, providedClientId) {
   const ownerHeader = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
-  if (config.features?.mirrorMode && ownerHeader) {
+  const user = req?.user;
+  const isAdmin = user?.role === "admin";
+  if (
+    config.features?.mirrorMode
+    && ownerHeader
+    && user
+    && !isAdmin
+    && String(ownerHeader) !== String(user.clientId)
+  ) {
     return String(ownerHeader);
   }
   if (providedClientId !== undefined && providedClientId !== null && providedClientId !== "") {
@@ -112,8 +120,8 @@ function logMirrorApplied({ user, mirrorContext }) {
     ownerClientId: mirrorContext.ownerClientId ? String(mirrorContext.ownerClientId) : null,
     targetClientId: mirrorContext.targetClientId ? String(mirrorContext.targetClientId) : null,
     mirrorId: mirrorContext.mirrorId ? String(mirrorContext.mirrorId) : null,
-    allowedVehicleCount: mirrorContext.vehicleIds?.length || 0,
-    allowedDeviceCount: mirrorContext.deviceIds?.length || 0,
+    allowedVehicleIdsCount: mirrorContext.vehicleIds?.length || 0,
+    deviceIdsCount: mirrorContext.deviceIds?.length || 0,
   });
 }
 

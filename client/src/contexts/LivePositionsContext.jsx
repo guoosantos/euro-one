@@ -29,7 +29,11 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
 
   const fetchPositions = useCallback(async () => {
     if (!canAccessMonitoring) return [];
-    const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, { params });
+    const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, {
+      params,
+      suppressForbidden: true,
+      forbiddenFallbackData: [],
+    });
     if (error) {
       const status = Number(error?.response?.status ?? error?.status);
       const friendly = error?.response?.data?.message || error.message || t("errors.loadPositions");

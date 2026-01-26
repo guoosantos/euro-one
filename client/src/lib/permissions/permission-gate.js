@@ -159,16 +159,22 @@ export function usePermissionGate({ menuKey, pageKey, subKey }) {
 export function usePermissions() {
   const { getPermission, loading } = usePermissionResolver();
   const canShow = useCallback(
-    (permission) => {
-      if (!permission) return true;
-      return getPermission(permission).canShow;
+    (permissionOrMenuKey, pageKey, subKey) => {
+      if (!permissionOrMenuKey) return true;
+      if (typeof permissionOrMenuKey === "string") {
+        return getPermission({ menuKey: permissionOrMenuKey, pageKey, subKey }).canShow;
+      }
+      return getPermission(permissionOrMenuKey).canShow;
     },
     [getPermission],
   );
   const canAccess = useCallback(
-    (permission) => {
-      if (!permission) return true;
-      return getPermission(permission).hasAccess;
+    (permissionOrMenuKey, pageKey, subKey) => {
+      if (!permissionOrMenuKey) return true;
+      if (typeof permissionOrMenuKey === "string") {
+        return getPermission({ menuKey: permissionOrMenuKey, pageKey, subKey }).hasAccess;
+      }
+      return getPermission(permissionOrMenuKey).hasAccess;
     },
     [getPermission],
   );

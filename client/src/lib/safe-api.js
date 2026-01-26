@@ -20,7 +20,17 @@ function buildTimeoutSignal(timeout = 20_000) {
 async function request(
   method,
   url,
-  { params, data, signal, timeout = 20_000, apiPrefix = true, headers, responseType } = {},
+  {
+    params,
+    data,
+    signal,
+    timeout = 20_000,
+    apiPrefix = true,
+    headers,
+    responseType,
+    suppressForbidden = false,
+    forbiddenFallbackData = null,
+  } = {},
 ) {
   const { controller, timer } = buildTimeoutSignal(timeout);
 
@@ -64,6 +74,15 @@ async function request(
     const friendly = new Error(baseError?.message || "Erro na requisição");
     if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 500) {
       friendly.permanent = true;
+    }
+    if (statusCode === 403 && suppressForbidden) {
+      return {
+        data: forbiddenFallbackData,
+        error: null,
+        status: statusCode,
+        response: error?.response,
+        forbidden: true,
+      };
     }
     if (statusCode === 403) {
       friendly.forbidden = true;

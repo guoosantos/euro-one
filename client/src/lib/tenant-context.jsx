@@ -116,6 +116,8 @@ export function TenantProvider({ children }) {
     permissionGroupId: null,
   });
   const [permissionLoading, setPermissionLoading] = useState(false);
+  const [permissionTenantId, setPermissionTenantId] = useState(null);
+  const [permissionLoaded, setPermissionLoaded] = useState(false);
   const lastUserIdRef = useRef(stored?.user?.id ?? null);
 
   const fetchTenantContext = useCallback(async ({ clientId } = {}) => {
@@ -131,6 +133,20 @@ export function TenantProvider({ children }) {
       }
       throw contextError;
     }
+  }, []);
+
+  const applyPermissionContext = useCallback((payload, resolvedTenantId) => {
+    if (!payload) return;
+    const permissions =
+      payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
+    setPermissionContext({
+      permissions,
+      isFull: Boolean(payload?.isFull || payload?.level === "full"),
+      permissionGroupId: payload?.permissionGroupId ?? null,
+    });
+    setPermissionTenantId(resolvedTenantId ?? null);
+    setPermissionLoaded(true);
+    setPermissionLoading(false);
   }, []);
 
   useEffect(() => {
@@ -152,6 +168,9 @@ export function TenantProvider({ children }) {
         setUser(nextUser);
         setStoredSession({ token, user: nextUser });
 
+        setPermissionLoading(true);
+        setPermissionLoaded(false);
+        setPermissionTenantId(null);
         const contextResponse = await fetchTenantContext();
         const contextPayload = contextResponse?.error ? null : contextResponse;
         const contextClients = normaliseClients(contextPayload?.clients || contextPayload?.client ? contextPayload : null, nextUser);
@@ -170,6 +189,13 @@ export function TenantProvider({ children }) {
         setMirrorModeEnabled(
           typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
         );
+        if (contextPayload?.permissionContext) {
+          applyPermissionContext(contextPayload.permissionContext, contextPayload?.clientId || resolvedClientId);
+        } else {
+          setPermissionLoading(false);
+          setPermissionLoaded(false);
+          setPermissionTenantId(null);
+        }
 
         if (nextUser) {
           const responseTenant = contextPayload?.clientId || payload.client?.id || payload.clientId || resolvedClientId || null;
@@ -224,6 +250,8 @@ export function TenantProvider({ children }) {
       setActiveMirror(null);
       setActiveMirrorOwnerClientId(null);
       setMirrorModeEnabled(null);
+      setPermissionLoaded(false);
+      setPermissionTenantId(null);
     }
     lastUserIdRef.current = currentId;
   }, [user?.id]);
@@ -238,6 +266,9 @@ export function TenantProvider({ children }) {
         cancelled = true;
       };
     }
+    setPermissionLoading(true);
+    setPermissionLoaded(false);
+    setPermissionTenantId(null);
     fetchTenantContext({ clientId: tenantId })
       .then((payload) => {
         if (cancelled || !user) return;
@@ -261,6 +292,13 @@ export function TenantProvider({ children }) {
         setActiveMirror(payload?.mirror || null);
         setActiveMirrorOwnerClientId(payload?.mirror?.ownerClientId ?? null);
         setMirrorModeEnabled(typeof payload?.mirrorModeEnabled === "boolean" ? payload.mirrorModeEnabled : null);
+        if (payload?.permissionContext) {
+          applyPermissionContext(payload.permissionContext, payload?.clientId || tenantId);
+        } else {
+          setPermissionLoading(false);
+          setPermissionLoaded(false);
+          setPermissionTenantId(null);
+        }
       })
       .catch((contextError) => {
         if (!cancelled) {
@@ -276,12 +314,24 @@ export function TenantProvider({ children }) {
     let cancelled = false;
 
     async function loadPermissionContext() {
+      if (permissionLoading) {
+        return;
+      }
+      if (permissionLoaded && String(permissionTenantId ?? "") === String(tenantId ?? "")) {
+        return;
+      }
       if (!user) {
         setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        setPermissionLoaded(true);
+        setPermissionTenantId(null);
+        setPermissionLoading(false);
         return;
       }
       if (user.role === "admin") {
         setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        setPermissionLoaded(true);
+        setPermissionTenantId(tenantId ?? null);
+        setPermissionLoading(false);
         return;
       }
       setPermissionLoading(true);
@@ -290,13 +340,7 @@ export function TenantProvider({ children }) {
         const response = await api.get(API_ROUTES.permissionsContext, { params });
         if (cancelled) return;
         const payload = response?.data || {};
-        const permissions =
-          payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : null;
-        setPermissionContext({
-          permissions,
-          isFull: Boolean(payload?.isFull || payload?.level === "full"),
-          permissionGroupId: payload?.permissionGroupId ?? null,
-        });
+        applyPermissionContext(payload, tenantId ?? null);
       } catch (permissionError) {
         if (cancelled) return;
         const status = permissionError?.response?.status ?? permissionError?.status;
@@ -312,6 +356,8 @@ export function TenantProvider({ children }) {
         }
         console.warn("Falha ao carregar permissões", permissionError);
         setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+        setPermissionLoaded(true);
+        setPermissionTenantId(tenantId ?? null);
       } finally {
         if (!cancelled) setPermissionLoading(false);
       }
@@ -319,6 +365,9 @@ export function TenantProvider({ children }) {
 
     if (!token) {
       setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+      setPermissionLoaded(true);
+      setPermissionTenantId(null);
+      setPermissionLoading(false);
       return () => {
         cancelled = true;
       };
@@ -329,7 +378,17 @@ export function TenantProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [activeMirror, setTenantId, tenantId, token, user]);
+  }, [
+    activeMirror,
+    applyPermissionContext,
+    permissionLoaded,
+    permissionLoading,
+    permissionTenantId,
+    setTenantId,
+    tenantId,
+    token,
+    user,
+  ]);
 
   useEffect(() => {
     const unsubscribe = registerUnauthorizedHandler(() => {

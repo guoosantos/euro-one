@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTenant } from "../tenant-context.jsx";
+import { usePermissions } from "../permissions/permission-gate.js";
 
 export function useAlerts({
   params = {},
@@ -10,13 +11,20 @@ export function useAlerts({
   enabled = true,
 } = {}) {
   const { tenantId } = useTenant();
+  const { canAccess } = usePermissions();
+  const canAccessAlerts = canAccess("primary", "monitoring");
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
 
   const fetchAlerts = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled || !canAccessAlerts) {
+      setLoading(false);
+      setError(null);
+      setData([]);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -26,6 +34,8 @@ export function useAlerts({
           ...parsedParams,
           clientId: parsedParams.clientId ?? tenantId,
         },
+        suppressForbidden: true,
+        forbiddenFallbackData: [],
       });
       if (response?.error) {
         setError(response.error);
@@ -44,11 +54,11 @@ export function useAlerts({
     } finally {
       setLoading(false);
     }
-  }, [enabled, paramsKey, tenantId]);
+  }, [canAccessAlerts, enabled, paramsKey, tenantId]);
 
   useEffect(() => {
     let timer;
-    if (!enabled) {
+    if (!enabled || !canAccessAlerts) {
       setLoading(false);
       return undefined;
     }
@@ -59,7 +69,7 @@ export function useAlerts({
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [enabled, fetchAlerts, refreshInterval]);
+  }, [canAccessAlerts, enabled, fetchAlerts, refreshInterval]);
 
   return useMemo(
     () => ({ alerts: data, loading, error, refresh: fetchAlerts }),

@@ -157,6 +157,11 @@ export default function Technicians() {
     pageKey: "services",
     subKey: "technicians",
   });
+  const serviceOrdersPermission = usePermissionGate({
+    menuKey: "fleet",
+    pageKey: "services",
+    subKey: "service-orders",
+  });
   const [items, setItems] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -411,6 +416,10 @@ export default function Technicians() {
 
   const loadOrders = async (clientId, technicianName) => {
     if (!technicianName) return;
+    if (!serviceOrdersPermission.hasAccess) {
+      setOrders([]);
+      return;
+    }
     setOrdersLoading(true);
     try {
       const params = new URLSearchParams();
@@ -434,9 +443,18 @@ export default function Technicians() {
 
   useEffect(() => {
     if (!drawerOpen || !editingId || drawerTab !== "ordens") return;
+    if (!serviceOrdersPermission.hasAccess) return;
     const clientId = selectedTechnician?.clientId || resolvedClientId || null;
     loadOrders(clientId, selectedTechnician?.name);
-  }, [drawerOpen, drawerTab, editingId, resolvedClientId, selectedTechnician?.clientId, selectedTechnician?.name]);
+  }, [
+    drawerOpen,
+    drawerTab,
+    editingId,
+    resolvedClientId,
+    selectedTechnician?.clientId,
+    selectedTechnician?.name,
+    serviceOrdersPermission.hasAccess,
+  ]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
