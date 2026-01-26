@@ -2,8 +2,8 @@ import createError from "http-errors";
 
 import { config } from "../config.js";
 import { getClientById } from "../models/client.js";
-import { getGroupById } from "../models/group.js";
 import { listMirrors } from "../models/mirror.js";
+import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -42,17 +42,6 @@ function resolveOwnerClientId(req) {
   return null;
 }
 
-function resolveMirrorVehicleIds(mirror) {
-  if (!mirror) return [];
-  if (mirror.vehicleGroupId) {
-    const group = getGroupById(mirror.vehicleGroupId);
-    if (Array.isArray(group?.attributes?.vehicleIds)) {
-      return group.attributes.vehicleIds.map(String);
-    }
-  }
-  return Array.isArray(mirror.vehicleIds) ? mirror.vehicleIds.map(String) : [];
-}
-
 export async function resolveMirrorContext(req) {
   if (!config.features?.mirrorMode) return null;
   if (!req?.user || req.user.role === "admin") return null;
@@ -83,6 +72,7 @@ export async function resolveMirrorContext(req) {
 
   const mirror = mirrors[0];
   const context = {
+    mode: "target",
     ownerClientId: String(ownerClientId),
     targetClientId: String(req.user.clientId),
     mirrorId: String(mirror.id),

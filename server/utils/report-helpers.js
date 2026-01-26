@@ -5,6 +5,7 @@ import { listDevices } from "../models/device.js";
 import { listVehicles } from "../models/vehicle.js";
 import { getClientById } from "../models/client.js";
 import { listMirrors } from "../models/mirror.js";
+import { getEffectiveClientId, resolveMirrorVehicleIds } from "./mirror-scope.js";
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -44,7 +45,7 @@ export function resolveAllowedDeviceIds(req) {
 
   const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
   if (mirrorModeEnabled && req.mirrorContext?.ownerClientId) {
-    const allowedVehicleIds = new Set((req.mirrorContext.vehicleIds || []).map(String));
+    const allowedVehicleIds = new Set(resolveMirrorVehicleIds(req.mirrorContext));
     const vehicles = listVehicles({ clientId: req.mirrorContext.ownerClientId }).filter((vehicle) =>
       allowedVehicleIds.has(String(vehicle.id)),
     );
@@ -70,7 +71,7 @@ export function resolveAllowedDeviceIds(req) {
   const mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
   const mirroredVehicles = mirrors.flatMap((mirror) => {
     const ownerVehicles = listVehicles({ clientId: mirror.ownerClientId });
-    const allowedIds = new Set((mirror.vehicleIds || []).map(String));
+    const allowedIds = new Set(resolveMirrorVehicleIds(mirror));
     return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
   });
   let vehicles = listVehicles({ clientId });
@@ -173,10 +174,7 @@ export function enforceDeviceFilterInBody(req, target = req.body) {
 
 export function resolveClientGroupId(req) {
   if (req.user?.role === "admin") return null;
-  const clientId =
-    config.features?.mirrorMode && req.mirrorContext?.ownerClientId
-      ? req.mirrorContext.ownerClientId
-      : req.user?.clientId;
+  const clientId = getEffectiveClientId(req);
   if (!clientId) return null;
   const client = getClientById(clientId);
   return client?.attributes?.traccarGroupId ?? null;

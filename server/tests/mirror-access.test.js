@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import express from "express";
 import { afterEach, describe, it } from "node:test";
+import { randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import { signSession } from "../middleware/auth.js";
@@ -8,12 +9,14 @@ import { errorHandler } from "../middleware/error-handler.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { createVehicle, deleteVehicle } from "../models/vehicle.js";
 import { createDevice, deleteDevice, updateDevice } from "../models/device.js";
+import { createMirror, deleteMirror } from "../models/mirror.js";
 import alertRoutes from "../routes/alerts.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
 import { filterAlertsByVehicleAccess } from "../routes/alerts.js";
 
 const createdVehicles = [];
 const createdDevices = [];
+const createdMirrors = [];
 const originalMirrorMode = config.features.mirrorMode;
 
 function buildVehicle({ clientId, plate, model, type = "Carro" }) {
@@ -37,6 +40,17 @@ function buildDevice({ clientId, uniqueId, vehicleId = null, traccarId = null })
   return device;
 }
 
+function buildMirror({ ownerClientId, targetClientId, vehicleIds = [] }) {
+  const mirror = createMirror({
+    ownerClientId,
+    targetClientId,
+    vehicleIds,
+    targetType: "GERENCIADORA",
+  });
+  createdMirrors.push(mirror.id);
+  return mirror;
+}
+
 async function callAlertsConjugated({ clientId }) {
   const app = express();
   app.use(express.json());
@@ -56,6 +70,22 @@ async function callAlertsConjugated({ clientId }) {
   return { status: response.status, payload };
 }
 
+async function callAlerts({ clientId, token }) {
+  const app = express();
+  app.use(express.json());
+  app.use("/api", alertRoutes);
+  app.use(errorHandler);
+
+  const server = app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const response = await fetch(`${baseUrl}/api/alerts?clientId=${clientId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const payload = await response.json();
+  server.close();
+  return { status: response.status, payload };
+}
+
 afterEach(() => {
   createdVehicles.splice(0).forEach((id) => {
     try {
@@ -67,6 +97,13 @@ afterEach(() => {
   createdDevices.splice(0).forEach((id) => {
     try {
       deleteDevice(id);
+    } catch (_error) {
+      // ignora limpeza
+    }
+  });
+  createdMirrors.splice(0).forEach((id) => {
+    try {
+      deleteMirror(id);
     } catch (_error) {
       // ignora limpeza
     }
@@ -121,6 +158,22 @@ describe("/api/alerts/conjugated", () => {
   });
 });
 
+describe("/api/alerts", () => {
+  it("retorna 200 com payload vazio quando mirror não tem veículos", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-alerts";
+    const receiverId = "receiver-alerts";
+    buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: ["veh-x"] });
+
+    const token = signSession({ id: "user-alerts", role: "user", clientId: receiverId });
+    const { status, payload } = await callAlerts({ clientId: ownerId, token });
+
+    assert.equal(status, 200);
+    assert.deepEqual(payload.data, []);
+    assert.equal(payload.total, 0);
+  });
+});
+
 describe("mirror access (core routes)", () => {
   it("lista apenas veículos permitidos no mirror", async () => {
     config.features.mirrorMode = true;
@@ -137,6 +190,7 @@ describe("mirror access (core routes)", () => {
         const ownerHeader = req.headers["x-owner-client-id"];
         if (ownerHeader) {
           req.mirrorContext = {
+            mode: "target",
             ownerClientId: String(ownerHeader),
             vehicleIds: [allowedVehicle.id],
             permissionGroupId: null,
@@ -184,6 +238,7 @@ describe("mirror access (core routes)", () => {
         const ownerHeader = req.headers["x-owner-client-id"];
         if (ownerHeader) {
           req.mirrorContext = {
+            mode: "target",
             ownerClientId: String(ownerHeader),
             vehicleIds: [allowedVehicle.id],
             permissionGroupId: null,
@@ -223,8 +278,20 @@ describe("mirror access (core routes)", () => {
     const receiverId = "receiver-telemetry";
     const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "TEL-3001", model: "Modelo T" });
     const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "TEL-3002", model: "Modelo U" });
-    buildDevice({ clientId: ownerId, uniqueId: "DEV-4", vehicleId: allowedVehicle.id, traccarId: "201" });
-    buildDevice({ clientId: ownerId, uniqueId: "DEV-5", vehicleId: blockedVehicle.id, traccarId: "202" });
+    const allowedTraccarId = String(Math.floor(Math.random() * 900000) + 100000);
+    const blockedTraccarId = String(Number(allowedTraccarId) + 1);
+    buildDevice({
+      clientId: ownerId,
+      uniqueId: `DEV-4-${randomUUID()}`,
+      vehicleId: allowedVehicle.id,
+      traccarId: allowedTraccarId,
+    });
+    buildDevice({
+      clientId: ownerId,
+      uniqueId: `DEV-5-${randomUUID()}`,
+      vehicleId: blockedVehicle.id,
+      traccarId: blockedTraccarId,
+    });
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
@@ -232,6 +299,7 @@ describe("mirror access (core routes)", () => {
         const ownerHeader = req.headers["x-owner-client-id"];
         if (ownerHeader) {
           req.mirrorContext = {
+            mode: "target",
             ownerClientId: String(ownerHeader),
             vehicleIds: [allowedVehicle.id],
             permissionGroupId: null,
@@ -268,7 +336,7 @@ describe("mirror access (core routes)", () => {
     assert.equal(response.status, 200);
     const telemetry = payload.telemetry || [];
     assert.equal(telemetry.length, 1);
-    assert.equal(String(telemetry[0]?.deviceId || telemetry[0]?.device?.id), "201");
+    assert.equal(String(telemetry[0]?.deviceId || telemetry[0]?.device?.id), allowedTraccarId);
   });
 });
 

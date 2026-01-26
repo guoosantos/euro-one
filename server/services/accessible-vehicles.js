@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { getClientById } from "../models/client.js";
 import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
+import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -40,7 +41,7 @@ export async function getAccessibleVehicles({
 } = {}) {
   const resolvedClientId = clientId ?? user?.clientId ?? null;
   if (config.features?.mirrorMode && mirrorContext?.ownerClientId) {
-    const allowedIds = new Set((mirrorContext.vehicleIds || []).map(String));
+    const allowedIds = new Set(resolveMirrorVehicleIds(mirrorContext));
     const ownerVehicles = listVehicles({ clientId: mirrorContext.ownerClientId });
     const mirroredVehicles = ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
     return {
@@ -68,7 +69,7 @@ export async function getAccessibleVehicles({
         mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
         const mirroredVehicles = mirrors.flatMap((mirror) => {
           const ownerVehicles = listVehicles({ clientId: mirror.ownerClientId });
-          const allowedIds = new Set((mirror.vehicleIds || []).map(String));
+          const allowedIds = new Set(resolveMirrorVehicleIds(mirror));
           return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
         });
         if (isReceiver) {
