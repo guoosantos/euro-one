@@ -6,7 +6,7 @@ import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
-const MIRROR_FALLBACK_PERMISSIONS = {
+export const MIRROR_FALLBACK_PERMISSIONS = {
   primary: {
     home: "read",
     monitoring: "read",

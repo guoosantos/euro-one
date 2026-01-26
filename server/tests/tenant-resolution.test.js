@@ -6,7 +6,9 @@ import { config } from "../config.js";
 import { signSession } from "../middleware/auth.js";
 import { resolveTenant } from "../middleware/tenant.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 import { createDevice, deleteDevice, updateDevice } from "../models/device.js";
+import { createGroup, deleteGroup } from "../models/group.js";
 import { createMirror, deleteMirror } from "../models/mirror.js";
 import { createVehicle, deleteVehicle, updateVehicle } from "../models/vehicle.js";
 import contextRoutes from "../routes/context.js";
@@ -17,6 +19,7 @@ import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../route
 const createdVehicles = [];
 const createdDevices = [];
 const createdMirrors = [];
+const createdGroups = [];
 const originalMirrorMode = config.features.mirrorMode;
 const originalTenantFallback = config.features.tenantFallbackToSelf;
 
@@ -93,6 +96,13 @@ afterEach(() => {
       // ignore cleanup
     }
   });
+  createdGroups.splice(0).forEach((id) => {
+    try {
+      deleteGroup(id);
+    } catch (_error) {
+      // ignore cleanup
+    }
+  });
   __resetCoreRouteMocks();
   config.features.mirrorMode = originalMirrorMode;
   config.features.tenantFallbackToSelf = originalTenantFallback;
@@ -148,7 +158,17 @@ describe("tenant resolution", () => {
       targetClientId: receiverClientId,
       vehicleIds: [allowedVehicle.id],
       targetType: "GERENCIADORA",
+      permissionGroupId: createGroup({
+        name: `Mirror permissions ${ownerClientId}`,
+        description: "Grupo de permissões para teste de mirror",
+        clientId: ownerClientId,
+        attributes: {
+          kind: "PERMISSION_GROUP",
+          permissions: MIRROR_FALLBACK_PERMISSIONS,
+        },
+      }).id,
     });
+    createdGroups.push(mirror.permissionGroupId);
     createdMirrors.push(mirror.id);
 
     __setCoreRouteMocks({
@@ -185,7 +205,17 @@ describe("tenant resolution", () => {
       targetClientId: receiverClientId,
       vehicleIds: [allowedVehicle.id],
       targetType: "GERENCIADORA",
+      permissionGroupId: createGroup({
+        name: `Mirror permissions ${ownerClientId}`,
+        description: "Grupo de permissões para teste de mirror",
+        clientId: ownerClientId,
+        attributes: {
+          kind: "PERMISSION_GROUP",
+          permissions: MIRROR_FALLBACK_PERMISSIONS,
+        },
+      }).id,
     });
+    createdGroups.push(mirror.permissionGroupId);
     createdMirrors.push(mirror.id);
 
     __setCoreRouteMocks({
@@ -216,7 +246,17 @@ describe("tenant resolution", () => {
       targetClientId: receiverClientId,
       vehicleIds: [allowedVehicle.id],
       targetType: "GERENCIADORA",
+      permissionGroupId: createGroup({
+        name: `Mirror permissions ${ownerClientId}`,
+        description: "Grupo de permissões para teste de mirror",
+        clientId: ownerClientId,
+        attributes: {
+          kind: "PERMISSION_GROUP",
+          permissions: MIRROR_FALLBACK_PERMISSIONS,
+        },
+      }).id,
     });
+    createdGroups.push(mirror.permissionGroupId);
     createdMirrors.push(mirror.id);
 
     const req = {

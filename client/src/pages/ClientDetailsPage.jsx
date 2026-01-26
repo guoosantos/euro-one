@@ -505,11 +505,15 @@ export default function ClientDetailsPage() {
   const handleMirrorSave = async (event) => {
     event.preventDefault();
     try {
+      if (!mirrorForm.permissionGroupId) {
+        setError(new Error("Selecione o grupo de permissão do espelho."));
+        return;
+      }
       if (editingMirror) {
         const payload = {
           targetClientId: mirrorForm.targetClientIds[0],
           vehicleIds: mirrorForm.vehicleIds,
-          permissionGroupId: mirrorForm.permissionGroupId || null,
+          permissionGroupId: mirrorForm.permissionGroupId,
           startAt: mirrorForm.startAt || null,
           endAt: mirrorForm.endAt || null,
         };
@@ -532,7 +536,7 @@ export default function ClientDetailsPage() {
             targetClientId,
             targetType,
             vehicleIds: mirrorForm.vehicleIds,
-            permissionGroupId: mirrorForm.permissionGroupId || null,
+            permissionGroupId: mirrorForm.permissionGroupId,
             startAt: mirrorForm.startAt || null,
             endAt: mirrorForm.endAt || null,
           });
@@ -1399,7 +1403,7 @@ export default function ClientDetailsPage() {
                 }
               />
               <label className="text-sm">
-                <span className="block text-xs uppercase tracking-wide text-white/60">Grupo de permissões</span>
+                <span className="block text-xs uppercase tracking-wide text-white/60">Grupo de permissão do espelho</span>
                 <select
                   value={mirrorForm.permissionGroupId}
                   onChange={(event) =>
@@ -1415,6 +1419,7 @@ export default function ClientDetailsPage() {
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-amber-200">As permissões do receiver serão limitadas por este grupo.</p>
               </label>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-sm">

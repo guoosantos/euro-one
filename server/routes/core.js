@@ -6,7 +6,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
 import * as clientMiddleware from "../middleware/client.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
-import { authorizePermission } from "../middleware/permissions.js";
+import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import * as clientModel from "../models/client.js";
 import * as modelModel from "../models/model.js";
 import * as deviceModel from "../models/device.js";
@@ -2746,7 +2746,11 @@ router.post("/vehicle-attributes", deps.requireRole("manager", "admin"), async (
 
 router.get(
   "/vehicles",
-  authorizePermission({ menuKey: "fleet", pageKey: "vehicles" }),
+  authorizePermissionOrEmpty({
+    menuKey: "fleet",
+    pageKey: "vehicles",
+    emptyPayload: { vehicles: [], page: 1, pageSize: 0, total: 0, hasMore: false },
+  }),
   async (req, res, next) => {
   const startedAt = Date.now();
   let includeUnlinked = false;

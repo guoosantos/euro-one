@@ -59,6 +59,9 @@ export function createMirror({
   if (!targetClientId) {
     throw createError(400, "targetClientId é obrigatório");
   }
+  if (!permissionGroupId) {
+    throw createError(400, "Espelho precisa de grupo de permissão");
+  }
   const id = randomUUID();
   const now = new Date().toISOString();
   const record = {
@@ -107,7 +110,10 @@ export function updateMirror(id, updates = {}) {
     record.vehicleGroupId = updates.vehicleGroupId ? String(updates.vehicleGroupId) : null;
   }
   if (Object.prototype.hasOwnProperty.call(updates, "permissionGroupId")) {
-    record.permissionGroupId = updates.permissionGroupId ? String(updates.permissionGroupId) : null;
+    if (!updates.permissionGroupId) {
+      throw createError(400, "Espelho precisa de grupo de permissão");
+    }
+    record.permissionGroupId = String(updates.permissionGroupId);
   }
   if (Object.prototype.hasOwnProperty.call(updates, "startAt")) {
     record.startAt = updates.startAt;

@@ -5,7 +5,9 @@ import express from "express";
 import { config } from "../config.js";
 import { signSession } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 import { createDevice, deleteDevice, listDevices, updateDevice } from "../models/device.js";
+import { createGroup, deleteGroup } from "../models/group.js";
 import { createMirror, deleteMirror } from "../models/mirror.js";
 import { createVehicle, deleteVehicle } from "../models/vehicle.js";
 import { __resetTraccarDbForTests, __setTraccarDbTestOverrides } from "../services/traccar-db.js";
@@ -18,6 +20,7 @@ let eventsDeviceIds = [];
 const createdVehicles = [];
 const createdDevices = [];
 const createdMirrors = [];
+const createdGroups = [];
 const originalMirrorMode = config.features.mirrorMode;
 
 function buildVehicle({ clientId, plate }) {
@@ -36,11 +39,22 @@ function buildDevice({ clientId, uniqueId, traccarId, vehicleId }) {
 }
 
 function buildMirror({ ownerClientId, targetClientId, vehicleIds }) {
+  const permissionGroup = createGroup({
+    name: `Mirror permissions ${randomUUID()}`,
+    description: "Grupo de permissões para teste de mirror",
+    clientId: ownerClientId,
+    attributes: {
+      kind: "PERMISSION_GROUP",
+      permissions: MIRROR_FALLBACK_PERMISSIONS,
+    },
+  });
+  createdGroups.push(permissionGroup.id);
   const mirror = createMirror({
     ownerClientId,
     targetClientId,
     vehicleIds,
     targetType: "GERENCIADORA",
+    permissionGroupId: permissionGroup.id,
   });
   createdMirrors.push(mirror.id);
   return mirror;
@@ -109,6 +123,13 @@ afterEach(() => {
   createdMirrors.splice(0).forEach((id) => {
     try {
       deleteMirror(id);
+    } catch (_error) {
+      // ignore
+    }
+  });
+  createdGroups.splice(0).forEach((id) => {
+    try {
+      deleteGroup(id);
     } catch (_error) {
       // ignore
     }
