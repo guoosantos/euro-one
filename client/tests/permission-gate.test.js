@@ -6,25 +6,23 @@ import { JSDOM } from "jsdom";
 
 import { createPermissionResolver } from "../src/lib/permissions/permission-gate.js";
 
-const setTenantIdCalls = [];
-const apiClient = {
-  get: async () => {
-    const error = new Error("Forbidden");
-    error.response = { status: 403 };
-    throw error;
-  },
-};
 const tenantUser = { role: "user", clientId: "client-1" };
-const setTenantId = (value) => setTenantIdCalls.push(value);
 const useTenantHook = () => ({
   user: tenantUser,
   role: "user",
-  tenantId: "stale-tenant",
-  setTenantId,
-  activeMirrorPermissionGroupId: null,
+  permissionContext: {
+    permissions: {
+      menu: {
+        page: { visible: true, access: "read" },
+      },
+    },
+    isFull: false,
+    permissionGroupId: "group-1",
+  },
+  permissionLoading: false,
 });
 
-const usePermissionResolver = createPermissionResolver({ apiClient, useTenantHook });
+const usePermissionResolver = createPermissionResolver({ useTenantHook });
 
 function PermissionProbe() {
   const { getPermission } = usePermissionResolver();
@@ -35,7 +33,7 @@ function PermissionProbe() {
   });
 }
 
-test("usePermissionResolver corrige tenantId stale sem travar em acesso negado", async () => {
+test("usePermissionResolver respeita o contexto de permissões carregado no tenant", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>");
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
@@ -56,9 +54,8 @@ test("usePermissionResolver corrige tenantId stale sem travar em acesso negado",
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  assert.equal(setTenantIdCalls.length, 1);
-  assert.equal(setTenantIdCalls[0], "client-1");
-  assert.equal(container.firstChild?.getAttribute("data-level"), "FULL");
+  assert.equal(container.firstChild?.getAttribute("data-level"), "READ_ONLY");
+  assert.equal(container.firstChild?.getAttribute("data-access"), "true");
 
   root.unmount();
 });

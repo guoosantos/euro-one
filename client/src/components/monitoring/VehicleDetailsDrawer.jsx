@@ -26,6 +26,7 @@ import useReportsRoute from "../../lib/hooks/useReportsRoute.js";
 import safeApi from "../../lib/safe-api.js";
 import { API_ROUTES } from "../../lib/api-routes.js";
 import useAlerts from "../../lib/hooks/useAlerts.js";
+import { usePermissionGate } from "../../lib/permissions/permission-gate.js";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../../lib/mapLayers.js";
@@ -40,6 +41,7 @@ export default function VehicleDetailsDrawer({
   floating = true,
 }) {
   const safeVehicle = vehicle || {};
+  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
   const defaultTabs = useMemo(
     () => [
       { id: "status", label: "Status" },
@@ -258,7 +260,7 @@ export default function VehicleDetailsDrawer({
   const { alerts: vehicleAlerts, loading: alertsLoading, refresh: refreshAlerts } = useAlerts({
     params: alertParams,
     refreshInterval: 30_000,
-    enabled: Boolean(vehicleId),
+    enabled: Boolean(vehicleId) && monitoringPermission.hasAccess,
   });
   const filteredVehicleAlerts = useMemo(
     () =>

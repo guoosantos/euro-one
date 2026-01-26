@@ -1,6 +1,7 @@
 export const API_ROUTES = {
   session: "session",
   context: "context",
+  permissionsContext: "permissions/context",
   login: "login",
   logout: "logout",
   events: "events",

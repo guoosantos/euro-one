@@ -206,6 +206,37 @@ describe("tenant resolution", () => {
     assert.ok([403, 404].includes(response.status));
   });
 
+  it("prioriza header X-Owner-Client-Id quando mirrorMode está ativo", () => {
+    config.features.mirrorMode = true;
+    const ownerClientId = "owner-header";
+    const receiverClientId = "receiver-header";
+    const allowedVehicle = buildVehicle({ clientId: ownerClientId, plate: "EEE-3001", model: "Modelo F" });
+    const mirror = createMirror({
+      ownerClientId,
+      targetClientId: receiverClientId,
+      vehicleIds: [allowedVehicle.id],
+      targetType: "GERENCIADORA",
+    });
+    createdMirrors.push(mirror.id);
+
+    const req = {
+      user: { id: "user-header", role: "user", clientId: receiverClientId },
+      query: { clientId: receiverClientId },
+      headers: { "x-owner-client-id": ownerClientId },
+      get(headerName) {
+        return this.headers[headerName.toLowerCase()] || null;
+      },
+    };
+
+    const tenant = resolveTenant(req, { requestedClientId: req.query.clientId, required: false });
+
+    assert.equal(tenant.accessType, "mirror");
+    assert.equal(tenant.clientIdResolved, ownerClientId);
+    assert.equal(tenant.mirrorContext?.ownerClientId, ownerClientId);
+    assert.equal(req.clientId, ownerClientId);
+    assert.ok(tenant.mirrorContext);
+  });
+
   it("faz fallback para o próprio tenant quando explicitClientIds só contém o cliente atual", () => {
     config.features.tenantFallbackToSelf = true;
     const userClientId = "client-self";

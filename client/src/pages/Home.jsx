@@ -11,6 +11,7 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { formatAddress } from "../lib/format-address.js";
 import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
+import { usePermissions } from "../lib/permissions/permission-gate.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 
@@ -28,13 +29,19 @@ export default function Home() {
   const { t, locale } = useTranslation();
   const { tenantId } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
+  const { canAccess } = usePermissions();
+  const canAccessMonitoring = canAccess({ menuKey: "primary", pageKey: "monitoring" });
 
   const { vehicles, loading: loadingVehicles } = useVehicles();
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
-  const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({ params: { status: "pending" } });
+  const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({
+    params: { status: "pending" },
+    enabled: canAccessMonitoring,
+  });
   const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
     params: { windowHours: 5 },
+    enabled: canAccessMonitoring,
   });
 
   const positionByDevice = useMemo(() => {
@@ -212,28 +219,34 @@ export default function Home() {
       ) : null}
       className={expanded ? "xl:col-span-2" : ""}
     >
-      <div className="overflow-x-auto text-sm">
-        <table className="min-w-full">
-          <thead className="text-white/50">
-            <tr className="border-b border-white/10 text-left">
-              <th className="py-2 pr-4">Faixa</th>
-              <th className="py-2 pr-4">Quantidade</th>
-            </tr>
-          </thead>
-          <tbody>
-            {communicationBuckets.map((bucket) => (
-              <tr
-                key={bucket.label}
-                className="cursor-pointer border-b border-white/5 transition hover:bg-white/5"
-                onClick={() => window.open(`/monitoring?filter=${bucket.filterKey}`, "_blank")}
-              >
-                <td className="py-2 pr-4 text-white/80">{bucket.label}</td>
-                <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "No vehicles" : bucket.vehicles.length}</td>
+      {!canAccessMonitoring ? (
+        <div className="py-6">
+          <DataState state="info" tone="muted" title="Sem permissão para monitoramento" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto text-sm">
+          <table className="min-w-full">
+            <thead className="text-white/50">
+              <tr className="border-b border-white/10 text-left">
+                <th className="py-2 pr-4">Faixa</th>
+                <th className="py-2 pr-4">Quantidade</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {communicationBuckets.map((bucket) => (
+                <tr
+                  key={bucket.label}
+                  className="cursor-pointer border-b border-white/5 transition hover:bg-white/5"
+                  onClick={() => window.open(`/monitoring?filter=${bucket.filterKey}`, "_blank")}
+                >
+                  <td className="py-2 pr-4 text-white/80">{bucket.label}</td>
+                  <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "No vehicles" : bucket.vehicles.length}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Card>
   );
 
@@ -248,53 +261,59 @@ export default function Home() {
       ) : null}
       className={expanded ? "xl:col-span-2" : ""}
     >
-      <div className={`grid gap-3 ${expanded ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-        <Metric
-          label="Com rota embarcada"
-          value={routeMetrics.totalWithRoute}
-          onClick={() => window.open("/monitoring?routeFilter=active", "_blank")}
-        />
-        <Metric
-          label="Com sinal + rota"
-          value={routeMetrics.withSignal}
-          onClick={() => window.open("/monitoring?routeFilter=with_signal", "_blank")}
-        />
-        <Metric
-          label="Sem sinal + rota"
-          value={routeMetrics.withoutSignal}
-          onClick={() => window.open("/monitoring?routeFilter=without_signal", "_blank")}
-        />
-        <Metric
-          label="Bloqueados + rota"
-          value={routeMetrics.blocked.total}
-          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=blocked", "_blank")}
-        />
-        <Metric
-          label="Bloqueado (Jammer)"
-          value={routeMetrics.blocked.jammer}
-          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=jammer", "_blank")}
-        />
-        <Metric
-          label="Bloqueado (Violação)"
-          value={routeMetrics.blocked.violation}
-          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=violation", "_blank")}
-        />
-        <Metric
-          label="Bloqueado (Reconhecimento facial)"
-          value={routeMetrics.blocked.face}
-          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=face", "_blank")}
-        />
-        <Metric
-          label="Desvio de rota"
-          value={routeMetrics.routeDeviation}
-          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=routeDeviation", "_blank")}
-        />
-        <Metric
-          label="Atraso na rota"
-          value={routeMetrics.routeDelay}
-          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=routeDelay", "_blank")}
-        />
-      </div>
+      {!canAccessMonitoring ? (
+        <div className="py-6">
+          <DataState state="info" tone="muted" title="Sem permissão para monitoramento" />
+        </div>
+      ) : (
+        <div className={`grid gap-3 ${expanded ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+          <Metric
+            label="Com rota embarcada"
+            value={routeMetrics.totalWithRoute}
+            onClick={() => window.open("/monitoring?routeFilter=active", "_blank")}
+          />
+          <Metric
+            label="Com sinal + rota"
+            value={routeMetrics.withSignal}
+            onClick={() => window.open("/monitoring?routeFilter=with_signal", "_blank")}
+          />
+          <Metric
+            label="Sem sinal + rota"
+            value={routeMetrics.withoutSignal}
+            onClick={() => window.open("/monitoring?routeFilter=without_signal", "_blank")}
+          />
+          <Metric
+            label="Bloqueados + rota"
+            value={routeMetrics.blocked.total}
+            onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=blocked", "_blank")}
+          />
+          <Metric
+            label="Bloqueado (Jammer)"
+            value={routeMetrics.blocked.jammer}
+            onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=jammer", "_blank")}
+          />
+          <Metric
+            label="Bloqueado (Violação)"
+            value={routeMetrics.blocked.violation}
+            onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=violation", "_blank")}
+          />
+          <Metric
+            label="Bloqueado (Reconhecimento facial)"
+            value={routeMetrics.blocked.face}
+            onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=face", "_blank")}
+          />
+          <Metric
+            label="Desvio de rota"
+            value={routeMetrics.routeDeviation}
+            onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=routeDeviation", "_blank")}
+          />
+          <Metric
+            label="Atraso na rota"
+            value={routeMetrics.routeDelay}
+            onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=routeDelay", "_blank")}
+          />
+        </div>
+      )}
     </Card>
   );
 
@@ -313,7 +332,11 @@ export default function Home() {
       )}
       className={expanded ? "xl:col-span-2" : ""}
     >
-      {alertRows.length === 0 ? (
+      {!canAccessMonitoring ? (
+        <div className="py-6">
+          <DataState state="info" tone="muted" title="Sem permissão para ver alertas" />
+        </div>
+      ) : alertRows.length === 0 ? (
         <div className="py-6">
           <DataState state="empty" tone="muted" title="Nenhum alerta ativo" />
         </div>
@@ -372,7 +395,11 @@ export default function Home() {
       )}
       className={expanded ? "xl:col-span-2" : ""}
     >
-      {conjugatedAlertRows.length === 0 ? (
+      {!canAccessMonitoring ? (
+        <div className="py-6">
+          <DataState state="info" tone="muted" title="Sem permissão para ver alertas conjugados" />
+        </div>
+      ) : conjugatedAlertRows.length === 0 ? (
         <div className="py-6">
           <DataState state="empty" tone="muted" title="Nenhum alerta crítico nas últimas 5 horas" />
         </div>
@@ -445,23 +472,23 @@ export default function Home() {
         />
         <StatCard
           title={t("home.inRoute")}
-          value={loadingPositions ? "…" : routeMetrics.totalWithRoute}
+          value={!canAccessMonitoring ? "—" : loadingPositions ? "…" : routeMetrics.totalWithRoute}
           hint={t("home.onRouteHint", { percent: percentage(routeMetrics.totalWithRoute, summary.total) })}
-          onClick={() => setSelectedCard("route")}
+          onClick={canAccessMonitoring ? () => setSelectedCard("route") : undefined}
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={pendingAlertsLoading ? "…" : alertRows.length}
+          value={!canAccessMonitoring ? "—" : pendingAlertsLoading ? "…" : alertRows.length}
           hint="Alertas ativos no monitoramento"
           variant="alert"
-          onClick={() => setSelectedCard("alert")}
+          onClick={canAccessMonitoring ? () => setSelectedCard("alert") : undefined}
         />
         <StatCard
           title="Alertas conjugados"
-          value={conjugatedAlertsLoading ? "…" : conjugatedAlertRows.length}
+          value={!canAccessMonitoring ? "—" : conjugatedAlertsLoading ? "…" : conjugatedAlertRows.length}
           hint="Alertas graves/críticos nas últimas 5 horas"
           variant="alert"
-          onClick={() => setSelectedCard("critical")}
+          onClick={canAccessMonitoring ? () => setSelectedCard("critical") : undefined}
         />
       </section>
 

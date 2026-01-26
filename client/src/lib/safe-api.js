@@ -65,6 +65,9 @@ async function request(
     if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 500) {
       friendly.permanent = true;
     }
+    if (statusCode === 403) {
+      friendly.forbidden = true;
+    }
     if (!Number.isFinite(statusCode) && baseError?.message?.includes?.("Failed to fetch")) {
       friendly.permanent = true;
     }

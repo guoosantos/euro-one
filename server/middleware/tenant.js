@@ -7,6 +7,10 @@ import { listVehicles } from "../models/vehicle.js";
 import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 function pickRequestedClientId(req, providedClientId) {
+  const ownerHeader = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
+  if (config.features?.mirrorMode && ownerHeader) {
+    return String(ownerHeader);
+  }
   if (providedClientId !== undefined && providedClientId !== null && providedClientId !== "") {
     return String(providedClientId);
   }
@@ -16,8 +20,6 @@ function pickRequestedClientId(req, providedClientId) {
   }
   const headerValue = req?.get ? req.get("X-Client-Id") : req?.headers?.["x-client-id"];
   if (headerValue) return String(headerValue);
-  const ownerHeader = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
-  if (ownerHeader) return String(ownerHeader);
   const bodyClientId = req?.body?.clientId;
   if (bodyClientId !== undefined && bodyClientId !== null && bodyClientId !== "") {
     return String(bodyClientId);
@@ -103,6 +105,18 @@ function logDeniedAccess({ user, requestedClientId, reason }) {
   });
 }
 
+function logMirrorApplied({ user, mirrorContext }) {
+  if (!mirrorContext) return;
+  console.debug("[tenant] mirror aplicado", {
+    userId: user?.id ? String(user.id) : null,
+    ownerClientId: mirrorContext.ownerClientId ? String(mirrorContext.ownerClientId) : null,
+    targetClientId: mirrorContext.targetClientId ? String(mirrorContext.targetClientId) : null,
+    mirrorId: mirrorContext.mirrorId ? String(mirrorContext.mirrorId) : null,
+    allowedVehicleCount: mirrorContext.vehicleIds?.length || 0,
+    allowedDeviceCount: mirrorContext.deviceIds?.length || 0,
+  });
+}
+
 export function resolveTenant(req, { requestedClientId, required = true } = {}) {
   if (!req?.user) {
     throw createError(401, "Sessão não autenticada");
@@ -121,6 +135,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.tenant = tenant;
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = existingMirror;
+    logMirrorApplied({ user, mirrorContext: existingMirror });
     return tenant;
   }
 
@@ -186,6 +201,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.tenant = tenant;
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = mirrorContext;
+    logMirrorApplied({ user, mirrorContext });
     return tenant;
   }
 

@@ -16,10 +16,12 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
+import DataState from "../ui/DataState.jsx";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -222,10 +224,13 @@ function Drawer({ open, onClose, title, description, children }) {
 
 export default function Devices() {
   const { tenantId, user } = useTenant();
+  const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
   const location = useLocation();
   const navigate = useNavigate();
   const { positions } = useLivePositions();
-  const { byId: traccarById, byUniqueId: traccarByUniqueId, loading: traccarLoading } = useTraccarDevices();
+  const { byId: traccarById, byUniqueId: traccarByUniqueId, loading: traccarLoading } = useTraccarDevices({
+    enabled: devicesPermission.hasAccess,
+  });
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [chips, setChips] = useState([]);
@@ -280,6 +285,7 @@ export default function Devices() {
   const [bulkImeiEnd, setBulkImeiEnd] = useState("");
   const [savingBulk, setSavingBulk] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
+  const [forbidden, setForbidden] = useState(false);
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
   const toastTimeoutRef = useRef(null);
@@ -332,8 +338,15 @@ export default function Devices() {
   };
 
   async function load() {
+    if (!devicesPermission.hasAccess) {
+      setForbidden(true);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
+    setForbidden(false);
     try {
       const clientId = tenantId || user?.clientId;
       const vehiclesParams = clientId ? { clientId } : {};
@@ -349,6 +362,12 @@ export default function Devices() {
       if (deviceResult.status === "fulfilled") {
         setDevices(normaliseListPayload(deviceResult.value));
       } else {
+        const status = deviceResult.reason?.response?.status ?? deviceResult.reason?.status;
+        if (status === 403) {
+          setForbidden(true);
+          setLoading(false);
+          return;
+        }
         throw deviceResult.reason || new Error("Falha ao carregar equipamentos");
       }
 
@@ -379,6 +398,12 @@ export default function Devices() {
         showToast(`Algumas listas não carregaram: ${warnings.join(", ")}.`, "warning");
       }
     } catch (requestError) {
+      const status = requestError?.response?.status ?? requestError?.status;
+      if (status === 403) {
+        setForbidden(true);
+        setError(null);
+        return;
+      }
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar dados"));
     } finally {
       setLoading(false);
@@ -386,10 +411,10 @@ export default function Devices() {
   }
 
   useEffect(() => {
-    if (resolvedClientId || user) {
+    if (!devicesPermission.loading && (resolvedClientId || user)) {
       load();
     }
-  }, [resolvedClientId, user]);
+  }, [devicesPermission.hasAccess, devicesPermission.loading, resolvedClientId, user]);
 
   useEffect(() => {
     setFilters({ status: "all", link: "all", model: "" });
@@ -1508,6 +1533,14 @@ export default function Devices() {
       : toast?.type === "warning"
       ? "border-amber-500/40 bg-amber-500/20 text-amber-50"
       : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50");
+
+  if ((forbidden || (!devicesPermission.loading && !devicesPermission.hasAccess)) && !devicesPermission.loading) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] items-center justify-center">
+        <DataState state="info" tone="muted" title="Sem permissão para acessar equipamentos" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">

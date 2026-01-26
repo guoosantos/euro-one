@@ -23,6 +23,7 @@ import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import usePageToast from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 
 const BRAND_COLORS = {
   fiat: "bg-red-500/20 text-red-200",
@@ -166,6 +167,7 @@ export default function Vehicles() {
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
   const { tenantId, user, tenants, hasAdminAccess } = useTenant();
+  const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
   const navigate = useNavigate();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -310,6 +312,7 @@ export default function Vehicles() {
 
   const { getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, getDeviceStatus } = useTraccarDevices({
     deviceIds: trackedDeviceIds,
+    enabled: vehiclesPermission.hasAccess,
   });
 
   const getVehicleAttributeList = (vehicle) => {
