@@ -1,6 +1,6 @@
-import { backfillMirrorPermissionGroups } from "../server/services/mirror-permission-backfill.js";
+import { backfillMirrorPermissions } from "../server/scripts/backfill-mirror-permissions.js";
 
-backfillMirrorPermissionGroups()
+backfillMirrorPermissions()
   .then((summary) => {
     console.info("[mirror] backfill concluído", summary);
   })
@@ -8,4 +8,3 @@ backfillMirrorPermissionGroups()
     console.error("[mirror] falha no backfill", error?.message || error);
     process.exitCode = 1;
   });
-

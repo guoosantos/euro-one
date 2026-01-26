@@ -278,6 +278,18 @@ async function bootstrapServer() {
       await runWithTimeout(() => storageModule.initStorage(), bootstrapTimeout, "initStorage");
     }
 
+    const mirrorPermissionsModule = await importWithLog("./scripts/backfill-mirror-permissions.js");
+    if (mirrorPermissionsModule?.backfillMirrorPermissions) {
+      try {
+        await mirrorPermissionsModule.backfillMirrorPermissions({ logger: console });
+      } catch (error) {
+        console.warn(
+          "[mirror] falha ao executar backfill de permissionGroupId",
+          error?.message || error,
+        );
+      }
+    }
+
     const prismaModule = await importWithLog("./services/prisma.js");
     if (prismaModule?.initPrismaEnv) {
       await runWithTimeout(() => prismaModule.initPrismaEnv(), bootstrapTimeout, "initPrismaEnv");
