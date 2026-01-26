@@ -223,7 +223,45 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
   };
 }
 
+export function authorizePermissionOrEmpty({
+  menuKey,
+  pageKey,
+  subKey,
+  requireFull = false,
+  emptyPayload,
+  allowMethods = ["GET", "HEAD"],
+}) {
+  return async (req, res, next) => {
+    try {
+      const context = await resolvePermissionContext(req);
+      const resolved =
+        context.level
+          ? { visible: true, access: context.level }
+          : resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
+
+      const hasAccess =
+        resolved.visible &&
+        resolved.access !== "none" &&
+        (!requireFull || resolved.access === "full");
+
+      if (hasAccess) {
+        return next();
+      }
+
+      if (allowMethods.includes(req.method)) {
+        const payload = typeof emptyPayload === "function" ? emptyPayload(req) : emptyPayload;
+        return res.status(200).json(payload ?? { data: [], total: 0 });
+      }
+
+      return next(createError(403, "Sem permissão para acessar este recurso"));
+    } catch (error) {
+      return next(error);
+    }
+  };
+}
+
 export default {
   authorizePermission,
+  authorizePermissionOrEmpty,
   resolvePermissionContext,
 };

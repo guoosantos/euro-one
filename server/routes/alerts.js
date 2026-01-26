@@ -8,6 +8,7 @@ import { fetchEventsWithFallback } from "../services/traccar-db.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { handleAlert, listAlerts } from "../services/alerts.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
+import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
 
 const router = express.Router();
 
@@ -62,7 +63,10 @@ router.get("/alerts", async (req, res, next) => {
       includeMirrorsForNonReceivers: false,
       mirrorContext: req.mirrorContext,
     });
-    const allowedVehicleIds = new Set(access.vehicles.map((vehicle) => String(vehicle.id)));
+    const effectiveVehicleIds = getEffectiveVehicleIds(req);
+    const allowedVehicleIds = new Set(
+      effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
+    );
     if (req.mirrorContext?.ownerClientId && req.query?.vehicleId) {
       const requested = String(req.query.vehicleId);
       if (!allowedVehicleIds.has(requested)) {
@@ -100,7 +104,10 @@ router.patch("/alerts/:id/handle", async (req, res, next) => {
         includeMirrorsForNonReceivers: false,
         mirrorContext: req.mirrorContext,
       });
-      const allowedVehicleIds = new Set(access.vehicles.map((vehicle) => String(vehicle.id)));
+      const effectiveVehicleIds = getEffectiveVehicleIds(req);
+      const allowedVehicleIds = new Set(
+        effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
+      );
       const existing = listAlerts({ clientId }).find(
         (alert) => String(alert.id) === String(id) || String(alert.eventId) === String(id),
       );
@@ -146,7 +153,10 @@ router.get("/alerts/conjugated", async (req, res, next) => {
       includeMirrorsForNonReceivers: false,
       mirrorContext: req.mirrorContext,
     });
-    const allowedVehicleIds = new Set(access.vehicles.map((vehicle) => String(vehicle.id)));
+    const effectiveVehicleIds = getEffectiveVehicleIds(req);
+    const allowedVehicleIds = new Set(
+      effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
+    );
     let devices = listDevices({ clientId });
     if (access.mirrorOwnerIds.length) {
       const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));

@@ -521,6 +521,9 @@ async function fetchLatestPositionsFromApi(deviceIds = [], context = {}) {
 }
 
 export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null) {
+  if (typeof testOverrides?.fetchLatestPositionsWithFallback === "function") {
+    return testOverrides.fetchLatestPositionsWithFallback(deviceIds, clientId);
+  }
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   let lastError = null;
 
@@ -990,6 +993,9 @@ async function fetchEventsFromApi(deviceIds = [], from, to, limit = 50, context 
 }
 
 export async function fetchEventsWithFallback(deviceIds = [], from, to, limit = 50) {
+  if (typeof testOverrides?.fetchEventsWithFallback === "function") {
+    return testOverrides.fetchEventsWithFallback(deviceIds, from, to, limit);
+  }
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   let lastError = null;
   const dbConfigured = isTraccarDbConfigured();
@@ -1017,6 +1023,9 @@ export async function fetchEventsWithFallback(deviceIds = [], from, to, limit = 
 }
 
 export async function fetchPositionsByIds(positionIds = []) {
+  if (typeof testOverrides?.fetchPositionsByIds === "function") {
+    return testOverrides.fetchPositionsByIds(positionIds);
+  }
   const filtered = Array.from(new Set((positionIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
@@ -1056,6 +1065,9 @@ export async function fetchPositionsByIds(positionIds = []) {
 }
 
 export async function fetchDevicesMetadata() {
+  if (typeof testOverrides?.fetchDevicesMetadata === "function") {
+    return testOverrides.fetchDevicesMetadata();
+  }
   const sql = `
     SELECT id, uniqueid, name, lastupdate, disabled, status
     FROM ${DEVICE_TABLE}

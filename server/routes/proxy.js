@@ -4,7 +4,7 @@ import createError from "http-errors";
 import { randomUUID } from "node:crypto";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { authorizePermission } from "../middleware/permissions.js";
+import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { resolveTenant } from "../middleware/tenant.js";
 import { getDeviceById, listDevices } from "../models/device.js";
@@ -56,6 +56,7 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
+import { getEffectiveClientId, getEffectiveVehicleIds } from "../utils/mirror-scope.js";
 import {
   generateActionsReportCsv,
   generatePositionsReportCsv,
@@ -2001,8 +2002,8 @@ function parsePositiveNumber(value, fallback) {
 
 
 async function resolveAccessibleDeviceContext(req) {
-  const tenant = req.tenant ?? resolveTenant(req, { requestedClientId: req.query?.clientId, required: false });
-  const clientId = tenant.clientIdResolved ?? null;
+  const tenant = resolveTenant(req, { requestedClientId: req.query?.clientId, required: false });
+  const clientId = getEffectiveClientId(req) ?? tenant.clientIdResolved ?? null;
   const access = await getAccessibleVehicles({
     user: req.user,
     clientId,
@@ -2010,7 +2011,10 @@ async function resolveAccessibleDeviceContext(req) {
     mirrorContext: tenant.mirrorContext ?? null,
   });
   const vehicles = access.vehicles;
-  const vehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
+  const effectiveVehicleIds = getEffectiveVehicleIds(req);
+  const vehicleIds = new Set(
+    (effectiveVehicleIds ?? vehicles.map((vehicle) => String(vehicle.id))).map(String),
+  );
   let devices = listDevices({ clientId });
   if (access.mirrorOwnerIds.length) {
     const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
@@ -2981,7 +2985,17 @@ router.patch(
 
 router.all(
   "/events",
-  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "report" }),
+  authorizePermissionOrEmpty({
+    menuKey: "primary",
+    pageKey: "events",
+    subKey: "report",
+    emptyPayload: {
+      data: { clientId: null, deviceIds: [], from: null, to: null, events: [] },
+      events: [],
+      meta: { page: 1, pageSize: 0, totalItems: 0, totalPages: 1 },
+      error: null,
+    },
+  }),
   (req, res, next) => handleEventsReport(req, res, next),
 );
 

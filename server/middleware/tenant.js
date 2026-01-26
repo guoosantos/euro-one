@@ -2,9 +2,9 @@ import createError from "http-errors";
 
 import { config } from "../config.js";
 import { listDevices } from "../models/device.js";
-import { getGroupById } from "../models/group.js";
 import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
+import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 function pickRequestedClientId(req, providedClientId) {
   if (providedClientId !== undefined && providedClientId !== null && providedClientId !== "") {
@@ -63,17 +63,6 @@ function isMirrorActive(mirror, now = new Date()) {
   return true;
 }
 
-function resolveMirrorVehicleIds(mirror) {
-  if (!mirror) return [];
-  if (mirror.vehicleGroupId) {
-    const group = getGroupById(mirror.vehicleGroupId);
-    if (Array.isArray(group?.attributes?.vehicleIds)) {
-      return group.attributes.vehicleIds.map(String);
-    }
-  }
-  return Array.isArray(mirror.vehicleIds) ? mirror.vehicleIds.map(String) : [];
-}
-
 function resolveMirrorContext({ user, ownerClientId }) {
   if (!config.features?.mirrorMode) return null;
   if (!user?.clientId || !ownerClientId) return null;
@@ -94,11 +83,12 @@ function resolveMirrorContext({ user, ownerClientId }) {
     .map((device) => String(device.id));
 
   return {
+    mode: "target",
     ownerClientId: String(ownerClientId),
     targetClientId: String(user.clientId),
     mirrorId: String(mirror.id),
     permissionGroupId: mirror.permissionGroupId ?? null,
-    vehicleIds: allowedVehicles.map((vehicle) => String(vehicle.id)),
+    vehicleIds: vehicleIds.map(String),
     vehicleGroupId: mirror.vehicleGroupId ?? null,
     deviceIds,
   };
