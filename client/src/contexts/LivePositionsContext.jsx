@@ -7,6 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -18,14 +19,17 @@ function normalise(payload) {
 const LivePositionsContext = createContext({ data: [], positions: [], loading: false, error: null, refresh: () => {} });
 
 export function LivePositionsProvider({ children, interval = 60_000 }) {
-  const { tenantId, isAuthenticated } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
   const { t } = useTranslation();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
   const canAccessMonitoring = monitoringPermission.hasAccess;
 
-  const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
+  const params = useMemo(
+    () => resolveMirrorClientParams({ tenantId, mirrorContextMode }),
+    [mirrorContextMode, tenantId],
+  );
 
   const fetchPositions = useCallback(async () => {
     if (!canAccessMonitoring) return [];
@@ -53,7 +57,7 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
     intervalMs: autoRefresh.intervalMs,
     enabled: isAuthenticated && canAccessMonitoring,
     paused: autoRefresh.paused,
-    dependencies: [canAccessMonitoring, tenantId, isAuthenticated],
+    dependencies: [canAccessMonitoring, mirrorContextMode, tenantId, isAuthenticated],
     resetOnChange: true,
   });
 

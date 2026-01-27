@@ -357,6 +357,13 @@ export function TenantProvider({ children }) {
   }, [activeMirrorOwnerClientId, user]);
 
   useEffect(() => {
+    if (mirrorContextMode !== "target") return;
+    if (tenantId === null || tenantId === undefined) return;
+    if (String(activeMirrorOwnerClientId ?? "") === String(tenantId)) return;
+    setActiveMirrorOwnerClientId(tenantId);
+  }, [activeMirrorOwnerClientId, mirrorContextMode, tenantId]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!user || !token) return () => {};
     if (user.role === "admin" && tenantId === null) {

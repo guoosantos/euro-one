@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoreApi } from "../coreApi.js";
 import { useTenant } from "../tenant-context.jsx";
+import { resolveMirrorClientParams } from "../mirror-params.js";
 import { getDeviceKey, toDeviceKey } from "./useDevices.helpers.js";
 
 const vehiclesCache = new Map();
@@ -73,8 +74,8 @@ export function formatVehicleLabel(vehicle) {
 }
 
 export function useVehicles({ includeUnlinked = false, accessible = true, enabled = true } = {}) {
-  const { tenantId } = useTenant();
-  const cacheKey = `${tenantId ?? "all"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
+  const { tenantId, mirrorContextMode } = useTenant();
+  const cacheKey = `${tenantId ?? "all"}:${mirrorContextMode ?? "self"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
   const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -94,7 +95,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
     setLoading(true);
     setError(null);
     try {
-      const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
+      const params = resolveMirrorClientParams({ tenantId, mirrorContextMode }) || {};
       if (includeUnlinked) {
         params.includeUnlinked = true;
       }
@@ -139,7 +140,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
     } finally {
       setLoading(false);
     }
-  }, [accessible, cacheKey, enabled, includeUnlinked, tenantId]);
+  }, [accessible, cacheKey, enabled, includeUnlinked, mirrorContextMode, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});
