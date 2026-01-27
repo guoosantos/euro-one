@@ -287,7 +287,7 @@ async function request({
   const storedSession = getStoredSession();
   const userClientId = storedSession?.user?.clientId ?? null;
   const mirrorOwnerClientId = resolveMirrorOwnerClientId(storedSession);
-  // Em modo mirror target, forçamos o clientId do OWNER para garantir dados espelhados.
+  // Em modo mirror, anexamos o clientId do OWNER apenas para rotas allowlisted de leitura.
   const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId });
 
   const finalUrl = buildUrl(url, nextParams, { apiPrefix });

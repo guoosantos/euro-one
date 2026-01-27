@@ -47,6 +47,37 @@ export function enforceUserAccess(req) {
   if (!isWithinSchedule(schedule)) {
     throw createError(403, "Acesso bloqueado fora do horário permitido");
   }
+
+  const hasTenantMismatch =
+    req.clientId &&
+    user.clientId &&
+    String(req.clientId) !== String(user.clientId);
+  if (hasTenantMismatch) {
+    const isMirrorRead =
+      req.mirrorContext?.mode === "target" && ["GET", "HEAD"].includes(req.method);
+    const accessType = req.tenant?.accessType;
+    const hasExplicitAccess = accessType === "linked" || accessType === "admin";
+    if (isMirrorRead && accessType === "mirror") {
+      if (process.env.DEBUG_MIRROR === "true") {
+        console.info("[user-access] bypass tenant check for mirror read", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          userId: user?.id ? String(user.id) : null,
+          userClientId: user?.clientId ? String(user.clientId) : null,
+          ownerClientId: req.mirrorContext?.ownerClientId ? String(req.mirrorContext.ownerClientId) : null,
+          targetClientId: req.mirrorContext?.targetClientId ? String(req.mirrorContext.targetClientId) : null,
+          mirrorId: req.mirrorContext?.mirrorId ? String(req.mirrorContext.mirrorId) : null,
+        });
+      }
+      return;
+    }
+    if (!hasExplicitAccess && accessType !== "mirror") {
+      throw createError(403, "Sem acesso");
+    }
+    if (accessType === "mirror" && !isMirrorRead) {
+      throw createError(403, "Sem acesso");
+    }
+  }
 }
 
 export default enforceUserAccess;
