@@ -43,6 +43,7 @@ function resolveClientType(client) {
   return (
     client?.attributes?.clientProfile?.clientType
     || client?.attributes?.clientType
+    || client?.attributes?.segment
     || ""
   );
 }

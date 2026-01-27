@@ -14,7 +14,12 @@ const RECEIVER_TYPES = new Set([
 ]);
 
 function resolveClientType(client) {
-  return client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
+  return (
+    client?.attributes?.clientProfile?.clientType
+    || client?.attributes?.clientType
+    || client?.attributes?.segment
+    || ""
+  );
 }
 
 function isReceiverType(clientType) {
