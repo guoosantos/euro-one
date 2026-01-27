@@ -1,6 +1,6 @@
 import express from "express";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 import { authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { listDevices } from "../models/device.js";
@@ -57,7 +57,6 @@ export function filterAlertsByVehicleAccess(alerts = [], allowedVehicleIds = nul
 
 router.get(
   "/alerts",
-  requireRole("user", "manager", "admin"),
   authorizePermissionOrEmpty({
     menuKey: "primary",
     pageKey: "monitoring",
@@ -157,7 +156,6 @@ router.patch("/alerts/:id/handle", async (req, res, next) => {
 
 router.get(
   "/alerts/conjugated",
-  requireRole("user", "manager", "admin"),
   authorizePermissionOrEmpty({
     menuKey: "primary",
     pageKey: "monitoring",
