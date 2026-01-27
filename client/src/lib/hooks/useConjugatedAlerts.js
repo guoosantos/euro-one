@@ -24,8 +24,8 @@ export function useConjugatedAlerts({
   const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
+    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const fetchAlerts = useCallback(async () => {

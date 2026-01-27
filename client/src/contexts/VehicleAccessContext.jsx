@@ -35,8 +35,8 @@ export function VehicleAccessProvider({ children }) {
   const [error, setError] = useState(null);
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
+    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const loadVehicles = useCallback(async () => {
