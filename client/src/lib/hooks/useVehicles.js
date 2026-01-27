@@ -74,8 +74,9 @@ export function formatVehicleLabel(vehicle) {
 }
 
 export function useVehicles({ includeUnlinked = false, accessible = true, enabled = true } = {}) {
-  const { tenantId, mirrorContextMode } = useTenant();
-  const cacheKey = `${tenantId ?? "all"}:${mirrorContextMode ?? "self"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
+  const { tenantId, mirrorContextMode, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const cacheKey = `${tenantId ?? "all"}:${mirrorContextMode ?? "self"}:${mirrorOwnerClientId ?? "none"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
   const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -95,7 +96,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
     setLoading(true);
     setError(null);
     try {
-      const params = resolveMirrorClientParams({ tenantId, mirrorContextMode }) || {};
+      const params = resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId }) || {};
       if (includeUnlinked) {
         params.includeUnlinked = true;
       }
@@ -140,7 +141,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
     } finally {
       setLoading(false);
     }
-  }, [accessible, cacheKey, enabled, includeUnlinked, mirrorContextMode, tenantId]);
+  }, [accessible, cacheKey, enabled, includeUnlinked, mirrorContextMode, mirrorOwnerClientId, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});

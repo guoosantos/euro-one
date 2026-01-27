@@ -35,8 +35,8 @@ export function VehicleAccessProvider({ children }) {
   const [error, setError] = useState(null);
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
-    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const loadVehicles = useCallback(async () => {
@@ -48,7 +48,7 @@ export function VehicleAccessProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const params = resolveMirrorClientParams({ tenantId, mirrorContextMode }) || {};
+      const params = resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId }) || {};
       const payload = await CoreApi.listAccessibleVehicles(params, { headers: mirrorHeaders });
       const vehicles = normaliseListPayload(payload);
       const restricted = Boolean(payload?.meta?.restricted);
@@ -59,7 +59,7 @@ export function VehicleAccessProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, mirrorContextMode, mirrorHeaders, tenantId]);
+  }, [isAuthenticated, mirrorContextMode, mirrorHeaders, mirrorOwnerClientId, tenantId]);
 
   useEffect(() => {
     loadVehicles().catch(() => {});

@@ -24,8 +24,8 @@ export function useConjugatedAlerts({
   const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
-    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const fetchAlerts = useCallback(async () => {
@@ -40,7 +40,7 @@ export function useConjugatedAlerts({
     try {
       const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
       const response = await safeApi.get(API_ROUTES.alertsConjugated, {
-        params: resolveMirrorClientParams({ params: parsedParams, tenantId, mirrorContextMode }),
+        params: resolveMirrorClientParams({ params: parsedParams, tenantId, mirrorContextMode, mirrorOwnerClientId }),
         headers: mirrorHeaders,
         suppressForbidden: true,
         forbiddenFallbackData: [],
@@ -62,7 +62,7 @@ export function useConjugatedAlerts({
     } finally {
       setLoading(false);
     }
-  }, [canAccessAlerts, enabled, mirrorContextMode, mirrorHeaders, paramsKey, tenantId]);
+  }, [canAccessAlerts, enabled, mirrorContextMode, mirrorHeaders, mirrorOwnerClientId, paramsKey, tenantId]);
 
   useEffect(() => {
     let timer;

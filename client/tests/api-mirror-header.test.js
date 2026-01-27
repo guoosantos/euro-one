@@ -116,7 +116,7 @@ test("api não adiciona X-Owner-Client-Id quando mirror não está ativo", async
   assert.equal(headerValue, null);
 });
 
-test("api não adiciona X-Owner-Client-Id quando mirrorContextMode não é target", async () => {
+test("api não adiciona X-Owner-Client-Id para endpoints fora da allowlist", async () => {
   setupDom();
   setStoredSession({
     token: "token",
@@ -133,7 +133,7 @@ test("api não adiciona X-Owner-Client-Id quando mirrorContextMode não é targe
     });
   };
 
-  await api.get("/alerts");
+  await api.get("/session");
 
   assert.equal(headerValue, null);
 });

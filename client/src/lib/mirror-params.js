@@ -1,5 +1,18 @@
-export function resolveMirrorClientParams({ params, tenantId, mirrorContextMode } = {}) {
+export function resolveMirrorClientParams({ params, tenantId, mirrorContextMode, mirrorOwnerClientId } = {}) {
   const baseParams = params && typeof params === "object" ? { ...params } : {};
+
+  if (mirrorOwnerClientId) {
+    if (Object.prototype.hasOwnProperty.call(baseParams, "clientId")) {
+      delete baseParams.clientId;
+    }
+    if (Object.prototype.hasOwnProperty.call(baseParams, "tenantId")) {
+      delete baseParams.tenantId;
+    }
+    if (Object.prototype.hasOwnProperty.call(baseParams, "ownerClientId")) {
+      delete baseParams.ownerClientId;
+    }
+    return Object.keys(baseParams).length ? baseParams : undefined;
+  }
 
   if (mirrorContextMode === "target") {
     if (Object.prototype.hasOwnProperty.call(baseParams, "clientId")) {
@@ -33,8 +46,8 @@ export function resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClien
   return String(mirrorOwnerClientId);
 }
 
-export function resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode } = {}) {
-  const ownerClientId = resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode });
+export function resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId } = {}) {
+  const ownerClientId = resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId });
   if (!ownerClientId) return undefined;
   return { "X-Owner-Client-Id": ownerClientId };
 }

@@ -32,14 +32,14 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
 
-  const params = useMemo(
-    () => resolveMirrorClientParams({ tenantId, mirrorContextMode }),
-    [mirrorContextMode, tenantId],
-  );
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const params = useMemo(
+    () => resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId }),
+    [mirrorContextMode, mirrorOwnerClientId, tenantId],
+  );
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
-    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const { data, loading, error, lastUpdated, refresh } = usePolling(

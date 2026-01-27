@@ -26,14 +26,14 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
   const canAccessMonitoring = monitoringPermission.hasAccess;
 
-  const params = useMemo(
-    () => resolveMirrorClientParams({ tenantId, mirrorContextMode }),
-    [mirrorContextMode, tenantId],
-  );
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const params = useMemo(
+    () => resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId }),
+    [mirrorContextMode, mirrorOwnerClientId, tenantId],
+  );
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
-    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const fetchPositions = useCallback(async () => {

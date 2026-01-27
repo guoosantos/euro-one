@@ -27,13 +27,13 @@ export function DevicesProvider({ children, interval = 60_000 }) {
   const canAccessDevices = devicesPermission.hasAccess;
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
-    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const fetchDevices = useCallback(async () => {
     if (!canAccessDevices) return [];
-    const params = resolveMirrorClientParams({ tenantId, mirrorContextMode });
+    const params = resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId });
     const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, {
       params,
       headers: mirrorHeaders,
@@ -56,7 +56,7 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
         }))
       : [];
-  }, [canAccessDevices, mirrorContextMode, mirrorHeaders, t, tenantId]);
+  }, [canAccessDevices, mirrorContextMode, mirrorHeaders, mirrorOwnerClientId, t, tenantId]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchDevices,
