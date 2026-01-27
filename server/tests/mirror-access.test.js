@@ -87,7 +87,7 @@ async function callAlertsConjugated({ clientId }) {
   return { status: response.status, payload };
 }
 
-async function callAlerts({ clientId, token }) {
+async function callAlerts({ clientId, token, headers = {} }) {
   const app = express();
   app.use(express.json());
   app.use("/api", alertRoutes);
@@ -96,7 +96,7 @@ async function callAlerts({ clientId, token }) {
   const server = app.listen(0);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const response = await fetch(`${baseUrl}/api/alerts?clientId=${clientId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...headers },
   });
   const payload = await response.json();
   server.close();
@@ -193,6 +193,24 @@ describe("/api/alerts", () => {
 
     const token = signSession({ id: "user-alerts", role: "user", clientId: receiverId });
     const { status, payload } = await callAlerts({ clientId: ownerId, token });
+
+    assert.equal(status, 200);
+    assert.deepEqual(payload.data, []);
+    assert.equal(payload.total, 0);
+  });
+
+  it("retorna 200 quando X-Owner-Client-Id está presente no mirror", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-alerts-header";
+    const receiverId = "receiver-alerts-header";
+    buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: ["veh-x"] });
+
+    const token = signSession({ id: "user-alerts-header", role: "user", clientId: receiverId });
+    const { status, payload } = await callAlerts({
+      clientId: ownerId,
+      token,
+      headers: { "X-Owner-Client-Id": ownerId },
+    });
 
     assert.equal(status, 200);
     assert.deepEqual(payload.data, []);
