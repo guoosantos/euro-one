@@ -48,6 +48,32 @@ test("api adiciona X-Owner-Client-Id em chamadas do modo espelho", async () => {
   assert.deepEqual(captured, ["owner-123", "owner-123", "owner-123", "owner-123"]);
 });
 
+test("api substitui clientId explícito pelo owner em modo espelho", async () => {
+  setupDom();
+  setStoredSession({
+    token: "token",
+    user: { id: "user-5", role: "user", activeMirrorOwnerClientId: "owner-555", mirrorContextMode: "target" },
+  });
+
+  let capturedUrl = "";
+  globalThis.fetch = async (url) => {
+    capturedUrl = String(url);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await api.get("/positions/last", {
+    params: { clientId: "target-1", tenantId: "target-2", foo: "bar" },
+  });
+
+  const parsed = new URL(capturedUrl);
+  assert.equal(parsed.searchParams.get("clientId"), "owner-555");
+  assert.equal(parsed.searchParams.get("tenantId"), null);
+  assert.equal(parsed.searchParams.get("foo"), "bar");
+});
+
 test("api envia X-Owner-Client-Id com mirrorContextMode indefinido quando owner está salvo", async () => {
   const dom = setupDom();
   dom.window.localStorage.setItem("euro-one.mirror.owner-client-id", "owner-storage-1");

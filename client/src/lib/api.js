@@ -193,8 +193,20 @@ function shouldAttachMirrorClientId(targetPath) {
   return MIRROR_QUERY_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
 }
 
-function hasExplicitClientParam(params) {
-  return Boolean(params?.clientId || params?.tenantId || params?.ownerClientId);
+function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url }) {
+  if (!mirrorOwnerClientId || !shouldAttachMirrorClientId(url)) return params;
+  const nextParams = params && typeof params === "object" ? { ...params } : {};
+  if (Object.prototype.hasOwnProperty.call(nextParams, "clientId")) {
+    delete nextParams.clientId;
+  }
+  if (Object.prototype.hasOwnProperty.call(nextParams, "tenantId")) {
+    delete nextParams.tenantId;
+  }
+  if (Object.prototype.hasOwnProperty.call(nextParams, "ownerClientId")) {
+    delete nextParams.ownerClientId;
+  }
+  nextParams.clientId = mirrorOwnerClientId;
+  return nextParams;
 }
 
 function buildUrl(path, params, { apiPrefix = true } = {}) {
@@ -261,10 +273,8 @@ async function request({
 
   const storedSession = getStoredSession();
   const mirrorOwnerClientId = resolveMirrorOwnerClientId(storedSession);
-  // Em modo mirror target, injetamos o clientId do OWNER para garantir dados espelhados.
-  const shouldAttachMirrorQuery =
-    mirrorOwnerClientId && shouldAttachMirrorClientId(url) && !hasExplicitClientParam(params);
-  const nextParams = shouldAttachMirrorQuery ? { ...(params || {}), clientId: mirrorOwnerClientId } : params;
+  // Em modo mirror target, forçamos o clientId do OWNER para garantir dados espelhados.
+  const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url });
 
   const finalUrl = buildUrl(url, nextParams, { apiPrefix });
   const resolvedHeaders = new Headers(headers);
