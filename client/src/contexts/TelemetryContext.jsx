@@ -5,7 +5,7 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
-import { resolveMirrorClientParams } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
 
 function normaliseTelemetry(payload) {
   if (Array.isArray(payload)) return payload;
@@ -28,7 +28,7 @@ const TelemetryContext = createContext({
 const ENABLE_WEBSOCKET = false;
 
 export function TelemetryProvider({ children, interval = 60_000 }) {
-  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
 
@@ -36,12 +36,20 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
     () => resolveMirrorClientParams({ tenantId, mirrorContextMode }),
     [mirrorContextMode, tenantId],
   );
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
 
   const { data, loading, error, lastUpdated, refresh } = usePolling(
     async () => {
       if (!isAuthenticated) return { telemetry: [], warnings: [] };
 
-      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.core.telemetry, { params });
+      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.core.telemetry, {
+        params,
+        headers: mirrorHeaders,
+      });
       if (requestError) throw requestError;
 
       const normalisedTelemetry = normaliseTelemetry(payload);
@@ -57,7 +65,7 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
       enabled: isAuthenticated,
       intervalMs: autoRefresh.intervalMs,
       paused: autoRefresh.paused,
-      dependencies: [mirrorContextMode, tenantId, isAuthenticated],
+      dependencies: [mirrorContextMode, mirrorHeaders, tenantId, isAuthenticated],
       resetOnChange: true,
     },
   );

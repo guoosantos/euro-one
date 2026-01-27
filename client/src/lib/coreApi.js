@@ -56,11 +56,12 @@ export const CoreApi = {
     const data = await http("vehicles", { params });
     return normaliseListPayload(data);
   },
-  listAccessibleVehicles: async (params) => {
+  listAccessibleVehicles: async (params, options = {}) => {
     const response = await api.request({
       method: "GET",
       url: `${CORE_BASE}/vehicles`,
       params: { ...(params || {}), accessible: true },
+      headers: options?.headers,
     });
     return response?.data ?? null;
   },

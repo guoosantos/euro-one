@@ -4,20 +4,25 @@ import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTenant } from "../tenant-context.jsx";
 import { usePermissionGate } from "../permissions/permission-gate.js";
-import { resolveMirrorClientParams } from "../mirror-params.js";
+import { resolveMirrorClientParams, resolveMirrorHeaders } from "../mirror-params.js";
 
 export function useAlerts({
   params = {},
   refreshInterval = 30_000,
   enabled = true,
 } = {}) {
-  const { tenantId, mirrorContextMode } = useTenant();
+  const { tenantId, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
   const alertsPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring", subKey: "alerts" });
   const canAccessAlerts = alertsPermission.hasAccess;
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
 
   const fetchAlerts = useCallback(async () => {
     if (!enabled || !canAccessAlerts) {
@@ -32,6 +37,7 @@ export function useAlerts({
       const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
       const response = await safeApi.get(API_ROUTES.alerts, {
         params: resolveMirrorClientParams({ params: parsedParams, tenantId, mirrorContextMode }),
+        headers: mirrorHeaders,
         suppressForbidden: true,
         forbiddenFallbackData: [],
       });
@@ -52,7 +58,7 @@ export function useAlerts({
     } finally {
       setLoading(false);
     }
-  }, [canAccessAlerts, enabled, mirrorContextMode, paramsKey, tenantId]);
+  }, [canAccessAlerts, enabled, mirrorContextMode, mirrorHeaders, paramsKey, tenantId]);
 
   useEffect(() => {
     let timer;
