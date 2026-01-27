@@ -4,13 +4,14 @@ import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTenant } from "../tenant-context.jsx";
 import { usePermissionGate } from "../permissions/permission-gate.js";
+import { resolveMirrorClientParams } from "../mirror-params.js";
 
 export function useAlerts({
   params = {},
   refreshInterval = 30_000,
   enabled = true,
 } = {}) {
-  const { tenantId } = useTenant();
+  const { tenantId, mirrorContextMode } = useTenant();
   const alertsPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring", subKey: "alerts" });
   const canAccessAlerts = alertsPermission.hasAccess;
   const [data, setData] = useState([]);
@@ -30,10 +31,7 @@ export function useAlerts({
     try {
       const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
       const response = await safeApi.get(API_ROUTES.alerts, {
-        params: {
-          ...parsedParams,
-          clientId: parsedParams.clientId ?? tenantId,
-        },
+        params: resolveMirrorClientParams({ params: parsedParams, tenantId, mirrorContextMode }),
         suppressForbidden: true,
         forbiddenFallbackData: [],
       });
@@ -54,7 +52,7 @@ export function useAlerts({
     } finally {
       setLoading(false);
     }
-  }, [canAccessAlerts, enabled, paramsKey, tenantId]);
+  }, [canAccessAlerts, enabled, mirrorContextMode, paramsKey, tenantId]);
 
   useEffect(() => {
     let timer;

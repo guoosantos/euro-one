@@ -7,6 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 function normaliseDeviceList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -19,7 +20,7 @@ const DevicesContext = createContext({ data: [], devices: [], loading: false, er
 
 export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
-  const { tenantId, isAuthenticated } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
   const { accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
@@ -27,7 +28,7 @@ export function DevicesProvider({ children, interval = 60_000 }) {
 
   const fetchDevices = useCallback(async () => {
     if (!canAccessDevices) return [];
-    const params = tenantId ? { clientId: tenantId } : undefined;
+    const params = resolveMirrorClientParams({ tenantId, mirrorContextMode });
     const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, { params });
     if (apiError) {
       const status = Number(apiError?.response?.status ?? apiError?.status);
@@ -47,14 +48,14 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
         }))
       : [];
-  }, [canAccessDevices, t, tenantId]);
+  }, [canAccessDevices, mirrorContextMode, t, tenantId]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchDevices,
     intervalMs: autoRefresh.intervalMs,
     enabled: isAuthenticated && canAccessDevices,
     paused: autoRefresh.paused,
-    dependencies: [canAccessDevices, tenantId, isAuthenticated],
+    dependencies: [canAccessDevices, mirrorContextMode, tenantId, isAuthenticated],
     resetOnChange: true,
   });
 

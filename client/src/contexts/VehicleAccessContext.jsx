@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 const VehicleAccessContext = createContext({
   accessibleVehicles: [],
@@ -27,7 +28,7 @@ function extractDeviceIds(vehicles) {
 }
 
 export function VehicleAccessProvider({ children }) {
-  const { tenantId, isAuthenticated } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
   const [accessibleVehicles, setAccessibleVehicles] = useState([]);
   const [isRestricted, setIsRestricted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -42,7 +43,7 @@ export function VehicleAccessProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
+      const params = resolveMirrorClientParams({ tenantId, mirrorContextMode }) || {};
       const payload = await CoreApi.listAccessibleVehicles(params);
       const vehicles = normaliseListPayload(payload);
       const restricted = Boolean(payload?.meta?.restricted);
@@ -53,7 +54,7 @@ export function VehicleAccessProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, tenantId]);
+  }, [isAuthenticated, mirrorContextMode, tenantId]);
 
   useEffect(() => {
     loadVehicles().catch(() => {});

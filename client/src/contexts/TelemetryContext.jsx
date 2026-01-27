@@ -5,6 +5,7 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 function normaliseTelemetry(payload) {
   if (Array.isArray(payload)) return payload;
@@ -27,11 +28,14 @@ const TelemetryContext = createContext({
 const ENABLE_WEBSOCKET = false;
 
 export function TelemetryProvider({ children, interval = 60_000 }) {
-  const { tenantId, isAuthenticated } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
 
-  const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
+  const params = useMemo(
+    () => resolveMirrorClientParams({ tenantId, mirrorContextMode }),
+    [mirrorContextMode, tenantId],
+  );
 
   const { data, loading, error, lastUpdated, refresh } = usePolling(
     async () => {
@@ -53,7 +57,7 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
       enabled: isAuthenticated,
       intervalMs: autoRefresh.intervalMs,
       paused: autoRefresh.paused,
-      dependencies: [tenantId, isAuthenticated],
+      dependencies: [mirrorContextMode, tenantId, isAuthenticated],
       resetOnChange: true,
     },
   );
