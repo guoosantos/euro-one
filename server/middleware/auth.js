@@ -69,14 +69,25 @@ export async function authenticate(req, _res, next) {
     return next(createError(401, "Token inválido ou expirado"));
   }
   try {
-    enforceUserAccess(req);
-  } catch (accessError) {
-    return next(accessError);
-  }
-  try {
     resolveTenant(req, { required: false });
   } catch (tenantError) {
     return next(tenantError);
+  }
+  if (process.env.DEBUG_MIRROR === "true" && req.mirrorContext) {
+    console.info("[auth] mirror resolved", {
+      path: req.originalUrl || req.url,
+      method: req.method,
+      userId: req.user?.id ? String(req.user.id) : null,
+      userClientId: req.user?.clientId ? String(req.user.clientId) : null,
+      ownerClientId: req.mirrorContext?.ownerClientId ? String(req.mirrorContext.ownerClientId) : null,
+      targetClientId: req.mirrorContext?.targetClientId ? String(req.mirrorContext.targetClientId) : null,
+      mirrorId: req.mirrorContext?.mirrorId ? String(req.mirrorContext.mirrorId) : null,
+    });
+  }
+  try {
+    enforceUserAccess(req);
+  } catch (accessError) {
+    return next(accessError);
   }
   return next();
 }

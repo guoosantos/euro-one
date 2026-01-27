@@ -40,9 +40,14 @@ export function resolveMirrorClientParams({ params, tenantId, mirrorContextMode,
   return Object.keys(baseParams).length ? baseParams : undefined;
 }
 
-export function resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId } = {}) {
+export function resolveMirrorOwnerClientId({
+  mirrorModeEnabled,
+  mirrorOwnerClientId,
+  mirrorContextMode,
+} = {}) {
   if (!mirrorOwnerClientId) return null;
   if (mirrorModeEnabled === false) return null;
+  if (mirrorContextMode && mirrorContextMode !== "target") return null;
   return String(mirrorOwnerClientId);
 }
 
