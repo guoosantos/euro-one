@@ -27,4 +27,15 @@ export function resolveMirrorClientParams({ params, tenantId, mirrorContextMode 
   return Object.keys(baseParams).length ? baseParams : undefined;
 }
 
+export function resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId } = {}) {
+  if (!mirrorModeEnabled || !mirrorOwnerClientId) return null;
+  return String(mirrorOwnerClientId);
+}
+
+export function resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId } = {}) {
+  const ownerClientId = resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId });
+  if (!ownerClientId) return undefined;
+  return { "X-Owner-Client-Id": ownerClientId };
+}
+
 export default resolveMirrorClientParams;

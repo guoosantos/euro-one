@@ -7,7 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
-import { resolveMirrorClientParams } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -19,7 +19,7 @@ function normalise(payload) {
 const LivePositionsContext = createContext({ data: [], positions: [], loading: false, error: null, refresh: () => {} });
 
 export function LivePositionsProvider({ children, interval = 60_000 }) {
-  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
   const { t } = useTranslation();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
@@ -30,11 +30,17 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
     () => resolveMirrorClientParams({ tenantId, mirrorContextMode }),
     [mirrorContextMode, tenantId],
   );
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
 
   const fetchPositions = useCallback(async () => {
     if (!canAccessMonitoring) return [];
     const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, {
       params,
+      headers: mirrorHeaders,
       suppressForbidden: true,
       forbiddenFallbackData: [],
     });
@@ -50,14 +56,14 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
       throw normalised;
     }
     return normalise(payload);
-  }, [canAccessMonitoring, params, t]);
+  }, [canAccessMonitoring, mirrorHeaders, params, t]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchPositions,
     intervalMs: autoRefresh.intervalMs,
     enabled: isAuthenticated && canAccessMonitoring,
     paused: autoRefresh.paused,
-    dependencies: [canAccessMonitoring, mirrorContextMode, tenantId, isAuthenticated],
+    dependencies: [canAccessMonitoring, mirrorContextMode, mirrorHeaders, tenantId, isAuthenticated],
     resetOnChange: true,
   });
 

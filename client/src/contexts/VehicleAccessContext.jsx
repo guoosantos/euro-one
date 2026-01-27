@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-import { resolveMirrorClientParams } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
 
 const VehicleAccessContext = createContext({
   accessibleVehicles: [],
@@ -28,11 +28,16 @@ function extractDeviceIds(vehicles) {
 }
 
 export function VehicleAccessProvider({ children }) {
-  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
   const [accessibleVehicles, setAccessibleVehicles] = useState([]);
   const [isRestricted, setIsRestricted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
 
   const loadVehicles = useCallback(async () => {
     if (!isAuthenticated) {
@@ -44,7 +49,7 @@ export function VehicleAccessProvider({ children }) {
     setError(null);
     try {
       const params = resolveMirrorClientParams({ tenantId, mirrorContextMode }) || {};
-      const payload = await CoreApi.listAccessibleVehicles(params);
+      const payload = await CoreApi.listAccessibleVehicles(params, { headers: mirrorHeaders });
       const vehicles = normaliseListPayload(payload);
       const restricted = Boolean(payload?.meta?.restricted);
       setAccessibleVehicles(vehicles);
@@ -54,7 +59,7 @@ export function VehicleAccessProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, mirrorContextMode, tenantId]);
+  }, [isAuthenticated, mirrorContextMode, mirrorHeaders, tenantId]);
 
   useEffect(() => {
     loadVehicles().catch(() => {});

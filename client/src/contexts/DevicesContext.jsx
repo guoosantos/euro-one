@@ -7,7 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
-import { resolveMirrorClientParams } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
 
 function normaliseDeviceList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -20,16 +20,24 @@ const DevicesContext = createContext({ data: [], devices: [], loading: false, er
 
 export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
-  const { tenantId, isAuthenticated, mirrorContextMode } = useTenant();
+  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
   const { accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
   const canAccessDevices = devicesPermission.hasAccess;
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
 
   const fetchDevices = useCallback(async () => {
     if (!canAccessDevices) return [];
     const params = resolveMirrorClientParams({ tenantId, mirrorContextMode });
-    const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, { params });
+    const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, {
+      params,
+      headers: mirrorHeaders,
+    });
     if (apiError) {
       const status = Number(apiError?.response?.status ?? apiError?.status);
       const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadDevices");
@@ -48,14 +56,14 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
         }))
       : [];
-  }, [canAccessDevices, mirrorContextMode, t, tenantId]);
+  }, [canAccessDevices, mirrorContextMode, mirrorHeaders, t, tenantId]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchDevices,
     intervalMs: autoRefresh.intervalMs,
     enabled: isAuthenticated && canAccessDevices,
     paused: autoRefresh.paused,
-    dependencies: [canAccessDevices, mirrorContextMode, tenantId, isAuthenticated],
+    dependencies: [canAccessDevices, mirrorContextMode, mirrorHeaders, tenantId, isAuthenticated],
     resetOnChange: true,
   });
 
