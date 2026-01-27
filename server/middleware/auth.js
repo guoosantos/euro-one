@@ -106,6 +106,37 @@ export function requireRole(...roles) {
     if (role === "manager" && allowed.includes("user")) {
       return next();
     }
+    const isMirrorRead =
+      req.mirrorContext?.mode === "target" && ["GET", "HEAD"].includes(req.method);
+    if (isMirrorRead) {
+      if (process.env.DEBUG_MIRROR === "true") {
+        console.info("[auth] bypass requireRole for mirror read", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          role,
+          allowed,
+          mirrorId: req.mirrorContext?.mirrorId ? String(req.mirrorContext.mirrorId) : null,
+          ownerClientId: req.mirrorContext?.ownerClientId ? String(req.mirrorContext.ownerClientId) : null,
+        });
+      }
+      return next();
+    }
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.warn("[auth] requireRole denied", {
+        path: req.originalUrl || req.url,
+        method: req.method,
+        role,
+        allowed,
+        mirrorContext: req.mirrorContext
+          ? {
+              mode: req.mirrorContext.mode,
+              ownerClientId: req.mirrorContext.ownerClientId,
+              targetClientId: req.mirrorContext.targetClientId,
+              mirrorId: req.mirrorContext.mirrorId,
+            }
+          : null,
+      });
+    }
     return next(createError(403, "Permissão insuficiente"));
   };
 }

@@ -60,7 +60,7 @@ function buildMirror({ ownerClientId, targetClientId, vehicleIds }) {
   return mirror;
 }
 
-async function callProxy({ path, token }) {
+async function callProxy({ path, token, headers = {}, method = "GET", body }) {
   const app = express();
   app.use(express.json());
   app.use("/api", proxyRoutes);
@@ -69,7 +69,13 @@ async function callProxy({ path, token }) {
   const server = app.listen(0);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...headers,
+    },
+    body: body ? JSON.stringify(body) : undefined,
   });
   const payload = await response.json();
   server.close();
@@ -170,6 +176,89 @@ test("GET /api/positions/last retorna apenas posições dos veículos do espelho
   assert.deepEqual(positionsDeviceIds, [allowedTraccarId]);
   assert.equal(payload.data.length, 1);
   assert.equal(String(payload.data[0]?.deviceId), allowedTraccarId);
+});
+
+test("GET /api/positions/last com X-Owner-Client-Id retorna 200 para usuário mirror", async () => {
+  const ownerId = `owner-proxy-pos-header-${randomUUID()}`;
+  const receiverId = `receiver-proxy-pos-header-${randomUUID()}`;
+  const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "HDR-1001" });
+  const allowedTraccarId = String(Date.now());
+  buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-905-${randomUUID()}`,
+    traccarId: allowedTraccarId,
+    vehicleId: allowedVehicle.id,
+  });
+  buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+  const token = signSession({ id: "user-pos-header", role: "user", clientId: receiverId });
+  const { status, payload } = await callProxy({
+    path: `/api/positions/last?clientId=${ownerId}`,
+    token,
+    headers: { "X-Owner-Client-Id": ownerId },
+  });
+
+  assert.equal(status, 200);
+  assert.deepEqual(positionsDeviceIds, [allowedTraccarId]);
+  assert.equal(payload.data.length, 1);
+  assert.equal(String(payload.data[0]?.deviceId), allowedTraccarId);
+});
+
+test("GET /api/devices com X-Owner-Client-Id retorna 200 no mirror", async () => {
+  const ownerId = `owner-proxy-devices-${randomUUID()}`;
+  const receiverId = `receiver-proxy-devices-${randomUUID()}`;
+  const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "DEV-1001" });
+  const blockedVehicle = buildVehicle({ clientId: ownerId, plate: "DEV-1002" });
+  const allowedTraccarId = String(Date.now());
+  buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-906-${randomUUID()}`,
+    traccarId: allowedTraccarId,
+    vehicleId: allowedVehicle.id,
+  });
+  buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-907-${randomUUID()}`,
+    traccarId: String(Number(allowedTraccarId) + 1),
+    vehicleId: blockedVehicle.id,
+  });
+  buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+  const token = signSession({ id: "user-devices-header", role: "user", clientId: receiverId });
+  const { status, payload } = await callProxy({
+    path: `/api/devices?all=true&clientId=${ownerId}`,
+    token,
+    headers: { "X-Owner-Client-Id": ownerId },
+  });
+
+  assert.equal(status, 200);
+  assert.equal(payload.devices.length, 1);
+  assert.equal(String(payload.devices[0]?.id), allowedTraccarId);
+});
+
+test("POST /api/devices mantém 403 para role user mesmo em mirror", async () => {
+  const ownerId = `owner-proxy-post-${randomUUID()}`;
+  const receiverId = `receiver-proxy-post-${randomUUID()}`;
+  const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "POST-1001" });
+  buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-908-${randomUUID()}`,
+    traccarId: String(Date.now()),
+    vehicleId: allowedVehicle.id,
+  });
+  buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+  const token = signSession({ id: "user-post", role: "user", clientId: receiverId });
+  const { status, payload } = await callProxy({
+    path: "/api/devices",
+    token,
+    method: "POST",
+    headers: { "X-Owner-Client-Id": ownerId },
+    body: { name: "Device", uniqueId: "NEW-DEVICE" },
+  });
+
+  assert.equal(status, 403);
+  assert.equal(payload.message, "Permissão insuficiente");
 });
 
 test("GET /api/events retorna apenas eventos dos veículos do espelho", async () => {

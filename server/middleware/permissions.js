@@ -251,6 +251,20 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
         context.level
           ? { visible: true, access: context.level }
           : resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
+      if (process.env.DEBUG_MIRROR === "true") {
+        console.info("[permissions] evaluated", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          menuKey,
+          pageKey,
+          subKey: subKey || null,
+          resolved,
+          requireFull,
+          permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
+          isFull: Boolean(context.isFull),
+          level: context.level || null,
+        });
+      }
 
       if (!resolved.visible || resolved.access === "none") {
         return next(createError(403, "Sem permissão para acessar este recurso"));
@@ -282,6 +296,21 @@ export function authorizePermissionOrEmpty({
         context.level
           ? { visible: true, access: context.level }
           : resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
+      if (process.env.DEBUG_MIRROR === "true") {
+        console.info("[permissions] evaluated", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          menuKey,
+          pageKey,
+          subKey: subKey || null,
+          resolved,
+          requireFull,
+          permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
+          isFull: Boolean(context.isFull),
+          level: context.level || null,
+          allowMethods,
+        });
+      }
 
       const hasAccess =
         resolved.visible &&
