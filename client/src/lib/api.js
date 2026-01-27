@@ -176,7 +176,7 @@ function resolveMirrorOwnerClientId(session) {
       }
     })();
   if (!ownerClientId) return null;
-  if (session?.user?.mirrorContextMode && session.user.mirrorContextMode !== "target") return null;
+  // O modo salvo pode estar desatualizado; o backend decide se há mirror ativo.
   return String(ownerClientId);
 }
 
