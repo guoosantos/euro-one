@@ -296,7 +296,7 @@ async function request({
   if (authorization && !resolvedHeaders.has("Authorization")) {
     resolvedHeaders.set("Authorization", authorization);
   }
-  if (mirrorOwnerClientId && !resolvedHeaders.has("X-Owner-Client-Id")) {
+  if (mirrorOwnerClientId && shouldAttachMirrorClientId(url) && !resolvedHeaders.has("X-Owner-Client-Id")) {
     resolvedHeaders.set("X-Owner-Client-Id", mirrorOwnerClientId);
   }
 
