@@ -358,10 +358,20 @@ export function TenantProvider({ children }) {
 
   useEffect(() => {
     if (mirrorContextMode !== "target") return;
-    if (tenantId === null || tenantId === undefined) return;
-    if (String(activeMirrorOwnerClientId ?? "") === String(tenantId)) return;
-    setActiveMirrorOwnerClientId(tenantId);
-  }, [activeMirrorOwnerClientId, mirrorContextMode, tenantId]);
+    if (!Array.isArray(mirrorOwners) || mirrorOwners.length === 0) return;
+    const ownerIds = mirrorOwners.map((owner) => String(owner.id));
+    const tenantMatchesOwner = tenantId !== null && tenantId !== undefined && ownerIds.includes(String(tenantId));
+    const preferredOwnerId = tenantMatchesOwner
+      ? String(tenantId)
+      : activeMirrorOwnerClientId ?? ownerIds[0];
+
+    if (!tenantMatchesOwner && preferredOwnerId && String(tenantId ?? "") !== String(preferredOwnerId)) {
+      setTenantId(preferredOwnerId);
+    }
+    if (preferredOwnerId && String(activeMirrorOwnerClientId ?? "") !== String(preferredOwnerId)) {
+      setActiveMirrorOwnerClientId(preferredOwnerId);
+    }
+  }, [activeMirrorOwnerClientId, mirrorContextMode, mirrorOwners, setTenantId, tenantId]);
 
   useEffect(() => {
     let cancelled = false;

@@ -60,6 +60,20 @@ function buildMirror({ ownerClientId, targetClientId, vehicleIds }) {
   return mirror;
 }
 
+function buildPermissionGroup({ clientId, permissions }) {
+  const group = createGroup({
+    name: `Mirror permissions ${randomUUID()}`,
+    description: "Grupo de permissões personalizado para teste de mirror",
+    clientId,
+    attributes: {
+      kind: "PERMISSION_GROUP",
+      permissions,
+    },
+  });
+  createdGroups.push(group.id);
+  return group;
+}
+
 async function callProxy({ path, token, headers = {}, method = "GET", body }) {
   const app = express();
   app.use(express.json());
@@ -202,6 +216,27 @@ test("GET /api/positions/last com X-Owner-Client-Id retorna 200 para usuário mi
   assert.deepEqual(positionsDeviceIds, [allowedTraccarId]);
   assert.equal(payload.data.length, 1);
   assert.equal(String(payload.data[0]?.deviceId), allowedTraccarId);
+});
+
+test("GET /api/positions/last retorna 403 quando mirror não possui permissão de monitoramento", async () => {
+  const ownerId = `owner-proxy-pos-deny-${randomUUID()}`;
+  const receiverId = `receiver-proxy-pos-deny-${randomUUID()}`;
+  const permissions = JSON.parse(JSON.stringify(MIRROR_FALLBACK_PERMISSIONS));
+  permissions.primary.monitoring.access = "none";
+  const permissionGroup = buildPermissionGroup({ clientId: ownerId, permissions });
+  const mirror = createMirror({
+    ownerClientId: ownerId,
+    targetClientId: receiverId,
+    vehicleIds: [],
+    targetType: "GERENCIADORA",
+    permissionGroupId: permissionGroup.id,
+  });
+  createdMirrors.push(mirror.id);
+
+  const token = signSession({ id: "user-pos-deny", role: "user", clientId: receiverId });
+  const { status } = await callProxy({ path: `/api/positions/last?clientId=${ownerId}`, token });
+
+  assert.equal(status, 403);
 });
 
 test("GET /api/devices com X-Owner-Client-Id retorna 200 no mirror", async () => {

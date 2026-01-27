@@ -2870,10 +2870,9 @@ router.get("/positions", async (req, res, next) => {
 // /positions/last (compat)
 router.get(
   "/positions/last",
-  authorizePermissionOrEmpty({
+  authorizePermission({
     menuKey: "primary",
     pageKey: "monitoring",
-    emptyPayload: { data: [], positions: [], error: null },
   }),
   async (req, res) => {
   const rawDeviceId = req.query?.deviceId ?? req.query?.deviceIds;

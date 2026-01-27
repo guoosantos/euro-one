@@ -68,6 +68,20 @@ function buildMirror({ ownerClientId, targetClientId, vehicleIds = [] }) {
   return mirror;
 }
 
+function buildPermissionGroup({ clientId, permissions }) {
+  const group = createGroup({
+    name: `Mirror permissions ${randomUUID()}`,
+    description: "Grupo de permissões personalizado para teste de mirror",
+    clientId,
+    attributes: {
+      kind: "PERMISSION_GROUP",
+      permissions,
+    },
+  });
+  createdGroups.push(group.id);
+  return group;
+}
+
 async function callAlertsConjugated({ clientId }) {
   const app = express();
   app.use(express.json());
@@ -244,6 +258,27 @@ describe("/api/alerts", () => {
     assert.equal(status, 200);
     assert.equal(payload.data.length, 1);
     assert.equal(payload.data[0]?.vehicleId, allowedVehicle.id);
+  });
+
+  it("retorna 403 quando o usuário mirror não tem permissão para alertas", async () => {
+    config.features.mirrorMode = true;
+    const ownerId = "owner-alerts-deny";
+    const receiverId = "receiver-alerts-deny";
+    const permissions = JSON.parse(JSON.stringify(MIRROR_FALLBACK_PERMISSIONS));
+    permissions.primary.monitoring.subpages.alerts = "none";
+    const permissionGroup = buildPermissionGroup({ clientId: ownerId, permissions });
+    const mirror = createMirror({
+      ownerClientId: ownerId,
+      targetClientId: receiverId,
+      targetType: "GERENCIADORA",
+      permissionGroupId: permissionGroup.id,
+    });
+    createdMirrors.push(mirror.id);
+
+    const token = signSession({ id: "user-alerts-deny", role: "user", clientId: receiverId });
+    const { status } = await callAlerts({ clientId: ownerId, token });
+
+    assert.equal(status, 403);
   });
 });
 

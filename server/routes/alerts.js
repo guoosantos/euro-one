@@ -1,7 +1,7 @@
 import express from "express";
 
 import { authenticate } from "../middleware/auth.js";
-import { authorizePermissionOrEmpty } from "../middleware/permissions.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { listDevices } from "../models/device.js";
 import { listVehicles } from "../models/vehicle.js";
@@ -57,11 +57,10 @@ export function filterAlertsByVehicleAccess(alerts = [], allowedVehicleIds = nul
 
 router.get(
   "/alerts",
-  authorizePermissionOrEmpty({
+  authorizePermission({
     menuKey: "primary",
     pageKey: "monitoring",
     subKey: "alerts",
-    emptyPayload: { data: [], total: 0 },
   }),
   async (req, res, next) => {
   try {
@@ -156,11 +155,10 @@ router.patch("/alerts/:id/handle", async (req, res, next) => {
 
 router.get(
   "/alerts/conjugated",
-  authorizePermissionOrEmpty({
+  authorizePermission({
     menuKey: "primary",
     pageKey: "monitoring",
     subKey: "alerts-conjugated",
-    emptyPayload: { data: [], total: 0 },
   }),
   async (req, res, next) => {
   try {
