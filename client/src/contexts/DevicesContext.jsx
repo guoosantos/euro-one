@@ -27,8 +27,8 @@ export function DevicesProvider({ children, interval = 60_000 }) {
   const canAccessDevices = devicesPermission.hasAccess;
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
+    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const fetchDevices = useCallback(async () => {

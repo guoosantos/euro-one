@@ -38,8 +38,8 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
   );
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode }),
+    [mirrorContextMode, mirrorModeEnabled, mirrorOwnerClientId],
   );
 
   const { data, loading, error, lastUpdated, refresh } = usePolling(
