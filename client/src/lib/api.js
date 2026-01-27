@@ -129,6 +129,8 @@ function friendlyErrorMessage(status, payload, statusText) {
 }
 
 const MIRROR_QUERY_ALLOWLIST = [
+  "/context",
+  "/permissions/context",
   "/vehicles",
   "/positions",
   "/alerts",
@@ -193,20 +195,31 @@ function shouldAttachMirrorClientId(targetPath) {
   return MIRROR_QUERY_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
 }
 
-function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url }) {
-  if (!mirrorOwnerClientId || !shouldAttachMirrorClientId(url)) return params;
+function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId }) {
+  if (!mirrorOwnerClientId) return params;
   const nextParams = params && typeof params === "object" ? { ...params } : {};
-  if (Object.prototype.hasOwnProperty.call(nextParams, "clientId")) {
-    delete nextParams.clientId;
+  const shouldAttach = shouldAttachMirrorClientId(url);
+  const shouldStripTarget =
+    shouldAttach ||
+    (userClientId &&
+      [nextParams.clientId, nextParams.tenantId, nextParams.ownerClientId].some(
+        (value) => value !== undefined && value !== null && String(value) === String(userClientId),
+      ));
+  if (shouldStripTarget) {
+    if (Object.prototype.hasOwnProperty.call(nextParams, "clientId")) {
+      delete nextParams.clientId;
+    }
+    if (Object.prototype.hasOwnProperty.call(nextParams, "tenantId")) {
+      delete nextParams.tenantId;
+    }
+    if (Object.prototype.hasOwnProperty.call(nextParams, "ownerClientId")) {
+      delete nextParams.ownerClientId;
+    }
   }
-  if (Object.prototype.hasOwnProperty.call(nextParams, "tenantId")) {
-    delete nextParams.tenantId;
+  if (shouldAttach) {
+    nextParams.clientId = mirrorOwnerClientId;
   }
-  if (Object.prototype.hasOwnProperty.call(nextParams, "ownerClientId")) {
-    delete nextParams.ownerClientId;
-  }
-  nextParams.clientId = mirrorOwnerClientId;
-  return nextParams;
+  return Object.keys(nextParams).length ? nextParams : undefined;
 }
 
 function buildUrl(path, params, { apiPrefix = true } = {}) {
@@ -272,9 +285,10 @@ async function request({
   }
 
   const storedSession = getStoredSession();
+  const userClientId = storedSession?.user?.clientId ?? null;
   const mirrorOwnerClientId = resolveMirrorOwnerClientId(storedSession);
   // Em modo mirror target, forçamos o clientId do OWNER para garantir dados espelhados.
-  const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url });
+  const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId });
 
   const finalUrl = buildUrl(url, nextParams, { apiPrefix });
   const resolvedHeaders = new Headers(headers);
