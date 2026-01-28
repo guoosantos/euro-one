@@ -431,12 +431,21 @@ export function getAdminSessionCookie() {
  * - Se asAdmin = false → tenta usar contexto do usuário, senão cai no admin.
  */
 export async function traccarRequest(options, context, { asAdmin = false } = {}) {
+  const forceAdmin = process.env.FORCE_TRACCAR_ADMIN === "true";
+  const shouldUseAdmin = asAdmin || forceAdmin;
   let authHeaders;
+  let usedUserAuth = false;
 
-  if (asAdmin) {
+  if (shouldUseAdmin) {
     authHeaders = resolveAdminHeaders();
   } else {
-    authHeaders = resolveUserHeaders(context) || resolveAdminHeaders();
+    const userHeaders = resolveUserHeaders(context);
+    if (userHeaders) {
+      authHeaders = userHeaders;
+      usedUserAuth = true;
+    } else {
+      authHeaders = resolveAdminHeaders();
+    }
   }
 
   const headers = {
@@ -444,7 +453,23 @@ export async function traccarRequest(options, context, { asAdmin = false } = {})
     ...(options?.headers || {}),
   };
 
-  return requestTraccar(options.url, { ...options, headers });
+  const response = await requestTraccar(options.url, { ...options, headers });
+
+  if (!shouldUseAdmin && usedUserAuth && response?.ok === false) {
+    const status = resolveStatus(response?.error) ?? Number(response?.error?.code);
+    if (status === 401 || status === 403) {
+      const adminHeaders = resolveAdminHeaders();
+      return requestTraccar(options.url, {
+        ...options,
+        headers: {
+          ...adminHeaders,
+          ...(options?.headers || {}),
+        },
+      });
+    }
+  }
+
+  return response;
 }
 
 /**
@@ -718,8 +743,8 @@ export async function getLastPositions(context, deviceIds, { asAdmin = false } =
   return response?.ok ? { ok: true, positions: response.data } : response;
 }
 
-export async function getEvents(context, params) {
-  const response = await traccarRequest({ method: "GET", url: "/events", params }, context);
+export async function getEvents(context, params, { asAdmin = false } = {}) {
+  const response = await traccarRequest({ method: "GET", url: "/events", params }, context, { asAdmin });
   return response?.ok ? { ok: true, events: response.data } : response;
 }
 

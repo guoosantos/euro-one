@@ -19,6 +19,7 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
     intervalMs = 5000,
     dependencies = [],
     resetOnChange = false,
+    backoff = {},
   } = options;
 
   const [data, setData] = useState(null);
@@ -28,8 +29,29 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
 
   const fnRef = useRef(requestFn);
   const tickRef = useRef(null);
+  const errorCountRef = useRef(0);
+
+  const backoffConfig = typeof backoff === "object" ? backoff : { enabled: Boolean(backoff) };
+  const {
+    enabled: backoffEnabled = true,
+    factor = 2,
+    maxIntervalMs = 120_000,
+  } = backoffConfig;
 
   fnRef.current = requestFn;
+
+  const computeDelay = useCallback(
+    (errorCount) => {
+      if (!Number.isFinite(intervalMs) || intervalMs <= 0) return intervalMs;
+      if (!backoffEnabled) return intervalMs;
+      const safeFactor = Number.isFinite(factor) && factor > 1 ? factor : 2;
+      const attempts = Math.max(0, Number(errorCount) || 0);
+      const delay = intervalMs * Math.pow(safeFactor, attempts);
+      if (!Number.isFinite(delay)) return intervalMs;
+      return Math.min(delay, maxIntervalMs);
+    },
+    [backoffEnabled, factor, intervalMs, maxIntervalMs],
+  );
 
   useEffect(() => {
     if (!enabled || paused || typeof fnRef.current !== "function") return undefined;
@@ -44,19 +66,22 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
         setLoading(true);
         const result = await fnRef.current();
         if (!cancelled) {
+          errorCountRef.current = 0;
           setData(result ?? null);
           setError(null);
           setLastUpdated(new Date());
         }
       } catch (err) {
         if (!cancelled) {
+          errorCountRef.current += 1;
           setError(err);
         }
       } finally {
         if (!cancelled) {
           setLoading(false);
           if (Number.isFinite(intervalMs) && intervalMs > 0) {
-            timerId = setTimeout(tick, intervalMs);
+            const nextDelay = errorCountRef.current > 0 ? computeDelay(errorCountRef.current) : intervalMs;
+            timerId = setTimeout(tick, nextDelay);
           }
         }
       }
@@ -69,7 +94,7 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
       cancelled = true;
       if (timerId) clearTimeout(timerId);
     };
-  }, [enabled, paused, intervalMs, ...dependencies]);
+  }, [computeDelay, enabled, paused, intervalMs, ...dependencies]);
 
   useEffect(() => {
     if (!resetOnChange || paused) return;
@@ -77,6 +102,7 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
     setError(null);
     setLastUpdated(null);
     setLoading(Boolean(enabled));
+    errorCountRef.current = 0;
   }, [enabled, paused, resetOnChange, ...dependencies]);
 
   const refresh = useCallback(async () => {
