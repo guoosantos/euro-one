@@ -43,6 +43,13 @@ async function ensureClientAccess(sessionUser, clientId) {
   await ensureClientInScope(sessionUser, clientId);
 }
 
+function normalizePermissionGroupId(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : null;
+}
+
 router.get(
   "/users",
   authorizePermission({ menuKey: "admin", pageKey: "users" }),
@@ -78,7 +85,16 @@ router.post(
   authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
   async (req, res, next) => {
   try {
-    const { name, email, password, role = "user", username, clientId, attributes = {} } = req.body || {};
+    const {
+      name,
+      email,
+      password,
+      role = "user",
+      username,
+      clientId,
+      permissionGroupId,
+      attributes = {},
+    } = req.body || {};
     if (!name || !email || !password) {
       throw createError(400, "Nome, e-mail e senha são obrigatórios");
     }
@@ -110,6 +126,14 @@ router.post(
       }
     }
 
+    const resolvedPermissionGroupId = normalizePermissionGroupId(
+      permissionGroupId !== undefined ? permissionGroupId : attributes.permissionGroupId,
+    );
+    const normalizedAttributes = {
+      ...attributes,
+      permissionGroupId: resolvedPermissionGroupId ?? null,
+    };
+
     const user = await createUser({
       name,
       email,
@@ -117,7 +141,7 @@ router.post(
       password,
       role,
       clientId: role === "admin" ? adminClientId : targetClientId,
-      attributes,
+      attributes: normalizedAttributes,
     });
     return res.status(201).json({ user });
   } catch (error) {
@@ -174,6 +198,19 @@ router.put(
     const payload = { ...req.body };
     if (payload.password === "") {
       delete payload.password;
+    }
+    const permissionGroupSource = Object.prototype.hasOwnProperty.call(req.body || {}, "permissionGroupId")
+      ? req.body.permissionGroupId
+      : Object.prototype.hasOwnProperty.call(req.body?.attributes || {}, "permissionGroupId")
+        ? req.body.attributes.permissionGroupId
+        : undefined;
+    const resolvedPermissionGroupId = normalizePermissionGroupId(permissionGroupSource);
+    if (resolvedPermissionGroupId !== undefined) {
+      payload.attributes = {
+        ...(existing.attributes || {}),
+        ...(payload.attributes || {}),
+        permissionGroupId: resolvedPermissionGroupId,
+      };
     }
 
     const user = await updateUser(id, payload);
