@@ -6,6 +6,19 @@ import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
 import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
+const RECEIVER_TYPES = new Set([
+  "GERENCIADORA",
+  "SEGURADORA",
+  "GERENCIADORA DE RISCO",
+  "COMPANHIA DE SEGURO",
+  "COMPANHIA DE SEGUROS",
+]);
+
+function isReceiverType(value) {
+  if (!value) return false;
+  return RECEIVER_TYPES.has(String(value).toUpperCase());
+}
+
 function pickRequestedClientId(req, providedClientId) {
   const ownerHeader = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
   const user = req?.user;
@@ -81,6 +94,9 @@ function resolveMirrorContext({ user, ownerClientId }) {
   );
   if (!mirrors.length) return null;
   const mirror = mirrors[0];
+  if (mirror?.targetType && !isReceiverType(mirror.targetType)) {
+    return null;
+  }
   const vehicleIds = resolveMirrorVehicleIds(mirror);
   const vehicles = listVehicles({ clientId: ownerClientId });
   const allowedVehicleIds = new Set(vehicleIds.map(String));
