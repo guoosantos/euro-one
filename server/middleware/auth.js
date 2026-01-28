@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import createError from "http-errors";
 
 import { config } from "../config.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { enforceUserAccess } from "./user-access.js";
 import { resolveTenant } from "./tenant.js";
 
@@ -95,14 +96,79 @@ export async function authenticate(req, _res, next) {
 // Alias para compatibilidade com imports antigos
 export const requireAuth = authenticate;
 
+function buildRoleSyncCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
+}
+
 export function requireRole(...roles) {
-  return (req, _res, next) => {
+  return async (req, res, next) => {
     const allowed = roles.flat();
     if (!req.user) {
       return next(createError(401, "Sessão não autenticada"));
     }
     if (allowed.length === 0 || allowed.includes("any")) {
       return next();
+    }
+
+    try {
+      if (req.user?.id && isPrismaAvailable()) {
+        const stored = await prisma.user.findUnique({
+          where: { id: String(req.user.id) },
+          select: {
+            id: true,
+            role: true,
+            clientId: true,
+            name: true,
+            email: true,
+            username: true,
+          },
+        });
+        if (!stored) {
+          return next(createError(401, "Sessão inválida"));
+        }
+
+        const previousRole = req.user.role;
+        const previousClientId = req.user.clientId ?? null;
+        // O banco é a fonte da verdade; o JWT pode ficar desatualizado entre promoções.
+        req.user.role = stored.role;
+        req.user.clientId = stored.clientId ?? req.user.clientId ?? null;
+        if (!req.clientId) {
+          req.clientId = req.user.clientId ?? null;
+        }
+
+        // DEBUG_ROLE=true habilita logs quando o papel do token diverge do banco.
+        if (process.env.DEBUG_ROLE === "true" && previousRole !== stored.role) {
+          console.info("[auth] role atualizado a partir do banco", {
+            path: req.originalUrl || req.url,
+            method: req.method,
+            userId: String(req.user.id),
+            tokenRole: previousRole,
+            dbRole: stored.role,
+          });
+        }
+
+        if (previousRole !== stored.role || previousClientId !== req.user.clientId) {
+          const tokenPayload = {
+            id: stored.id,
+            role: stored.role,
+            clientId: req.user.clientId ?? stored.clientId ?? null,
+            name: stored.name,
+            email: stored.email,
+            username: stored.username ?? null,
+          };
+          const token = signSession(tokenPayload);
+          res.cookie("token", token, buildRoleSyncCookieOptions());
+          req.sessionToken = token;
+        }
+      }
+    } catch (error) {
+      console.error("[auth] falha ao validar role no banco", error?.message || error);
+      return next(createError(503, "Falha ao validar permissões"));
     }
 
     const role = req.user.role;

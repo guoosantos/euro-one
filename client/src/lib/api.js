@@ -189,6 +189,18 @@ function resolvePathname(targetPath) {
   return `/${raw.replace(/^\/+/, "")}`;
 }
 
+function isAuthRefreshPath(targetPath) {
+  const pathname = resolvePathname(targetPath);
+  return pathname.endsWith("/auth/refresh") || pathname.endsWith("/refresh");
+}
+
+function shouldAttemptAuthRefresh(status, payload, statusText) {
+  if (status === 401) return true;
+  if (status !== 403) return false;
+  const message = String(payload?.error || payload?.message || payload?.errorMessage || statusText || "");
+  return message.toLowerCase().includes("permissão insuficiente");
+}
+
 function shouldAttachMirrorClientId(targetPath) {
   const pathname = resolvePathname(targetPath);
   const normalised = pathname.replace(/^\/api\//, "/");
@@ -263,6 +275,8 @@ async function request({
   apiPrefix = true,
   signal,
   responseType = "json",
+  authRetryCount = 0,
+  skipAuthRefresh = false,
 }) {
   const controller = new AbortController();
   const abortReason = new Error("Request timeout");
@@ -341,19 +355,56 @@ async function request({
       data: payload,
     };
 
-    if (response.status === 401) {
-      clearStoredSession();
-      notifyUnauthorized(normalised);
-      if (typeof window !== "undefined") {
-        window.alert?.("Sessão expirada. Faça login novamente.");
-        window.location.assign("/login");
-      }
-    }
-
     if (!response.ok) {
       const error = new Error(friendlyErrorMessage(response.status, payload, response.statusText));
       error.status = response.status;
       error.response = normalised;
+      const canRefresh =
+        !skipAuthRefresh &&
+        authRetryCount < 1 &&
+        !isAuthRefreshPath(url) &&
+        shouldAttemptAuthRefresh(response.status, payload, response.statusText);
+      if (canRefresh) {
+        try {
+          const refreshResponse = await request({
+            method: "POST",
+            url: "/auth/refresh",
+            data: {},
+            apiPrefix,
+            authRetryCount: authRetryCount + 1,
+            skipAuthRefresh: true,
+          });
+          const refreshedToken = refreshResponse?.data?.token;
+          const refreshedUser = refreshResponse?.data?.user;
+          if (refreshedToken) {
+            setStoredSession({ token: refreshedToken, user: refreshedUser || storedSession?.user || null });
+          }
+          return await request({
+            method,
+            url,
+            params,
+            data,
+            headers,
+            timeout,
+            apiPrefix,
+            signal,
+            responseType,
+            authRetryCount: authRetryCount + 1,
+            skipAuthRefresh: true,
+          });
+        } catch (_refreshError) {
+          // Se o refresh falhar, seguimos com o fluxo padrão de erro.
+        }
+      }
+
+      if (response.status === 401) {
+        clearStoredSession();
+        notifyUnauthorized(normalised);
+        if (typeof window !== "undefined") {
+          window.alert?.("Sessão expirada. Faça login novamente.");
+          window.location.assign("/login");
+        }
+      }
       throw error;
     }
 
