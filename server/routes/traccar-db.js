@@ -471,15 +471,17 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
 
     const deviceIdsToQuery = deviceIds.length ? deviceIds.filter((id) => allowedIds.includes(id)) : allowedIds;
 
-    console.info("[traccar/events] request", {
-      clientIdReceived: req.query?.clientId ?? null,
-      clientIdResolved: clientId ?? null,
-      mirrorContext: req.mirrorContext
-        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
-        : null,
-      vehicleIds,
-      deviceIdsToQuery,
-    });
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.debug("[traccar/events] request", {
+        clientIdReceived: req.query?.clientId ?? null,
+        clientIdResolved: clientId ?? null,
+        mirrorContext: req.mirrorContext
+          ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+          : null,
+        vehicleIds,
+        deviceIdsToQuery,
+      });
+    }
 
     if (!deviceIdsToQuery.length) {
       return res.json({ data: { vehicleIds, deviceIds: [], from, to, events: [] }, error: null });

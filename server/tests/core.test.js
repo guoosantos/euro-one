@@ -17,9 +17,9 @@ describe("resolveTraccarDeviceError", () => {
     assert.equal(result.status, 404);
   });
 
-  it("maps Traccar 401 to bad gateway", () => {
+  it("maps Traccar 401 to service unavailable", () => {
     const result = resolveTraccarDeviceError({ error: { code: 401 } });
-    assert.equal(result.status, 502);
+    assert.equal(result.status, 503);
   });
 
   it("maps Traccar 500 to service unavailable", () => {
@@ -27,8 +27,8 @@ describe("resolveTraccarDeviceError", () => {
     assert.equal(result.status, 503);
   });
 
-  it("maps unknown errors to bad gateway", () => {
+  it("maps unknown errors to service unavailable", () => {
     const result = resolveTraccarDeviceError({ error: { code: "ETIMEDOUT" } });
-    assert.equal(result.status, 502);
+    assert.equal(result.status, 503);
   });
 });

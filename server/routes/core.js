@@ -184,14 +184,14 @@ export function resolveTraccarDeviceError(traccarError) {
   }
 
   if (status === 401 || status === 403) {
-    return { status: 502, message: "Falha de autorização ao consultar o Traccar", code: status };
+    return { status: 503, message: "Falha de autorização ao consultar o Traccar", code: status };
   }
 
   if (status && status >= 500) {
     return { status: 503, message: "Serviço do Traccar indisponível no momento", code: status };
   }
 
-  return { status: 502, message: "Erro ao buscar device no Traccar", code: status || "UNKNOWN" };
+  return { status: 503, message: "Erro ao buscar device no Traccar", code: status || "UNKNOWN" };
 }
 
 export function filterValidPositionIds(positionIds) {
@@ -780,6 +780,27 @@ function buildVehicleResponse(vehicle, context) {
     connectionStatusLabel,
     lastCommunication,
   };
+}
+
+function detectCrossClientDeviceLinks(devices = [], { clientId, getVehicleById }) {
+  if (!devices.length || typeof getVehicleById !== "function") return [];
+  const mismatches = [];
+  devices.forEach((device) => {
+    if (!device?.vehicleId) return;
+    const vehicle = getVehicleById(device.vehicleId);
+    if (!vehicle?.clientId) return;
+    const deviceClientId = device.clientId ?? clientId ?? null;
+    if (!deviceClientId) return;
+    if (String(vehicle.clientId) !== String(deviceClientId)) {
+      mismatches.push({
+        deviceId: String(device.id),
+        deviceClientId: String(deviceClientId),
+        vehicleId: String(vehicle.id),
+        vehicleClientId: String(vehicle.clientId),
+      });
+    }
+  });
+  return mismatches;
 }
 
 function normalizeVehicleAttributesList(value) {
@@ -2809,7 +2830,13 @@ router.get(
       devices = mergeById(devices, extraDevices);
     }
     const monitoringDevices = devices.filter((device) => device?.attributes?.gprsCommunication !== false);
-    console.info("[vehicles] listagem para API", { clientId: clientId || null, vehicles: vehicles.length, devices: devices.length });
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.debug("[vehicles] listagem para API", {
+        clientId: clientId || null,
+        vehicles: vehicles.length,
+        devices: devices.length,
+      });
+    }
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const deviceMap = new Map(monitoringDevices.map((item) => [item.id, item]));
@@ -2898,6 +2925,18 @@ router.get(
           return hasDevice || matchesDeviceId;
         })
       : vehicles;
+
+    const crossClientLinks = detectCrossClientDeviceLinks(monitoringDevices, {
+      clientId,
+      getVehicleById: deps.getVehicleById,
+    });
+    if (vehiclesToExpose.length === 0 && crossClientLinks.length) {
+      return res.status(409).json({
+        code: "CROSS_CLIENT_LINK",
+        message: "Vínculo cross-client inválido: equipamento aponta para veículo de outro cliente.",
+        details: { links: crossClientLinks },
+      });
+    }
 
     let response = vehiclesToExpose.map((vehicle) => {
       try {

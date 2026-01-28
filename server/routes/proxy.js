@@ -168,6 +168,13 @@ function resolveErrorStatusCode(error) {
   return Number.isFinite(status) ? status : null;
 }
 
+function normalizeTraccarFailureStatus(status) {
+  if (!Number.isFinite(status) || status <= 0) return 503;
+  if (status === 401 || status === 403) return 503;
+  if (status >= 500) return 503;
+  return status;
+}
+
 function resolveTraccarErrorMessage(payload, fallback = null) {
   if (!payload) return fallback;
   const cause = payload?.error?.cause ?? payload?.cause;
@@ -383,8 +390,7 @@ async function fetchCommandResultEvents(traccarId, from, to, limit) {
   const response = await requestReportWithFallback("/reports/events", params, "application/json", false);
   if (!response?.ok) {
     const statusCandidate = Number(response?.error?.code || response?.status);
-    const status =
-      Number.isFinite(statusCandidate) && statusCandidate >= 400 ? statusCandidate : 502;
+    const status = normalizeTraccarFailureStatus(statusCandidate);
     const message = response?.error?.message || "Falha ao consultar eventos do Traccar";
     throw createError(status, message);
   }
@@ -467,7 +473,11 @@ async function hydrateTraccarDevice(req, traccarId, baseDevice = null) {
     try {
       const remoteDevice = await traccarProxy("get", `/devices/${traccarId}`, { asAdmin: true, context: req });
       if (remoteDevice && !remoteDevice?.ok) {
-        throw createError(502, remoteDevice?.error?.message || "Falha ao buscar device no Traccar");
+        const statusCandidate = Number(remoteDevice?.error?.code || remoteDevice?.status);
+        throw createError(
+          normalizeTraccarFailureStatus(statusCandidate),
+          remoteDevice?.error?.message || "Falha ao buscar device no Traccar",
+        );
       }
       traccarDevice = {
         ...traccarDevice,
@@ -2802,7 +2812,7 @@ router.get("/devices/:id", async (req, res, next) => {
     const data = await traccarProxy("get", `/devices/${req.params.id}`, { asAdmin: true, context: req });
     if (data?.ok === false || data?.error) {
       const statusCandidate = Number(data?.status ?? data?.error?.code);
-      const status = Number.isFinite(statusCandidate) && statusCandidate >= 400 ? statusCandidate : 502;
+      const status = normalizeTraccarFailureStatus(statusCandidate);
       const message = data?.error?.message || "Não foi possível consultar o Traccar.";
       const details = data?.error || data?.details || null;
       return res.status(status).json({ ok: false, message, details });
@@ -2810,7 +2820,7 @@ router.get("/devices/:id", async (req, res, next) => {
     res.status(200).json(data);
   } catch (error) {
     const statusCandidate = Number(error?.status || error?.statusCode || error?.response?.status);
-    const status = Number.isFinite(statusCandidate) && statusCandidate >= 400 ? statusCandidate : 503;
+    const status = normalizeTraccarFailureStatus(statusCandidate);
     const message = error?.message || "Não foi possível consultar o Traccar.";
     const details = error?.details || error?.response?.data || error?.cause || null;
     res.status(status).json({ ok: false, message, details });
