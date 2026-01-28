@@ -90,7 +90,7 @@ export default function Sidebar() {
   const navLinkClass = linkClass(collapsed);
   const nestedLinkClass = linkClass(false);
   const activeStyle = linkStyle(accentColor);
-  const canManageUsers = role === "admin" || role === "manager";
+  const canManageUsers = role === "admin" || role === "manager" || role === "tenant_admin";
   const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
   const labelVisibilityClass = collapsed ? "hidden" : "flex-1 truncate";
   const linkIconSize = collapsed ? 22 : 18;

@@ -19,6 +19,7 @@ const defaultUserForm = {
 
 const roleLabels = {
   admin: "Administrador",
+  tenant_admin: "Administrador do cliente",
   manager: "Gestor",
   user: "Operador",
   driver: "Motorista",

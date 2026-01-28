@@ -6,6 +6,7 @@ import { useTranslation } from "../lib/i18n.js";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 
 function normaliseEvents(payload) {
   if (Array.isArray(payload)) return payload;
@@ -22,9 +23,12 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
   const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const eventsPermission = usePermissionGate({ menuKey: "primary", pageKey: "events" });
   const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const canAccessEvents = eventsPermission.hasAccess;
 
   const fetchEvents = useCallback(async () => {
+    if (!canAccessEvents) return [];
     const params = tenantId ? { clientId: tenantId, limit } : { limit };
     const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.traccar.events, { params });
     if (apiError) {
@@ -44,9 +48,9 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchEvents,
     intervalMs: autoRefresh.intervalMs,
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && canAccessEvents,
     paused: autoRefresh.paused,
-    dependencies: [tenantId, isAuthenticated, limit],
+    dependencies: [tenantId, isAuthenticated, limit, canAccessEvents],
     resetOnChange: true,
   });
 
@@ -71,12 +75,12 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
     () => ({
       data: filteredEvents,
       events: filteredEvents,
-      loading,
+      loading: canAccessEvents ? loading : false,
       error,
       refresh,
       fetchedAt: lastUpdated,
     }),
-    [filteredEvents, error, lastUpdated, loading, refresh],
+    [filteredEvents, error, lastUpdated, loading, refresh, canAccessEvents],
   );
 
   return <EventsContext.Provider value={value}>{children}</EventsContext.Provider>;

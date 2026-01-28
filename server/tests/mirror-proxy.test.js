@@ -218,6 +218,32 @@ test("GET /api/positions/last com X-Owner-Client-Id retorna 200 para usuário mi
   assert.equal(String(payload.data[0]?.deviceId), allowedTraccarId);
 });
 
+test("GET /api/positions/last retorna dados para tenant_admin em modo mirror", async () => {
+  const ownerId = `owner-proxy-pos-tenant-${randomUUID()}`;
+  const receiverId = `receiver-proxy-pos-tenant-${randomUUID()}`;
+  const allowedVehicle = buildVehicle({ clientId: ownerId, plate: "TEN-1001" });
+  const allowedTraccarId = String(Date.now());
+  buildDevice({
+    clientId: ownerId,
+    uniqueId: `DEV-tenant-${randomUUID()}`,
+    traccarId: allowedTraccarId,
+    vehicleId: allowedVehicle.id,
+  });
+  buildMirror({ ownerClientId: ownerId, targetClientId: receiverId, vehicleIds: [allowedVehicle.id] });
+
+  const token = signSession({ id: "tenant-admin-pos", role: "tenant_admin", clientId: receiverId });
+  const { status, payload } = await callProxy({
+    path: `/api/positions/last?clientId=${ownerId}`,
+    token,
+    headers: { "X-Owner-Client-Id": ownerId },
+  });
+
+  assert.equal(status, 200);
+  assert.deepEqual(positionsDeviceIds, [allowedTraccarId]);
+  assert.equal(payload.data.length, 1);
+  assert.equal(String(payload.data[0]?.deviceId), allowedTraccarId);
+});
+
 test("GET /api/positions/last retorna 403 quando mirror não possui permissão de monitoramento", async () => {
   const ownerId = `owner-proxy-pos-deny-${randomUUID()}`;
   const receiverId = `receiver-proxy-pos-deny-${randomUUID()}`;

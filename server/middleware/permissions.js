@@ -220,18 +220,20 @@ export async function resolvePermissionContext(req) {
     return { permissions, level: null, isFull: false, permissionGroupId: mirrorPermissionGroupId };
   }
 
+  let permissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
   let user = null;
-  if (isPrismaAvailable()) {
+  if (!permissionGroupId && isPrismaAvailable()) {
     user = await prisma.user.findUnique({ where: { id: String(req.user.id) } }).catch(() => null);
+    permissionGroupId = user?.attributes?.permissionGroupId ?? null;
   }
 
-  if (!user && isFallbackEnabled()) {
+  if (!user && !permissionGroupId && isFallbackEnabled()) {
     user = getFallbackUser();
+    permissionGroupId = user?.attributes?.permissionGroupId ?? null;
   }
 
-  const permissionGroupId = user?.attributes?.permissionGroupId;
   if (!permissionGroupId) {
-    return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+    return { permissions: null, level: null, isFull: false, permissionGroupId: null };
   }
 
   const permissionGroup = getGroupById(permissionGroupId);

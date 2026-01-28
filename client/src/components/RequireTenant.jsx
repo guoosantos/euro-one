@@ -3,16 +3,16 @@ import React, { useEffect } from "react";
 import { useTenant } from "../lib/tenant-context.jsx";
 
 export function RequireTenant({ children }) {
-  const { tenantId, tenants, role, loading, initialising, setTenantId } = useTenant();
+  const { tenantId, tenants, role, loading, initialising, setTenantId, isGlobalAdmin } = useTenant();
   const hasTenant = Boolean(tenantId);
   const hasOptions = tenants?.length > 0;
-  const canProceed = hasTenant || role === "admin";
+  const canProceed = hasTenant || isGlobalAdmin;
 
   useEffect(() => {
-    if (!tenantId && tenants?.length && role !== "admin") {
+    if (!tenantId && tenants?.length && !isGlobalAdmin) {
       setTenantId(tenants[0].id);
     }
-  }, [role, tenantId, tenants, setTenantId]);
+  }, [isGlobalAdmin, tenantId, tenants, setTenantId]);
 
   if (loading || initialising) {
     return (

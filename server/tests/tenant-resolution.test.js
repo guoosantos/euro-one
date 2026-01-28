@@ -112,6 +112,16 @@ describe("tenant resolution", () => {
   it("permite usuário acessar somente seu clientId", async () => {
     const clientId = "client-own";
     const otherClientId = "client-other";
+    const permissionGroup = createGroup({
+      name: `Permissions ${clientId}`,
+      description: "Grupo de permissões para testes de tenant",
+      clientId,
+      attributes: {
+        kind: "PERMISSION_GROUP",
+        permissions: MIRROR_FALLBACK_PERMISSIONS,
+      },
+    });
+    createdGroups.push(permissionGroup.id);
     buildVehicle({ clientId, plate: "AAA-0001", model: "Modelo A" });
     buildDevice({ clientId, uniqueId: "DEV-OWN", vehicleId: createdVehicles[0] });
     buildVehicle({ clientId: otherClientId, plate: "BBB-0001", model: "Modelo B" });
@@ -125,7 +135,12 @@ describe("tenant resolution", () => {
     });
 
     const app = setupApp();
-    const token = signSession({ id: "user-own", role: "user", clientId });
+    const token = signSession({
+      id: "user-own",
+      role: "user",
+      clientId,
+      attributes: { permissionGroupId: permissionGroup.id },
+    });
 
     const allowedResponse = await callEndpoint(app, {
       path: `/api/core/vehicles?clientId=${clientId}`,
@@ -142,6 +157,26 @@ describe("tenant resolution", () => {
     });
 
     assert.equal(blockedResponse.status, 403);
+  });
+
+  it("não trata tenant_admin como admin global ao resolver tenant", () => {
+    const userClientId = "tenant-admin-client";
+    const otherClientId = "tenant-admin-other";
+    const req = {
+      user: {
+        id: "tenant-admin-user",
+        role: "tenant_admin",
+        clientId: userClientId,
+        attributes: {},
+      },
+      query: { clientId: otherClientId },
+      headers: {},
+    };
+
+    assert.throws(
+      () => resolveTenant(req, { requestedClientId: otherClientId, required: false }),
+      (error) => error?.status === 403,
+    );
   });
 
   it("gerenciadora com mirror acessa clientId do dono com dados filtrados", async () => {

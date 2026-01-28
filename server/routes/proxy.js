@@ -2891,14 +2891,16 @@ router.get(
     if (req.tenant?.mirrorContext && deviceIdsToQuery.length === 0) {
       return res.status(200).json({ data: [], positions: [], error: null });
     }
-    console.info("[positions/last] request", {
-      clientIdReceived: req.query?.clientId ?? null,
-      clientIdResolved: clientId ?? null,
-      mirrorContext: req.tenant?.mirrorContext
-        ? { ownerClientId: req.tenant.mirrorContext.ownerClientId, vehicleIds: req.tenant.mirrorContext.vehicleIds || [] }
-        : null,
-      deviceIdsToQuery,
-    });
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.info("[positions/last] request", {
+        clientIdReceived: req.query?.clientId ?? null,
+        clientIdResolved: clientId ?? null,
+        mirrorContext: req.tenant?.mirrorContext
+          ? { ownerClientId: req.tenant.mirrorContext.ownerClientId, vehicleIds: req.tenant.mirrorContext.vehicleIds || [] }
+          : null,
+        deviceIdsToQuery,
+      });
+    }
     let metadata = [];
     try {
       metadata = await fetchDevicesMetadata();
