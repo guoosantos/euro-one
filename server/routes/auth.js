@@ -65,6 +65,15 @@ function shouldExposeDetails() {
     || String(process.env.AUTH_DEBUG || "").toLowerCase() === "true";
 }
 
+function buildAuthCookieOptions(remember) {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    ...(remember === false ? {} : { maxAge: 7 * 24 * 60 * 60 * 1000 }),
+  };
+}
+
 function normaliseAuthError(error, defaultStatus = 500) {
   if (!error) {
     return {
@@ -309,12 +318,7 @@ const handleLogin = async (req, res, next) => {
     };
     try {
       const token = signSessionFn(tokenPayload);
-      const cookieOptions = {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        ...(remember === false ? {} : { maxAge: 7 * 24 * 60 * 60 * 1000 }),
-      };
+      const cookieOptions = buildAuthCookieOptions(remember);
       res.cookie("token", token, cookieOptions);
       console.info("[auth] sessão criada", { userId: sessionUser.id, clientId: resolvedClientId });
       return res.json({
@@ -352,6 +356,49 @@ const handleLogin = async (req, res, next) => {
 
 router.post("/login", handleLogin);
 router.post("/auth/login", handleLogin);
+
+const handleRefresh = async (req, res, next) => {
+  try {
+    const sessionPayload = await buildSessionPayload(req.user.id);
+    const sessionUser = sessionPayload.user;
+    const resolvedClientId = sessionPayload?.client?.id ?? sessionUser?.clientId ?? null;
+    if (!resolvedClientId) {
+      console.warn("[auth] refresh sem tenant associado", { userId: sessionUser?.id ?? req.user?.id });
+      const tenantError = buildAuthError(403, "Usuário sem tenant associado", AUTH_ERROR_CODES.missingTenant);
+      tenantError.details = { userId: sessionUser?.id ?? req.user?.id, clientId: sessionUser?.clientId ?? null };
+      return respondAuthError(res, tenantError);
+    }
+    const tokenPayload = {
+      id: sessionUser.id,
+      role: sessionUser.role,
+      clientId: resolvedClientId,
+      name: sessionUser.name,
+      email: sessionUser.email,
+      username: sessionUser.username ?? null,
+    };
+    const token = signSession(tokenPayload);
+    const cookieOptions = buildAuthCookieOptions(req.body?.remember);
+    res.cookie("token", token, cookieOptions);
+    console.info("[auth] sessão atualizada", { userId: sessionUser.id, clientId: resolvedClientId });
+    return res.json({
+      token,
+      user: { ...sessionUser, clientId: tokenPayload.clientId },
+      client: sessionPayload.client,
+      clientId: tokenPayload.clientId,
+      clients: sessionPayload.clients,
+    });
+  } catch (error) {
+    const shouldLogStack = shouldExposeDetails();
+    const normalized = normaliseAuthError(error);
+    console.error("[auth] falha no refresh", {
+      message: error?.message || error,
+      status: normalized.status,
+      errorCode: normalized.errorCode,
+      stack: shouldLogStack ? error?.stack : undefined,
+    });
+    return respondAuthError(res, error);
+  }
+};
 
 const handleSession = async (req, res, next) => {
   try {
@@ -484,6 +531,8 @@ async function buildSessionPayload(
 
 router.get("/session", authenticate, (req, res, next) => handleSession(req, res, next));
 router.get("/auth/session", authenticate, (req, res, next) => handleSession(req, res, next));
+router.post("/refresh", authenticate, (req, res, next) => handleRefresh(req, res, next));
+router.post("/auth/refresh", authenticate, (req, res, next) => handleRefresh(req, res, next));
 
 const handleLogout = (req, res) => {
   res.clearCookie("token");
