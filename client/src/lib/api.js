@@ -162,6 +162,7 @@ const MIRROR_QUERY_ALLOWLIST = [
 
 function resolveMirrorOwnerClientId(session) {
   if (session?.user?.role === "admin") return null;
+  if (session?.user?.mirrorContextMode !== "target") return null;
   const ownerClientId =
     session?.user?.activeMirrorOwnerClientId ??
     (() => {
