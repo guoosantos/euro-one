@@ -5,9 +5,10 @@ import { config } from "../config.js";
 import { getEnvInfo } from "../utils/env.js";
 import { authenticate } from "../middleware/auth.js";
 import { resolvePermissionContext } from "../middleware/permissions.js";
-import { resolveExplicitClientIds, resolveTenant } from "../middleware/tenant.js";
+import { resolveTenant } from "../middleware/tenant.js";
 import { getClientById, listClients } from "../models/client.js";
 import { listMirrors } from "../models/mirror.js";
+import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
 
 const router = express.Router();
 
@@ -54,23 +55,22 @@ router.get("/context", async (req, res, next) => {
       clients = await listClients();
     } else if (user.clientId) {
       const ownClient = await getClientById(user.clientId).catch(() => null);
-      const explicitIds = resolveExplicitClientIds(user);
-      let explicitClients = [];
-      if (explicitIds.length) {
-        const directory = await listClients();
-        explicitClients = directory.filter((client) => explicitIds.includes(String(client.id)));
-      }
+      const allowedMirrorOwners = resolveAllowedMirrorOwnerIds(user);
       const mirrorOwners = config.features?.mirrorMode
         ? listMirrors({ targetClientId: user.clientId })
           .filter((mirror) => isMirrorActive(mirror))
           .map((mirror) => String(mirror.ownerClientId))
         : [];
+      const filteredOwners =
+        Array.isArray(allowedMirrorOwners)
+          ? mirrorOwners.filter((ownerId) => allowedMirrorOwners.includes(String(ownerId)))
+          : mirrorOwners;
       let ownerClients = [];
-      if (mirrorOwners.length) {
+      if (filteredOwners.length) {
         const directory = await listClients();
-        ownerClients = directory.filter((client) => mirrorOwners.includes(String(client.id)));
+        ownerClients = directory.filter((client) => filteredOwners.includes(String(client.id)));
       }
-      clients = dedupeClients([...(ownerClients || []), ...(explicitClients || []), ...(ownClient ? [ownClient] : [])]);
+      clients = dedupeClients([...(ownerClients || []), ...(ownClient ? [ownClient] : [])]);
     }
     if (!isAdmin && user.clientId && clients.length === 0) {
       clients = [

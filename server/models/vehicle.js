@@ -179,8 +179,8 @@ export async function initVehicles() {
 
 export function listVehicles({ clientId } = {}) {
   const list = Array.from(vehicles.values());
-  if (clientId) {
-    console.info("[vehicles] listagem por cliente", { clientId });
+  if (clientId && process.env.DEBUG_MIRROR === "true") {
+    console.debug("[vehicles] listagem por cliente", { clientId });
   }
   if (!clientId) {
     return list.map(clone);
