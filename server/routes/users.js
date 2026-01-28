@@ -187,7 +187,6 @@ router.put(
 router.delete(
   "/users/:id",
   authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
-  requireAdminGeneral,
   async (req, res, next) => {
   try {
     const { id } = req.params;

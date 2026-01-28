@@ -82,7 +82,7 @@ function ensureGroupWriteRole(req) {
     return;
   }
   const role = req.user.role;
-  if (role === "admin" || role === "manager") {
+  if (role === "admin" || role === "manager" || role === "tenant_admin") {
     return;
   }
   throw createError(403, "Permissão insuficiente");

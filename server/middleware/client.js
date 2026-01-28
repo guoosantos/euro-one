@@ -5,7 +5,9 @@ import { resolveTenant } from "./tenant.js";
 export function resolveClientId(req, providedClientId, { required = true } = {}) {
   const tenant = resolveTenant(req, { requestedClientId: providedClientId, required });
   if (tenant.clientIdResolved) {
-    console.info("[tenant] clientId resolvido", { userId: req.user?.id, clientId: tenant.clientIdResolved });
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.debug("[tenant] clientId resolvido", { userId: req.user?.id, clientId: tenant.clientIdResolved });
+    }
     return tenant.clientIdResolved;
   }
   if (required) {

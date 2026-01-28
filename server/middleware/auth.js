@@ -3,6 +3,7 @@ import createError from "http-errors";
 
 import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { loadCollection } from "../services/storage.js";
 import { enforceUserAccess } from "./user-access.js";
 import { resolveTenant } from "./tenant.js";
 
@@ -71,25 +72,30 @@ export function extractToken(req) {
 }
 
 async function rehydrateUserFromStore(req, res) {
-  if (!req.user?.id || !isPrismaAvailable()) {
+  if (!req.user?.id) {
     return;
   }
   const userId = String(req.user.id);
   const cached = getCachedUser(userId);
   let stored = cached?.data ?? null;
   if (!stored) {
-    stored = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        role: true,
-        clientId: true,
-        name: true,
-        email: true,
-        username: true,
-        attributes: true,
-      },
-    });
+    if (isPrismaAvailable()) {
+      stored = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+          clientId: true,
+          name: true,
+          email: true,
+          username: true,
+          attributes: true,
+        },
+      });
+    } else {
+      const users = loadCollection("users", []);
+      stored = (Array.isArray(users) ? users : []).find((user) => String(user?.id) === userId) || null;
+    }
     if (!stored) {
       throw createError(401, "Sessão inválida");
     }
@@ -98,12 +104,14 @@ async function rehydrateUserFromStore(req, res) {
 
   const previousRole = req.user.role;
   const previousClientId = req.user.clientId ?? null;
-  const previousPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
-  const storedPermissionGroupId = stored?.attributes?.permissionGroupId ?? null;
+  const previousAttributes = req.user?.attributes ?? {};
+  const storedAttributes = stored?.attributes ?? {};
+  const previousPermissionGroupId = previousAttributes?.permissionGroupId ?? null;
+  const storedPermissionGroupId = storedAttributes?.permissionGroupId ?? null;
 
   req.user.role = stored.role;
   req.user.clientId = stored.clientId ?? req.user.clientId ?? null;
-  req.user.attributes = { ...(req.user.attributes || {}), ...(stored.attributes || {}) };
+  req.user.attributes = { ...storedAttributes };
   if (!req.clientId) {
     req.clientId = req.user.clientId ?? null;
   }
@@ -111,8 +119,9 @@ async function rehydrateUserFromStore(req, res) {
   const roleChanged = previousRole !== stored.role;
   const clientChanged = previousClientId !== req.user.clientId;
   const permissionChanged = previousPermissionGroupId !== storedPermissionGroupId;
+  const attributesChanged = JSON.stringify(previousAttributes || {}) !== JSON.stringify(storedAttributes || {});
 
-  if (process.env.DEBUG_ROLE === "true" && (roleChanged || clientChanged || permissionChanged)) {
+  if (process.env.DEBUG_ROLE === "true" && (roleChanged || clientChanged || permissionChanged || attributesChanged)) {
     console.info("[auth] sessão reidratada a partir do banco", {
       path: req.originalUrl || req.url,
       method: req.method,
@@ -126,7 +135,7 @@ async function rehydrateUserFromStore(req, res) {
     });
   }
 
-  if (res && (roleChanged || clientChanged)) {
+  if (res && (roleChanged || clientChanged || permissionChanged || attributesChanged)) {
     const tokenPayload = {
       id: stored.id,
       role: stored.role,
@@ -134,6 +143,7 @@ async function rehydrateUserFromStore(req, res) {
       name: stored.name,
       email: stored.email,
       username: stored.username ?? null,
+      attributes: storedAttributes,
     };
     const token = signSession(tokenPayload);
     res.cookie("token", token, buildRoleSyncCookieOptions());

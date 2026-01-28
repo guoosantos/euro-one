@@ -315,6 +315,7 @@ const handleLogin = async (req, res, next) => {
       name: sessionUser.name,
       email: sessionUser.email,
       username: sessionUser.username ?? null,
+      attributes: sessionUser.attributes ?? {},
     };
     try {
       const token = signSessionFn(tokenPayload);
@@ -375,6 +376,7 @@ const handleRefresh = async (req, res, next) => {
       name: sessionUser.name,
       email: sessionUser.email,
       username: sessionUser.username ?? null,
+      attributes: sessionUser.attributes ?? {},
     };
     const token = signSession(tokenPayload);
     const cookieOptions = buildAuthCookieOptions(req.body?.remember);
