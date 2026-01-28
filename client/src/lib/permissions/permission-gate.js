@@ -76,13 +76,13 @@ function toUiLevel(access) {
 
 export function createPermissionResolver({ useTenantHook = useTenant } = {}) {
   return function usePermissionResolver() {
-    const { role, permissionContext, permissionLoading } = useTenantHook();
-    const context = permissionContext ?? { permissions: null, isFull: true, permissionGroupId: null };
+    const { role, permissionContext, permissionLoading, isGlobalAdmin } = useTenantHook();
+    const context = permissionContext ?? { permissions: null, isFull: false, permissionGroupId: null };
     const loading = Boolean(permissionLoading);
 
     const getPermission = useCallback(
       ({ menuKey, pageKey, subKey }) => {
-        if (role === "admin" || context.isFull) {
+        if (isGlobalAdmin || role === "admin" || context.isFull) {
           return {
             level: UI_LEVELS.full,
             hasAccess: true,

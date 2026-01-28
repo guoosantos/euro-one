@@ -11,7 +11,7 @@ import {
   resolveFallbackCredentials,
 } from "../services/fallback-data.js";
 
-const VALID_ROLES = new Set(["admin", "manager", "user", "technician"]);
+const VALID_ROLES = new Set(["admin", "tenant_admin", "manager", "user", "technician"]);
 
 function normaliseEmail(email) {
   if (!email) return null;

@@ -133,7 +133,7 @@ function logDeniedAccess({ user, requestedClientId, reason }) {
 }
 
 function logMirrorApplied({ user, mirrorContext }) {
-  if (!mirrorContext) return;
+  if (!mirrorContext || process.env.DEBUG_MIRROR !== "true") return;
   console.debug("[tenant] mirror aplicado", {
     userId: user?.id ? String(user.id) : null,
     ownerClientId: mirrorContext.ownerClientId ? String(mirrorContext.ownerClientId) : null,

@@ -46,6 +46,7 @@ const defaultUserForm = {
 
 const roleLabels = {
   admin: "Administrador",
+  tenant_admin: "Administrador do cliente",
   manager: "Gestor",
   user: "Operador",
   driver: "Motorista",
@@ -167,7 +168,7 @@ export default function Users() {
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
 
-  const canManageUsers = role === "admin" || role === "manager";
+  const canManageUsers = role === "admin" || role === "manager" || role === "tenant_admin";
 
   const managedTenants = useMemo(() => {
     if (role === "admin") {
@@ -202,6 +203,7 @@ export default function Users() {
 
   const allowedRoles = role === "admin" ? Object.keys(roleLabels) : ["user", "driver", "viewer"];
   const isManager = role === "manager";
+  const isTenantAdmin = role === "tenant_admin";
 
   const { groups, reload: reloadGroups, createGroup, updateGroup, deleteGroup } = useGroups({
     params: selectedTenantId ? { clientId: selectedTenantId } : {},
@@ -249,7 +251,7 @@ export default function Users() {
     setLoading(true);
     setError(null);
     try {
-      const params = role === "admin" || isManager ? { clientId } : {};
+      const params = role === "admin" || isManager || isTenantAdmin ? { clientId } : {};
       const response = await api.get(API_ROUTES.users, { params });
       const list = response?.data?.users || response?.data || [];
       setUsers(Array.isArray(list) ? list : []);

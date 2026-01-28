@@ -196,14 +196,16 @@ router.get(
         .map((device) => [String(device.traccarId), device]),
     );
     const deviceIds = Array.from(deviceByTraccarId.keys());
-    console.info("[alerts/conjugated] request", {
-      clientIdReceived: req.query?.clientId ?? null,
-      clientIdResolved: clientId ?? null,
-      mirrorContext: req.mirrorContext
-        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
-        : null,
-      deviceCount: deviceIds.length,
-    });
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.info("[alerts/conjugated] request", {
+        clientIdReceived: req.query?.clientId ?? null,
+        clientIdResolved: clientId ?? null,
+        mirrorContext: req.mirrorContext
+          ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+          : null,
+        deviceCount: deviceIds.length,
+      });
+    }
     if (!deviceIds.length) {
       return res.json({ data: [], total: 0 });
     }

@@ -147,7 +147,7 @@ export function TenantProvider({ children }) {
   const [error, setError] = useState(null);
   const [permissionContext, setPermissionContext] = useState({
     permissions: null,
-    isFull: true,
+    isFull: false,
     permissionGroupId: null,
   });
   const [permissionLoading, setPermissionLoading] = useState(false);
@@ -460,7 +460,7 @@ export function TenantProvider({ children }) {
         return;
       }
       if (!user) {
-        setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+        setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
         setPermissionLoaded(true);
         setPermissionTenantId(null);
         setPermissionLoading(false);
@@ -503,7 +503,7 @@ export function TenantProvider({ children }) {
     }
 
     if (!token) {
-      setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+      setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
       setPermissionLoaded(true);
       setPermissionTenantId(null);
       setPermissionLoading(false);
@@ -734,6 +734,8 @@ export function TenantProvider({ children }) {
       refreshClients,
       isAuthenticated: Boolean(token && user),
       hasAdminAccess: isAdmin,
+      isGlobalAdmin: isAdmin,
+      isTenantAdmin: user?.role === "tenant_admin",
       canSwitchTenant,
       role: user?.role ?? "guest",
       activeMirror,

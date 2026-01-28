@@ -10,6 +10,29 @@ export function signSession(payload) {
   return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
 }
 
+const ROLE_SYNC_TTL_MS = (() => {
+  const raw = Number(process.env.ROLE_SYNC_TTL_MS || 60_000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 60_000;
+})();
+const roleSyncCache = new Map();
+
+function getCachedUser(userId) {
+  const cached = roleSyncCache.get(String(userId));
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    roleSyncCache.delete(String(userId));
+    return null;
+  }
+  return cached;
+}
+
+function cacheUser(userId, data) {
+  roleSyncCache.set(String(userId), {
+    data,
+    expiresAt: Date.now() + ROLE_SYNC_TTL_MS,
+  });
+}
+
 function extractTokenFromCookies(req) {
   if (req.cookies?.token) {
     return req.cookies.token;
@@ -47,7 +70,78 @@ export function extractToken(req) {
   }
 }
 
-export async function authenticate(req, _res, next) {
+async function rehydrateUserFromStore(req, res) {
+  if (!req.user?.id || !isPrismaAvailable()) {
+    return;
+  }
+  const userId = String(req.user.id);
+  const cached = getCachedUser(userId);
+  let stored = cached?.data ?? null;
+  if (!stored) {
+    stored = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        clientId: true,
+        name: true,
+        email: true,
+        username: true,
+        attributes: true,
+      },
+    });
+    if (!stored) {
+      throw createError(401, "Sessão inválida");
+    }
+    cacheUser(userId, stored);
+  }
+
+  const previousRole = req.user.role;
+  const previousClientId = req.user.clientId ?? null;
+  const previousPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
+  const storedPermissionGroupId = stored?.attributes?.permissionGroupId ?? null;
+
+  req.user.role = stored.role;
+  req.user.clientId = stored.clientId ?? req.user.clientId ?? null;
+  req.user.attributes = { ...(req.user.attributes || {}), ...(stored.attributes || {}) };
+  if (!req.clientId) {
+    req.clientId = req.user.clientId ?? null;
+  }
+
+  const roleChanged = previousRole !== stored.role;
+  const clientChanged = previousClientId !== req.user.clientId;
+  const permissionChanged = previousPermissionGroupId !== storedPermissionGroupId;
+
+  if (process.env.DEBUG_ROLE === "true" && (roleChanged || clientChanged || permissionChanged)) {
+    console.info("[auth] sessão reidratada a partir do banco", {
+      path: req.originalUrl || req.url,
+      method: req.method,
+      userId,
+      tokenRole: previousRole,
+      dbRole: stored.role,
+      tokenClientId: previousClientId,
+      dbClientId: req.user.clientId ?? null,
+      tokenPermissionGroupId: previousPermissionGroupId,
+      dbPermissionGroupId: storedPermissionGroupId,
+    });
+  }
+
+  if (res && (roleChanged || clientChanged)) {
+    const tokenPayload = {
+      id: stored.id,
+      role: stored.role,
+      clientId: req.user.clientId ?? stored.clientId ?? null,
+      name: stored.name,
+      email: stored.email,
+      username: stored.username ?? null,
+    };
+    const token = signSession(tokenPayload);
+    res.cookie("token", token, buildRoleSyncCookieOptions());
+    req.sessionToken = token;
+  }
+}
+
+export async function authenticate(req, res, next) {
   const token = extractToken(req);
   if (!token) {
     return next(createError(401, "Token ausente"));
@@ -68,6 +162,11 @@ export async function authenticate(req, _res, next) {
     }
   } catch (error) {
     return next(createError(401, "Token inválido ou expirado"));
+  }
+  try {
+    await rehydrateUserFromStore(req, res);
+  } catch (rehydrateError) {
+    return next(rehydrateError);
   }
   try {
     resolveTenant(req, { required: false });
@@ -115,62 +214,6 @@ export function requireRole(...roles) {
       return next();
     }
 
-    try {
-      if (req.user?.id && isPrismaAvailable()) {
-        const stored = await prisma.user.findUnique({
-          where: { id: String(req.user.id) },
-          select: {
-            id: true,
-            role: true,
-            clientId: true,
-            name: true,
-            email: true,
-            username: true,
-          },
-        });
-        if (!stored) {
-          return next(createError(401, "Sessão inválida"));
-        }
-
-        const previousRole = req.user.role;
-        const previousClientId = req.user.clientId ?? null;
-        // O banco é a fonte da verdade; o JWT pode ficar desatualizado entre promoções.
-        req.user.role = stored.role;
-        req.user.clientId = stored.clientId ?? req.user.clientId ?? null;
-        if (!req.clientId) {
-          req.clientId = req.user.clientId ?? null;
-        }
-
-        // DEBUG_ROLE=true habilita logs quando o papel do token diverge do banco.
-        if (process.env.DEBUG_ROLE === "true" && previousRole !== stored.role) {
-          console.info("[auth] role atualizado a partir do banco", {
-            path: req.originalUrl || req.url,
-            method: req.method,
-            userId: String(req.user.id),
-            tokenRole: previousRole,
-            dbRole: stored.role,
-          });
-        }
-
-        if (previousRole !== stored.role || previousClientId !== req.user.clientId) {
-          const tokenPayload = {
-            id: stored.id,
-            role: stored.role,
-            clientId: req.user.clientId ?? stored.clientId ?? null,
-            name: stored.name,
-            email: stored.email,
-            username: stored.username ?? null,
-          };
-          const token = signSession(tokenPayload);
-          res.cookie("token", token, buildRoleSyncCookieOptions());
-          req.sessionToken = token;
-        }
-      }
-    } catch (error) {
-      console.error("[auth] falha ao validar role no banco", error?.message || error);
-      return next(createError(503, "Falha ao validar permissões"));
-    }
-
     const role = req.user.role;
     if (allowed.includes(role)) {
       return next();
@@ -179,6 +222,11 @@ export function requireRole(...roles) {
     // Hierarquia simples: admin > manager > user
     if (role === "admin") {
       return next();
+    }
+    if (role === "tenant_admin") {
+      if (allowed.includes("manager") || allowed.includes("user") || allowed.includes("tenant_admin")) {
+        return next();
+      }
     }
     if (role === "manager" && allowed.includes("user")) {
       return next();
