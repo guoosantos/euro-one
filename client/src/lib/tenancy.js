@@ -4,6 +4,9 @@ export function matchesTenant(entity, tenantId) {
   if (!entity || typeof entity !== "object") return false;
 
   const candidates = [
+    entity.accessClientId,
+    entity.accessTenantId,
+    entity.ownerClientId,
     entity.tenantId,
     entity.tenant?.id,
     entity.tenant?.tenantId,

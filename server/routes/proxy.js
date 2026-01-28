@@ -2065,6 +2065,30 @@ async function resolveDeviceIdsToQuery(req) {
   return { clientId, deviceIdsToQuery, devices, vehicles, mirrorContext };
 }
 
+function applyMirrorAccessMetadata(entries = [], mirrorContext) {
+  if (!mirrorContext?.targetClientId) return entries;
+  const accessClientId = String(mirrorContext.targetClientId);
+  const ownerClientId = mirrorContext.ownerClientId ? String(mirrorContext.ownerClientId) : null;
+  const decorate = (entity) => {
+    if (!entity || typeof entity !== "object") return entity;
+    return {
+      ...entity,
+      accessClientId: entity.accessClientId ?? accessClientId,
+      ...(ownerClientId ? { ownerClientId: entity.ownerClientId ?? ownerClientId } : {}),
+    };
+  };
+  return entries.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    return {
+      ...entry,
+      accessClientId: entry.accessClientId ?? accessClientId,
+      ...(ownerClientId ? { ownerClientId: entry.ownerClientId ?? ownerClientId } : {}),
+      device: decorate(entry.device),
+      vehicle: decorate(entry.vehicle),
+    };
+  });
+}
+
 function buildDeviceLookup(clientDevices = [], metadata = []) {
   const metadataById = new Map((metadata || []).map((item) => [String(item.id), item]));
   const devicesByTraccarId = new Map(
@@ -2613,12 +2637,15 @@ function isTraccarUserRequest(req) {
 
 router.get("/telemetry", async (req, res) => {
   try {
-    const { clientId, deviceIdsToQuery } = await resolveDeviceIdsToQuery(req);
+    const { clientId, deviceIdsToQuery, mirrorContext } = await resolveDeviceIdsToQuery(req);
 
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
     const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
 
-    const data = enrichedPositions.map((position) => normalisePosition(position)).filter(Boolean);
+    const data = applyMirrorAccessMetadata(
+      enrichedPositions.map((position) => normalisePosition(position)).filter(Boolean),
+      mirrorContext,
+    );
 
     return res.status(200).json({ data, positions: data, error: null });
   } catch (error) {
@@ -2823,7 +2850,7 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/positions", async (req, res, next) => {
   try {
-    const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
+    const { clientId, deviceIdsToQuery, devices, mirrorContext } = await resolveDeviceIdsToQuery(req);
     let metadata = [];
     try {
       metadata = await fetchDevicesMetadata();
@@ -2855,7 +2882,9 @@ router.get("/positions", async (req, res, next) => {
       .map((position) => applyEventConfigToPosition(position, { clientId }))
       .filter(Boolean);
 
-    return res.status(200).json({ data: enriched, positions: enriched, error: null });
+    const scoped = applyMirrorAccessMetadata(enriched, mirrorContext);
+
+    return res.status(200).json({ data: scoped, positions: scoped, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -2887,7 +2916,7 @@ router.get(
   }
 
   try {
-    const { clientId, deviceIdsToQuery, devices } = await resolveDeviceIdsToQuery(req);
+    const { clientId, deviceIdsToQuery, devices, mirrorContext } = await resolveDeviceIdsToQuery(req);
     if (req.tenant?.mirrorContext && deviceIdsToQuery.length === 0) {
       return res.status(200).json({ data: [], positions: [], error: null });
     }
@@ -2920,7 +2949,9 @@ router.get(
       .map((position) => applyEventConfigToPosition(position, { clientId }))
       .filter(Boolean);
 
-    return res.status(200).json({ data, positions: data, error: null });
+    const scoped = applyMirrorAccessMetadata(data, mirrorContext);
+
+    return res.status(200).json({ data: scoped, positions: scoped, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");

@@ -261,11 +261,13 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
   const explicitWithoutSelf = explicitClientIds.filter((id) => String(id) !== userClientId);
   const allowSelfFallback = config.features?.tenantFallbackToSelf || isPermissionContextRequest(req);
   if (allowSelfFallback && resolvedRequested && explicitWithoutSelf.length === 0) {
-    console.warn("[tenant] fallback para clientId do usuário", {
-      userId: user?.id ? String(user.id) : null,
-      userClientId,
-      requestedClientId: String(resolvedRequested),
-    });
+    if (process.env.DEBUG_MIRROR === "true") {
+      console.debug("[tenant] fallback para clientId do usuário", {
+        userId: user?.id ? String(user.id) : null,
+        userClientId,
+        requestedClientId: String(resolvedRequested),
+      });
+    }
     const tenant = {
       requestedClientId: resolvedRequested,
       clientIdResolved: userClientId,

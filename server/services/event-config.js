@@ -9,6 +9,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const storagePath = process.env.EVENT_CONFIG_PATH || path.join(__dirname, "..", "data", "event-config.json");
 let cachedConfig = null;
 const DEFAULT_EVENT_CATEGORY = "Logística";
+const UNMAPPED_LOG_TTL_MS = (() => {
+  const parsed = Number(process.env.EVENT_UNMAPPED_LOG_TTL_MS || 60_000);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60_000;
+})();
+const unmappedEventLogCache = new Map();
 const SECURITY_EVENT_IDS = new Set(
   [
     "10",
@@ -32,6 +37,18 @@ const SECURITY_EVENT_IDS = new Set(
     "fun_id=0,war_id=140",
   ].map((entry) => entry.toLowerCase()),
 );
+
+function shouldLogUnmappedEvent({ protocolKey, eventKey }) {
+  if (process.env.DEBUG_EVENTS === "true") return true;
+  const cacheKey = `${protocolKey || "unknown"}:${eventKey || "unknown"}`;
+  const now = Date.now();
+  const lastLogged = unmappedEventLogCache.get(cacheKey) || 0;
+  if (now - lastLogged < UNMAPPED_LOG_TTL_MS) {
+    return false;
+  }
+  unmappedEventLogCache.set(cacheKey, now);
+  return true;
+}
 
 function readFile() {
   if (cachedConfig) return cachedConfig;
@@ -284,13 +301,16 @@ export function resolveEventConfiguration({
 
   if (!catalogEntry) {
     const entry = ensureUnmappedEventConfig({ clientId, protocol: protocolKey, eventId: eventKey });
-    if (logger?.warn) {
-      logger.warn("[events] evento não mapeado", {
+    if (logger?.warn && shouldLogUnmappedEvent({ protocolKey, eventKey })) {
+      const logPayload = {
         protocol: protocolKey || null,
         id: eventKey,
         deviceId: deviceId ?? null,
-        payload,
-      });
+      };
+      if (process.env.DEBUG_EVENTS === "true") {
+        logPayload.payload = payload;
+      }
+      logger.warn("[events] evento não mapeado", logPayload);
     }
     return {
       id: eventKey,
