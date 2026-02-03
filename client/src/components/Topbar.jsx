@@ -6,6 +6,7 @@ import { useUI } from "../lib/store";
 import { useTenant, setStoredMirrorOwnerId } from "../lib/tenant-context";
 import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { useEvents } from "../lib/hooks/useEvents";
 import { buildFleetState, formatDate } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
@@ -17,6 +18,12 @@ import TenantCombobox from "./inputs/TenantCombobox.jsx";
 function normalizePlateValue(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function sanitizePlate(value, id) {
+  const normalized = normalizePlateValue(value);
+  if (!normalized) return "";
+  return isNumericIdPlate(normalized, id) ? "" : normalized;
 }
 
 function isNumericIdPlate(value, id) {
@@ -48,6 +55,21 @@ function resolveDevicePlate(device) {
   );
 }
 
+function resolveVehiclePlate(vehicle) {
+  if (!vehicle) return "";
+  const attributes = vehicle.attributes ?? {};
+  return (
+    vehicle.plate ??
+    vehicle.registrationNumber ??
+    vehicle.vehiclePlate ??
+    attributes.plate ??
+    attributes.plateNumber ??
+    attributes.vehiclePlate ??
+    attributes.registrationNumber ??
+    ""
+  );
+}
+
 export function Topbar({ title }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
@@ -55,6 +77,7 @@ export function Topbar({ title }) {
   const setLocale = useUI((state) => state.setLocale);
   const {
     tenantId,
+    tenantScope,
     switchContext,
     tenant,
     tenants,
@@ -79,6 +102,7 @@ export function Topbar({ title }) {
 
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
+  const { vehicles = [] } = useVehicles();
   const { events: recentEvents } = useEvents({ limit: 3 });
   const deviceByKey = useMemo(() => {
     const map = new Map();
@@ -90,6 +114,39 @@ export function Topbar({ title }) {
     });
     return map;
   }, [devices]);
+  const vehicleById = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      const id = vehicle?.id ?? vehicle?.vehicleId ?? vehicle?.vehicle_id;
+      if (id == null) return;
+      map.set(String(id), vehicle);
+    });
+    return map;
+  }, [vehicles]);
+  const plateByDeviceKey = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      const plateValue = sanitizePlate(resolveVehiclePlate(vehicle), vehicle?.id);
+      if (!plateValue) return;
+      const devicesList = normalizeVehicleDevices(vehicle);
+      devicesList.forEach((device) => {
+        const key = getDeviceKey(device);
+        if (key) map.set(String(key), plateValue);
+        const rawId = device?.id ?? device?.deviceId ?? device?.uniqueId ?? null;
+        if (rawId != null) map.set(String(rawId), plateValue);
+      });
+      const preferredKey =
+        vehicle?.primaryDeviceId ??
+        vehicle?.principalDeviceId ??
+        vehicle?.deviceId ??
+        vehicle?.device?.id ??
+        vehicle?.device?.deviceId ??
+        vehicle?.device?.uniqueId ??
+        null;
+      if (preferredKey != null) map.set(String(preferredKey), plateValue);
+    });
+    return map;
+  }, [vehicles]);
 
   const mirrorOwnerIds = useMemo(() => {
     if (!Array.isArray(mirrorOwners)) return new Set();
@@ -185,20 +242,36 @@ export function Topbar({ title }) {
         null,
       name: row.name,
       plate: (() => {
-        const rowPlate = normalizePlateValue(row?.plate);
-        const safeRowPlate = isNumericIdPlate(rowPlate, row?.id) ? "" : rowPlate;
-        if (safeRowPlate) return safeRowPlate;
+        const rowPlate = sanitizePlate(row?.plate, row?.id);
+        if (rowPlate) return rowPlate;
         const deviceRef =
           row?.device ??
           row?.position?.device ??
           deviceByKey.get(String(row?.device?.id ?? row?.device?.deviceId ?? row?.id ?? "")) ??
           deviceByKey.get(String(row?.position?.deviceId ?? row?.id ?? ""));
-        const fallback = normalizePlateValue(resolveDevicePlate(deviceRef));
-        return isNumericIdPlate(fallback, row?.id) ? "" : fallback;
+        const devicePlate = sanitizePlate(resolveDevicePlate(deviceRef), row?.id);
+        if (devicePlate) return devicePlate;
+        const deviceKey =
+          getDeviceKey(deviceRef) ??
+          row?.position?.deviceId ??
+          row?.device?.deviceId ??
+          row?.device?.id ??
+          null;
+        const mappedPlate = sanitizePlate(plateByDeviceKey.get(String(deviceKey ?? "")), row?.id);
+        if (mappedPlate) return mappedPlate;
+        const vehicleId =
+          deviceRef?.vehicleId ??
+          row?.position?.vehicleId ??
+          row?.device?.vehicleId ??
+          row?.position?.vehicle?.id ??
+          row?.device?.vehicle?.id ??
+          null;
+        const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : null;
+        return sanitizePlate(resolveVehiclePlate(vehicle), row?.id);
       })(),
       status: row.status,
     }));
-  }, [deviceByKey, devices, positions, tenantId]);
+  }, [deviceByKey, devices, plateByDeviceKey, positions, tenantId, vehicleById]);
 
   const searchResults = useMemo(() => {
     if (!query.trim()) return [];
@@ -270,10 +343,14 @@ export function Topbar({ title }) {
     if (!tenantId && hasAdminAccess) return allClientsLabel;
     return tenant?.name ?? allClientsLabel;
   }, [hasAdminAccess, selectValue, t, tenant?.name, tenantId, tenantOptions]);
-  const showGlobalTenantLogo =
+  const isGlobalTenantView =
     hasAdminAccess &&
-    (tenantId === null || tenantId === undefined || String(selectValue) === "") &&
-    (tenant?.id == null || tenant?.name === allClientsLabel);
+    (tenantScope === "ALL" ||
+      String(selectValue) === "" ||
+      String(selectValue) === "all" ||
+      String(selectedTenantLabel) === String(allClientsLabel) ||
+      tenant?.name === allClientsLabel);
+  const showGlobalTenantLogo = isGlobalTenantView;
 
   // Reusa o fluxo de foco do monitoramento via location.state, mesmo quando já estamos na rota.
   const handleDeviceFocus = (deviceId) => {
@@ -294,8 +371,12 @@ export function Topbar({ title }) {
     }
   };
 
-  const logoStyle = theme === "dark" ? { filter: "invert(1)" } : undefined;
+  const logoStyle =
+    theme === "dark"
+      ? { filter: "brightness(0) invert(1)" }
+      : { filter: "brightness(0)" };
   const subtitleLabel = title || tenant?.segment || t("topbar.subtitle");
+  const hideSubtitle = isGlobalTenantView || subtitleLabel === allClientsLabel;
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface backdrop-blur">
@@ -320,7 +401,7 @@ export function Topbar({ title }) {
                 tenant?.name ?? "Euro One"
               )}
             </div>
-            {!showGlobalTenantLogo && subtitleLabel ? (
+            {!hideSubtitle && subtitleLabel ? (
               <div className="text-[11px] text-sub">
                 {subtitleLabel}
               </div>
