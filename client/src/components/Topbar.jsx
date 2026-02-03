@@ -6,6 +6,7 @@ import { useUI } from "../lib/store";
 import { useTenant, setStoredMirrorOwnerId } from "../lib/tenant-context";
 import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
+import useTelemetry from "../lib/hooks/useTelemetry";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { buildFleetState } from "../lib/fleet-utils";
 import { useTranslation } from "../lib/i18n.js";
@@ -141,17 +142,60 @@ export function Topbar({ title }) {
 
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
+  const { telemetry = [] } = useTelemetry();
   const { vehicles = [] } = useVehicles();
+  const effectiveTenantId = tenantId === "" ? null : tenantId;
+  const isGlobalScope = hasAdminAccess && (tenantScope === "ALL" || effectiveTenantId === null);
+  const telemetryDevices = useMemo(() => {
+    const list = Array.isArray(telemetry) ? telemetry : [];
+    return list
+      .map((entry) => {
+        const device = entry?.device ?? null;
+        const vehicle = entry?.vehicle ?? device?.vehicle ?? null;
+        const deviceId =
+          device?.id ??
+          device?.deviceId ??
+          entry?.deviceId ??
+          entry?.traccarId ??
+          entry?.principalDeviceId ??
+          null;
+        if (!deviceId) return null;
+        return {
+          ...device,
+          id: device?.id ?? deviceId,
+          deviceId: device?.deviceId ?? entry?.deviceId ?? device?.id ?? deviceId,
+          vehicleId: device?.vehicleId ?? entry?.vehicleId ?? vehicle?.id ?? null,
+          vehicle: device?.vehicle ?? vehicle,
+          plate: device?.plate ?? entry?.plate ?? vehicle?.plate ?? null,
+          clientId: device?.clientId ?? entry?.clientId ?? vehicle?.clientId ?? null,
+          attributes: { ...(device?.attributes || {}), ...(entry?.rawAttributes || entry?.attributes || {}) },
+        };
+      })
+      .filter(Boolean);
+  }, [telemetry]);
+  const telemetryPositions = useMemo(() => {
+    const list = Array.isArray(telemetry) ? telemetry : [];
+    return list.map((entry) => entry?.position).filter(Boolean);
+  }, [telemetry]);
+  const activeDevices = useMemo(
+    () => (isGlobalScope ? telemetryDevices : devices),
+    [devices, isGlobalScope, telemetryDevices],
+  );
+  const activePositions = useMemo(
+    () => (isGlobalScope ? telemetryPositions : positions),
+    [isGlobalScope, positions, telemetryPositions],
+  );
+  const activeTenantId = isGlobalScope ? null : effectiveTenantId;
   const deviceByKey = useMemo(() => {
     const map = new Map();
-    devices.forEach((device) => {
+    activeDevices.forEach((device) => {
       const key = getDeviceKey(device);
       if (key) map.set(key, device);
       if (device?.uniqueId != null) map.set(String(device.uniqueId), device);
       if (device?.deviceId != null) map.set(String(device.deviceId), device);
     });
     return map;
-  }, [devices]);
+  }, [activeDevices]);
   const vehicleById = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
@@ -268,7 +312,7 @@ export function Topbar({ title }) {
   }, []);
 
   const fleetIndex = useMemo(() => {
-    const { rows } = buildFleetState(devices, positions, { tenantId });
+    const { rows } = buildFleetState(activeDevices, activePositions, { tenantId: activeTenantId });
     return rows.map((row) => ({
       id: row.id,
       deviceId:
@@ -329,7 +373,7 @@ export function Topbar({ title }) {
       })(),
       status: row.status,
     }));
-  }, [deviceByKey, devices, plateByDeviceKey, positions, tenantId, vehicleById]);
+  }, [activeDevices, activePositions, activeTenantId, deviceByKey, plateByDeviceKey, vehicleById]);
 
   const searchResults = useMemo(() => {
     if (!query.trim()) return [];
@@ -401,15 +445,6 @@ export function Topbar({ title }) {
     if (!tenantId && hasAdminAccess) return allClientsLabel;
     return tenant?.name ?? allClientsLabel;
   }, [hasAdminAccess, selectValue, t, tenant?.name, tenantId, tenantOptions]);
-  const isGlobalTenantView =
-    hasAdminAccess &&
-    (tenantScope === "ALL" ||
-      String(selectValue) === "" ||
-      String(selectValue) === "all" ||
-      String(selectedTenantLabel) === String(allClientsLabel) ||
-      tenant?.name === allClientsLabel);
-  const showGlobalTenantLogo = isGlobalTenantView;
-
   // Reusa o fluxo de foco do monitoramento via location.state, mesmo quando já estamos na rota.
   const handleDeviceFocus = (deviceId) => {
     if (!deviceId) return;
@@ -433,8 +468,6 @@ export function Topbar({ title }) {
     theme === "dark"
       ? { filter: "brightness(0) invert(1)" }
       : { filter: "brightness(0)" };
-  const subtitleLabel = title || tenant?.segment || t("topbar.subtitle");
-  const hideSubtitle = isGlobalTenantView || subtitleLabel === allClientsLabel;
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface backdrop-blur">
@@ -446,24 +479,15 @@ export function Topbar({ title }) {
 
           <div>
             <div className="text-sm font-medium leading-none text-text">
-              {showGlobalTenantLogo ? (
-                <img
-                  src="https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png"
-                  alt="Euro Soluções Tecnológicas"
-                  className="h-8 max-h-8 w-auto object-contain"
-                  style={logoStyle}
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                tenant?.name ?? "Euro One"
-              )}
+              <img
+                src="https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png"
+                alt="Euro Soluções Tecnológicas"
+                className="h-8 max-h-8 w-auto object-contain"
+                style={logoStyle}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
             </div>
-            {!hideSubtitle && subtitleLabel ? (
-              <div className="text-[11px] text-sub">
-                {subtitleLabel}
-              </div>
-            ) : null}
           </div>
         </div>
 
