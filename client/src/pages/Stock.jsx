@@ -18,6 +18,8 @@ import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import usePageToast from "../lib/hooks/usePageToast.js";
@@ -166,12 +168,18 @@ function resolveDeviceTechnicianReference(device) {
 }
 
 export default function Stock() {
-  const { tenantId, user, tenants, hasAdminAccess } = useTenant();
+  const { tenantId, tenantScope, user, tenants, hasAdminAccess } = useTenant();
   const stockPermission = usePermissionGate({
     menuKey: "primary",
     pageKey: "devices",
     subKey: "devices-stock",
   });
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -226,7 +234,7 @@ export default function Stock() {
   const mapRef = useRef(null);
   const { onMapReady, map } = useMapLifecycle({ mapRef });
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
 
   useEffect(() => {
     const defaultClientId = hasAdminAccess ? "" : resolvedClientId || "";
@@ -683,7 +691,7 @@ export default function Stock() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-4">
       <PageHeader
         title="Estoque"
         subtitle="Controle por cliente, disponíveis e vinculados."
@@ -738,7 +746,7 @@ export default function Stock() {
       </div>
 
       {view === "geral" && (
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <div className="flex flex-wrap gap-2">
             {CONDITION_FILTERS.map((option) => {
               const isActive = conditionFilter === option.value;
@@ -824,7 +832,7 @@ export default function Stock() {
             </button>
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
@@ -906,6 +914,7 @@ export default function Stock() {
               </DataTable>
               {filteredDevices.length > 0 && (
                 <DataTablePagination
+                  className="mt-auto"
                   pageSize={generalPageSize}
                   pageSizeOptions={PAGE_SIZE_OPTIONS}
                   onPageSizeChange={(value) => {
@@ -1023,12 +1032,12 @@ export default function Stock() {
                 style={{ height: "100%", width: "100%" }}
                 whenReady={onMapReady}
               >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+                <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
                 {regionTarget && (
                   <>
                     <Marker
                       position={[regionTarget.lat, regionTarget.lng]}
-                      icon={regionCountIcon || undefined}
+                      icon={regionCountIcon || leafletDefaultIcon}
                     />
                     <Circle
                       center={[regionTarget.lat, regionTarget.lng]}
@@ -1040,7 +1049,7 @@ export default function Stock() {
                 {nearbyDevices.map((device) => {
                   const coords = resolveDeviceCoords(device);
                   if (!coords) return null;
-                  return <Marker key={device.id} position={[coords.lat, coords.lng]} />;
+                  return <Marker key={device.id} position={[coords.lat, coords.lng]} icon={leafletDefaultIcon} />;
                 })}
               </MapContainer>
             </div>

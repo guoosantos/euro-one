@@ -26,6 +26,8 @@ import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import { formatAddress } from "../lib/format-address.js";
 
 const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
@@ -223,8 +225,14 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Devices() {
-  const { tenantId, user } = useTenant();
+  const { tenantId, tenantScope, user } = useTenant();
   const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const location = useLocation();
   const navigate = useNavigate();
   const { positions } = useLivePositions();
@@ -252,7 +260,7 @@ export default function Devices() {
     model: "",
   });
   const [modelDraft, setModelDraft] = useState("");
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const [syncing, setSyncing] = useState(false);
   const [drawerTab, setDrawerTab] = useState("geral");
   const [initializedFromSearch, setInitializedFromSearch] = useState(false);
@@ -348,7 +356,7 @@ export default function Devices() {
     setError(null);
     setForbidden(false);
     try {
-      const clientId = tenantId || user?.clientId;
+      const clientId = resolvedClientId;
       const vehiclesParams = clientId ? { clientId } : {};
       vehiclesParams.accessible = true;
       vehiclesParams.includeUnlinked = true;
@@ -1015,7 +1023,7 @@ export default function Devices() {
       return;
     }
     const currentDevice = editingId ? devices.find((item) => String(item.id) === String(editingId)) : null;
-    const clientId = tenantId || user?.clientId || currentDevice?.clientId || "";
+    const clientId = currentDevice?.clientId || resolvedClientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para salvar o equipamento", "error");
       return;
@@ -1205,7 +1213,7 @@ export default function Devices() {
       showToast("Selecione um modelo para o cadastro em massa.", "error");
       return;
     }
-    const clientId = tenantId || user?.clientId || "";
+    const clientId = resolvedClientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para salvar os equipamentos", "error");
       return;
@@ -1241,7 +1249,7 @@ export default function Devices() {
   async function handleDeleteDevice(id) {
     if (!id) return;
     if (!isAdminGeneral) return;
-    const clientId = tenantId || user?.clientId || "";
+    const clientId = resolvedClientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
       return;
@@ -1266,7 +1274,7 @@ export default function Devices() {
   async function handleDeleteConflictDevice() {
     if (!conflictDevice?.deviceId) return;
     if (!isAdminGeneral) return;
-    const clientId = tenantId || user?.clientId || "";
+    const clientId = resolvedClientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
       return;
@@ -1364,7 +1372,7 @@ export default function Devices() {
     }
     try {
       const vehicle = vehicles.find((item) => String(item.id) === String(linkVehicleId));
-      const targetClientId = vehicle?.clientId || targetDevice?.clientId || tenantId || user?.clientId || "";
+      const targetClientId = vehicle?.clientId || targetDevice?.clientId || resolvedClientId || "";
       if (!targetClientId) {
         showToast("Selecione um cliente antes de vincular", "error");
         return;
@@ -1397,7 +1405,7 @@ export default function Devices() {
       return;
     }
     try {
-      const clientId = tenantId || user?.clientId || linkTarget?.clientId || null;
+      const clientId = resolvedClientId || linkTarget?.clientId || null;
       if (!clientId) {
         showToast("Selecione um cliente para criar veículo", "error");
         return;
@@ -1425,7 +1433,7 @@ export default function Devices() {
     if (!device?.vehicleId) return;
     try {
       const vehicle = vehicles.find((item) => String(item.id) === String(device.vehicleId)) || device.vehicle;
-      const targetClientId = vehicle?.clientId || device?.clientId || tenantId || user?.clientId || "";
+      const targetClientId = vehicle?.clientId || device?.clientId || resolvedClientId || "";
       if (!targetClientId) {
         showToast("Selecione um cliente antes de desvincular", "error");
         return;
@@ -1445,7 +1453,7 @@ export default function Devices() {
       message: "Desvincular chip deste equipamento?",
       confirmLabel: "Desvincular",
       onConfirm: async () => {
-        const clientId = device?.clientId || tenantId || user?.clientId || "";
+        const clientId = device?.clientId || resolvedClientId || "";
         if (!clientId) {
           showToast("Selecione um cliente antes de desvincular", "error");
           return;
@@ -1458,7 +1466,7 @@ export default function Devices() {
   }
 
   async function handleSyncDevices() {
-    const clientId = tenantId || user?.clientId || null;
+    const clientId = resolvedClientId || null;
     setSyncing(true);
     try {
       await CoreApi.syncDevicesFromTraccar(clientId ? { clientId } : undefined);
@@ -1658,7 +1666,7 @@ export default function Devices() {
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10" tableClassName="text-white/80 table-auto w-full">
             <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
@@ -1761,6 +1769,7 @@ export default function Devices() {
             </tbody>
           </DataTable>
           <DataTablePagination
+            className="mt-auto"
             pageSize={pageSize}
             pageSizeOptions={PAGE_SIZE_OPTIONS}
             onPageSizeChange={(value) => {
@@ -2355,12 +2364,13 @@ export default function Devices() {
               style={{ height: "100%", width: "100%" }}
               whenReady={onMapReady}
             >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+              <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
               <Marker
                 position={[
                   Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
                   Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
                 ]}
+                icon={leafletDefaultIcon}
               >
                 <Popup>
                   <div className="space-y-1 text-sm">

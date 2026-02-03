@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight, ChevronUp, Menu } from "lucide-react";
@@ -6,9 +6,11 @@ import { ChevronDown, ChevronRight, ChevronUp, Menu } from "lucide-react";
 import { sidebarGroupIcons } from "../lib/sidebarGroupIcons";
 
 import { useTenant } from "../lib/tenant-context";
-import { usePermissions } from "../lib/permissions/permission-gate";
+import { resolveCanManageUsers, usePermissions } from "../lib/permissions/permission-gate";
 import { MENU_REGISTRY } from "../lib/permissions/registry";
 import { useUI } from "../lib/store";
+import { useTranslation } from "../lib/i18n.js";
+import { UserMenuItems } from "./popovers/UserMenuPopover.jsx";
 
 // Discovery note (Epic A): sidebar navigation will be reorganized into
 // collapsible section headers without changing the top fixed block.
@@ -50,15 +52,25 @@ function toRgba(color, alpha = 1) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const linkClass =
+function getInitials(value) {
+  const normalized = String(value || "").trim().replace(/\s+/g, " ");
+  if (!normalized) return "EU";
+  const parts = normalized.split(" ");
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  const first = parts[0].slice(0, 1);
+  const last = parts[parts.length - 1].slice(0, 1);
+  return `${first}${last}`.toUpperCase();
+}
+
+  const linkClass =
   (collapsed) =>
   ({ isActive }) =>
     `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
       collapsed ? "justify-center" : "justify-start"
     } ${
       isActive
-        ? "bg-white/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
-        : "text-white/70 hover:bg-white/5 hover:text-white"
+        ? "bg-white/10 text-text shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+        : "text-sub hover:bg-layer hover:text-text"
     }`;
 
 const linkStyle =
@@ -76,6 +88,7 @@ export default function Sidebar() {
   const toggleCollapsed = useUI((state) => state.toggleSidebarCollapsed);
   const setSidebarCollapsed = useUI((state) => state.setSidebarCollapsed);
   const [openProfile, setOpenProfile] = useState(false);
+  const profileMenuRef = useRef(null);
   const [openSections, setOpenSections] = useState(() => ({
     ...DEFAULT_SECTIONS_OPEN,
   }));
@@ -84,20 +97,77 @@ export default function Sidebar() {
   }));
   const location = useLocation();
 
-  const { tenant, role } = useTenant();
+  const { homeClient, role, isMirrorReceiver, user, tenant, tenantScope, hasAdminAccess } = useTenant();
   const { getPermission } = usePermissions();
-  const accentColor = tenant?.brandColor || ACCENT_FALLBACK;
+  const { t } = useTranslation();
+  const allClientsLabel = t("topbar.allClients");
+  const accentColor = homeClient?.brandColor || ACCENT_FALLBACK;
+  const hasBrandColor = Boolean(homeClient?.brandColor);
+  const avatarStyle = hasBrandColor
+    ? {
+        backgroundColor: `${homeClient.brandColor}1a`,
+        color: homeClient.brandColor,
+      }
+    : undefined;
   const navLinkClass = linkClass(collapsed);
-  const nestedLinkClass = linkClass(false);
   const activeStyle = linkStyle(accentColor);
-  const canManageUsers = role === "admin" || role === "manager" || role === "tenant_admin";
+  const adminUsersPermission = getPermission({ menuKey: "admin", pageKey: "users" });
+  const adminClientsPermission = getPermission({ menuKey: "admin", pageKey: "clients" });
+  const adminMirrorsPermission = getPermission({ menuKey: "admin", pageKey: "mirrors" });
+  const canManageUsers = [adminUsersPermission, adminClientsPermission, adminMirrorsPermission].some((permission) =>
+    resolveCanManageUsers({ role, permission }),
+  );
   const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
   const labelVisibilityClass = collapsed ? "hidden" : "flex-1 truncate";
   const linkIconSize = collapsed ? 22 : 18;
+  const translateLabel = useCallback((label) => (label ? t(label) : ""), [t]);
   const navLabelProps = (label) => ({
     title: label,
     ...(collapsed ? { "aria-label": label } : {}),
   });
+  const userName = useMemo(() => {
+    return (
+      user?.name ||
+      user?.attributes?.name ||
+      user?.username ||
+      user?.email ||
+      t("sidebar.userFallback")
+    );
+  }, [t, user?.attributes?.name, user?.email, user?.name, user?.username]);
+  const clientName = useMemo(() => {
+    if (tenantScope === "ALL" || (hasAdminAccess && (tenant?.id == null || tenant?.name === allClientsLabel))) {
+      return allClientsLabel;
+    }
+    return (
+      tenant?.name ||
+      homeClient?.name ||
+      user?.client?.name ||
+      user?.attributes?.companyName ||
+      t("sidebar.clientFallback")
+    );
+  }, [
+    allClientsLabel,
+    hasAdminAccess,
+    homeClient?.name,
+    t,
+    tenant?.id,
+    tenant?.name,
+    tenantScope,
+    user?.attributes?.companyName,
+    user?.client?.name,
+  ]);
+  const userInitials = useMemo(() => getInitials(userName), [userName]);
+
+  useEffect(() => {
+    if (!openProfile) return;
+    const handleOutsideClick = (event) => {
+      if (!profileMenuRef.current) return;
+      if (profileMenuRef.current.contains(event.target)) return;
+      setOpenProfile(false);
+    };
+    document.addEventListener("pointerdown", handleOutsideClick);
+    return () => document.removeEventListener("pointerdown", handleOutsideClick);
+  }, [openProfile]);
 
   const filterMenuItem = useCallback(
     (item) => {
@@ -109,7 +179,7 @@ export default function Sidebar() {
         if (!children.length) return null;
         return { ...item, children };
       }
-      if (item.isVisible && !item.isVisible({ canManageUsers, isEuroImportEnabled, role })) {
+      if (item.isVisible && !item.isVisible({ canManageUsers, isEuroImportEnabled, role, isMirrorReceiver })) {
         return null;
       }
       if (!item.permission) {
@@ -148,24 +218,28 @@ export default function Sidebar() {
     return sections;
   }, [filterMenuItem]);
 
-  const renderNavLink = (link) => (
+  const renderNavLink = (link) => {
+    const translated = translateLabel(link.label);
+    return (
     <NavLink
       key={link.key ?? link.to}
       to={link.to}
       className={navLinkClass}
       style={activeStyle}
-      {...navLabelProps(link.label)}
+      {...navLabelProps(translated)}
     >
       <link.icon size={linkIconSize} />
-      <span className={labelVisibilityClass}>{link.label}</span>
+      <span className={labelVisibilityClass}>{translated}</span>
     </NavLink>
-  );
+    );
+  };
 
   const renderMenuItem = (item) => {
     if (!item) return null;
     if (item.children?.length) {
       const isOpen = openSubmenus[item.key] !== false;
       const hasActiveChild = item.children.some((child) => isLinkActive(child));
+      const translatedLabel = translateLabel(item.label);
 
       return (
         <div key={item.key} className="space-y-1">
@@ -173,17 +247,18 @@ export default function Sidebar() {
             type="button"
             className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition ${
               hasActiveChild
-                ? "bg-white/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
-                : "text-white/70 hover:bg-white/5 hover:text-white"
+                ? "bg-white/10 text-text shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+                : "text-sub hover:bg-layer hover:text-text"
             }`}
             onClick={() => toggleSubmenu(item.key)}
             aria-expanded={isOpen}
+            aria-label={translatedLabel}
           >
             <span className="flex items-center gap-2">
               <item.icon size={linkIconSize} />
-              <span className={labelVisibilityClass}>{item.label}</span>
+              <span className={labelVisibilityClass}>{translatedLabel}</span>
             </span>
-            <span className="text-white/60">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+            <span className="text-sub">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
           </button>
 
           <AnimatePresence initial={false}>
@@ -212,6 +287,7 @@ export default function Sidebar() {
     const Icon = sidebarGroupIcons[section.key];
     const showIconOnly = collapsed && Icon;
     const sectionIconSize = collapsed ? 20 : 16;
+    const translatedTitle = translateLabel(section.title);
 
     const handleSectionClick = () => {
       if (collapsed) {
@@ -231,22 +307,22 @@ export default function Sidebar() {
           type="button"
           onClick={handleSectionClick}
           aria-expanded={isOpen}
-          aria-label={`Alternar seção ${section.title}`}
-          title={collapsed ? section.title : undefined}
-          className="flex w-full items-center justify-between rounded-lg px-2 text-[11px] font-semibold uppercase tracking-wide text-white/60 hover:text-white"
+          aria-label={t("sidebar.toggleSection", { section: translatedTitle })}
+          title={collapsed ? translatedTitle : undefined}
+          className="flex w-full items-center justify-between rounded-lg px-2 text-[11px] font-semibold uppercase tracking-wide text-sub hover:text-text"
         >
           <span className="flex flex-1 items-center gap-2">
             {Icon && (
               <Icon
                 size={sectionIconSize}
                 aria-hidden
-                className={collapsed ? "mx-auto" : "text-white/70"}
+                className={collapsed ? "mx-auto" : "text-sub"}
               />
             )}
-            {!showIconOnly && <span>{section.title}</span>}
+            {!showIconOnly && <span>{translatedTitle}</span>}
           </span>
           {!collapsed && (
-            <span aria-hidden className="text-white/60">
+            <span aria-hidden className="text-sub">
               {isOpen ? "▾" : "▸"}
             </span>
           )}
@@ -273,8 +349,8 @@ export default function Sidebar() {
   return (
 
     <motion.aside
-      className="flex h-screen min-h-screen flex-col overflow-hidden bg-[#0f141c]"
-      aria-label="Menu principal"
+      className="flex h-screen min-h-screen flex-col overflow-hidden bg-sidebar"
+      aria-label={t("sidebar.mainMenu")}
       data-collapsed={collapsed ? "true" : "false"}
       initial={false}
       animate={{
@@ -289,16 +365,16 @@ export default function Sidebar() {
       <nav className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-3">
         <div className={`flex items-center px-2 py-1 ${collapsed ? "justify-center" : "justify-between"}`}>
           <span
-            className={`text-white font-semibold ${
+            className={`text-text font-semibold ${
               collapsed ? "hidden" : "truncate"
             }`}
           >
-            {tenant?.name ?? "Euro One"}
+            {homeClient?.name ?? "Euro One"}
           </span>
           <button
             type="button"
-            aria-label="Alternar menu"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:text-white"
+            aria-label={t("sidebar.toggleMenu")}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-sub transition hover:text-text"
             onClick={toggleCollapsed}
           >
             <Menu size={20} />
@@ -306,32 +382,28 @@ export default function Sidebar() {
         </div>
 
         <div
+          ref={profileMenuRef}
           className={`rounded-xl ${
-            collapsed ? "bg-transparent p-2 shadow-none" : "bg-[#111827] p-3 shadow-soft"
+            collapsed ? "bg-transparent p-2 shadow-none" : "bg-surface p-3 shadow-soft"
           }`}
         >
           <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-between"}`}>
             <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
               <div
-                className={`grid flex-shrink-0 place-items-center rounded-full ${collapsed ? "h-9 w-9 text-xs" : "h-10 w-10 text-sm"}`}
-                style={{
-                  backgroundColor: tenant?.brandColor
-                    ? `${tenant.brandColor}1a`
-                    : "#1f2937",
-                  color: tenant?.brandColor ?? "#f8fafc",
-                }}
+                className={`sidebar-avatar grid flex-shrink-0 place-items-center rounded-full ${!hasBrandColor ? "sidebar-avatar--fallback" : ""} ${collapsed ? "h-9 w-9 text-xs" : "h-10 w-10 text-sm"}`}
+                style={avatarStyle}
               >
                 <span className="text-sm font-semibold">
-                  {(tenant?.name || "Euro One").slice(0, 2).toUpperCase()}
+                  {userInitials}
                 </span>
               </div>
               {!collapsed && (
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-white">
-                    {tenant?.segment ?? "Operação"}
+                  <div className="text-sm font-medium text-text">
+                    {userName}
                   </div>
-                  <div className="-mt-0.5 text-xs text-[#9AA3B2]">
-                    Clientes premium
+                  <div className="-mt-0.5 text-xs text-sub">
+                    {t("sidebar.clientLabel")}: {clientName}
                   </div>
                 </div>
               )}
@@ -339,10 +411,14 @@ export default function Sidebar() {
             {!collapsed && (
               <button
                 type="button"
-                className="rounded-full p-2 text-white/70 transition hover:text-white"
-                onClick={() => setOpenProfile((value) => !value)}
+                className="rounded-full p-2 text-sub transition hover:text-text"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setOpenProfile((value) => !value);
+                }}
                 aria-expanded={openProfile}
-                title={openProfile ? "Fechar resumo" : "Abrir resumo"}
+                title={openProfile ? t("sidebar.profileMenuClose") : t("sidebar.profileMenuOpen")}
               >
                 {openProfile ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </button>
@@ -359,24 +435,11 @@ export default function Sidebar() {
                 transition={{ duration: 0.2 }}
                 className="mt-3 space-y-2 text-sm overflow-hidden"
               >
-                <NavLink
-                  to="/account"
-                  className={nestedLinkClass}
-                  style={activeStyle}
-                  title="Perfil"
-                >
-                  <User size={18} />
-                  <span>Perfil</span>
-                </NavLink>
-                <NavLink
-                  to="/settings"
-                  className={nestedLinkClass}
-                  style={activeStyle}
-                  title="Configurações"
-                >
-                  <Settings size={18} />
-                  <span>Configurações</span>
-                </NavLink>
+                <UserMenuItems
+                  onSelect={() => setOpenProfile(false)}
+                  className="space-y-2"
+                  showLogout={false}
+                />
               </motion.div>
             )}
           </AnimatePresence>

@@ -214,6 +214,11 @@ export default function Events() {
   const { vehicles } = useVehicles();
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
+  const reportFilterPermission = usePermissionGate({
+    menuKey: "primary",
+    pageKey: "events",
+    subKey: "report-active-filter",
+  });
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0].id);
   const [activeCategoryTab, setActiveCategoryTab] = useState("Segurança");
@@ -307,9 +312,16 @@ export default function Events() {
     return map;
   }, [vehicles]);
 
+  const resolveTraccarId = useCallback((device) => {
+    const candidate = Number(device?.traccarId ?? device?.traccar_id);
+    return Number.isFinite(candidate) && candidate > 0 ? candidate : null;
+  }, []);
+
   const deviceIdByKey = useMemo(() => {
     const map = new Map();
     (Array.isArray(devices) ? devices : []).forEach((device) => {
+      const traccarId = resolveTraccarId(device);
+      if (!traccarId) return;
       const candidates = [
         device?.traccarId,
         device?.id,
@@ -318,17 +330,13 @@ export default function Events() {
         device?.uniqueId,
         device?.unique_id,
       ];
-      const numericId = candidates
-        .map((value) => Number(value))
-        .find((value) => Number.isFinite(value) && value > 0);
-      if (!numericId) return;
       candidates.forEach((value) => {
         const key = toDeviceKey(value);
-        if (key) map.set(key, numericId);
+        if (key) map.set(key, traccarId);
       });
     });
     return map;
-  }, [devices]);
+  }, [devices, resolveTraccarId]);
 
   useEffect(() => {
     if (showColumns) {
@@ -356,19 +364,18 @@ export default function Events() {
         const plate = vehicle?.plate ? String(vehicle.plate).trim() : "";
         const deviceIds = normalizeVehicleDevices(vehicle)
           .map((device) => {
-            const candidates = [
-              device?.traccarId,
+            const traccarId = resolveTraccarId(device);
+            if (traccarId) return traccarId;
+            const lookupKeys = [
               device?.id,
               device?.deviceId,
               device?.device_id,
               device?.uniqueId,
               device?.unique_id,
-            ];
-            const numericId = candidates
-              .map((value) => Number(value))
-              .find((value) => Number.isFinite(value) && value > 0);
-            if (numericId) return numericId;
-            const lookupKeys = candidates.map((value) => toDeviceKey(value)).filter(Boolean);
+              device?.traccarId,
+            ]
+              .map((value) => toDeviceKey(value))
+              .filter(Boolean);
             const mappedId = lookupKeys.map((key) => deviceIdByKey.get(key)).find((value) => value);
             return mappedId || null;
           })
@@ -380,7 +387,7 @@ export default function Events() {
           deviceIds: Array.from(new Set(deviceIds)),
         };
       }),
-    [deviceIdByKey, vehicles],
+    [deviceIdByKey, resolveTraccarId, vehicles],
   );
 
   const vehicleSelectOptions = useMemo(
@@ -433,29 +440,49 @@ export default function Events() {
 
   useEffect(() => {
     if (loadingPreferences) return;
+    if (!reportFilterPermission.canShow) {
+      setReportEventScope("all");
+      reportScopeInitializedRef.current = true;
+      return;
+    }
     if (reportScopeInitializedRef.current) return;
     setReportEventScope(preferences?.reportEventScope || "active");
     reportScopeInitializedRef.current = true;
-  }, [loadingPreferences, preferences?.reportEventScope]);
+  }, [loadingPreferences, preferences?.reportEventScope, reportFilterPermission.canShow]);
 
   const handleReportEventScopeChange = useCallback(
     (nextScope) => {
+      if (!reportFilterPermission.canShow) {
+        setReportEventScope("all");
+        reportScopeInitializedRef.current = true;
+        return;
+      }
       setReportEventScope(nextScope);
       reportScopeInitializedRef.current = true;
       if (!loadingPreferences) {
         savePreferences({ reportEventScope: nextScope }).catch(() => {});
       }
     },
-    [loadingPreferences, savePreferences],
+    [loadingPreferences, reportFilterPermission.canShow, savePreferences],
   );
 
   const fetchReport = useCallback(async (pageOverride = page) => {
     setReportLoading(true);
     setReportError(null);
     try {
-      const deviceIdsToQuery = selectedVehicle?.deviceIds?.length
-        ? selectedVehicle.deviceIds
-        : allDeviceIds;
+      const deviceIdsToQuery = selectedVehicle?.deviceIds?.length ? selectedVehicle.deviceIds : allDeviceIds;
+      if (selectedVehicle && deviceIdsToQuery.length === 0) {
+        setReportEvents([]);
+        setReportMeta({ page: 1, pageSize, totalItems: 0, totalPages: 1 });
+        setReportGenerated(true);
+        return;
+      }
+      if (!selectedVehicle && deviceIdsToQuery.length === 0) {
+        setReportEvents([]);
+        setReportMeta({ page: 1, pageSize, totalItems: 0, totalPages: 1 });
+        setReportGenerated(true);
+        return;
+      }
       const shouldFilterPowerDisconnected = eventType === "powerDisconnected";
       const params = {
         from: from ? new Date(from).toISOString() : undefined,
@@ -943,33 +970,35 @@ export default function Events() {
                   ))}
                 </Select>
               </label>
-              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                Eventos no relatório
-                <div className="mt-2 inline-flex h-10 w-full overflow-hidden rounded-xl border border-border bg-layer text-sm font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => handleReportEventScopeChange("all")}
-                    className={`flex-1 px-3 transition ${
-                      reportEventScope === "all"
-                        ? "bg-primary/20 text-white"
-                        : "text-white/60 hover:text-white"
-                    }`}
-                  >
-                    Todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleReportEventScopeChange("active")}
-                    className={`flex-1 px-3 transition ${
-                      reportEventScope === "active"
-                        ? "bg-primary/20 text-white"
-                        : "text-white/60 hover:text-white"
-                    }`}
-                  >
-                    Somente ativos
-                  </button>
-                </div>
-              </label>
+              {reportFilterPermission.canShow && (
+                <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                  Eventos no relatório
+                  <div className="mt-2 inline-flex h-10 w-full overflow-hidden rounded-xl border border-border bg-layer text-sm font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleReportEventScopeChange("all")}
+                      className={`flex-1 px-3 transition ${
+                        reportEventScope === "all"
+                          ? "bg-primary/20 text-white"
+                          : "text-white/60 hover:text-white"
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReportEventScopeChange("active")}
+                      className={`flex-1 px-3 transition ${
+                        reportEventScope === "active"
+                          ? "bg-primary/20 text-white"
+                          : "text-white/60 hover:text-white"
+                      }`}
+                    >
+                      Somente ativos
+                    </button>
+                  </div>
+                </label>
+              )}
               <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 De
                 <input
@@ -1066,6 +1095,7 @@ export default function Events() {
                 </table>
               </div>
               <DataTablePagination
+                className="mt-auto"
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZE_OPTIONS}
                 onPageSizeChange={(value) => {
