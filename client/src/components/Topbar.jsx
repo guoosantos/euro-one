@@ -7,9 +7,7 @@ import { useTenant, setStoredMirrorOwnerId } from "../lib/tenant-context";
 import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
-import { useEvents } from "../lib/hooks/useEvents";
-import { buildFleetState, formatDate } from "../lib/fleet-utils";
-import { translateEventType } from "../lib/event-translations.js";
+import { buildFleetState } from "../lib/fleet-utils";
 import { useTranslation } from "../lib/i18n.js";
 import NotificationsPopover from "./popovers/NotificationsPopover.jsx";
 import UserMenuPopover from "./popovers/UserMenuPopover.jsx";
@@ -18,6 +16,17 @@ import TenantCombobox from "./inputs/TenantCombobox.jsx";
 function normalizePlateValue(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function sanitizeName(value, id) {
+  if (value === null || value === undefined) return "";
+  const normalized = String(value).trim();
+  if (!normalized) return "";
+  const lower = normalized.toLowerCase();
+  const idString = id == null ? "" : String(id);
+  if (/^\d+$/.test(normalized) && idString && normalized === idString) return "";
+  if (idString && (lower === `dispositivo ${idString}` || lower === `device ${idString}`)) return "";
+  return normalized;
 }
 
 function sanitizePlate(value, id) {
@@ -70,6 +79,36 @@ function resolveVehiclePlate(vehicle) {
   );
 }
 
+function resolveVehicleDescriptor(device, vehicle) {
+  const deviceAttributes = device?.attributes ?? {};
+  const vehicleAttributes = vehicle?.attributes ?? {};
+  const make =
+    deviceAttributes.make ??
+    deviceAttributes.brand ??
+    deviceAttributes.vehicleBrand ??
+    vehicleAttributes.make ??
+    vehicleAttributes.brand ??
+    vehicleAttributes.vehicleBrand ??
+    vehicle?.brand ??
+    vehicle?.make ??
+    "";
+  const model =
+    deviceAttributes.model ??
+    deviceAttributes.vehicleModel ??
+    deviceAttributes.modelName ??
+    vehicleAttributes.model ??
+    vehicleAttributes.vehicleModel ??
+    vehicleAttributes.modelName ??
+    vehicle?.model ??
+    vehicle?.vehicleModel ??
+    vehicle?.modelName ??
+    "";
+  return {
+    make: sanitizeName(make, null),
+    model: sanitizeName(model, null),
+  };
+}
+
 export function Topbar({ title }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
@@ -103,7 +142,6 @@ export function Topbar({ title }) {
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
   const { vehicles = [] } = useVehicles();
-  const { events: recentEvents } = useEvents({ limit: 3 });
   const deviceByKey = useMemo(() => {
     const map = new Map();
     devices.forEach((device) => {
@@ -269,6 +307,26 @@ export function Topbar({ title }) {
         const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : null;
         return sanitizePlate(resolveVehiclePlate(vehicle), row?.id);
       })(),
+      vehicleLabel: (() => {
+        const deviceRef =
+          row?.device ??
+          row?.position?.device ??
+          deviceByKey.get(String(row?.device?.id ?? row?.device?.deviceId ?? row?.id ?? "")) ??
+          deviceByKey.get(String(row?.position?.deviceId ?? row?.id ?? ""));
+        const vehicleId =
+          deviceRef?.vehicleId ??
+          row?.position?.vehicleId ??
+          row?.device?.vehicleId ??
+          row?.position?.vehicle?.id ??
+          row?.device?.vehicle?.id ??
+          null;
+        const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : deviceRef?.vehicle ?? null;
+        const { make, model } = resolveVehicleDescriptor(deviceRef, vehicle);
+        const label = [make, model].filter(Boolean).join(" / ");
+        if (label) return label;
+        const safeName = sanitizeName(row?.name, row?.id);
+        return safeName || "—";
+      })(),
       status: row.status,
     }));
   }, [deviceByKey, devices, plateByDeviceKey, positions, tenantId, vehicleById]);
@@ -392,7 +450,7 @@ export function Topbar({ title }) {
                 <img
                   src="https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png"
                   alt="Euro Soluções Tecnológicas"
-                  className="h-6 w-auto"
+                  className="h-8 max-h-8 w-auto object-contain"
                   style={logoStyle}
                   loading="lazy"
                   referrerPolicy="no-referrer"
@@ -426,13 +484,13 @@ export function Topbar({ title }) {
             />
           </label>
 
-          {focused && (query ? (
+          {focused && query.trim() ? (
             <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               {searchResults.length ? (
                 <ul>
                   {searchResults.map((item) => {
                     const plateLabel = item.plate ? item.plate : t("topbar.noPlate");
-                    const nameLabel = item.name ? item.name : "";
+                    const nameLabel = item.vehicleLabel ? item.vehicleLabel : "";
                     return (
                     <li key={item.deviceId ?? item.id}>
                       <button
@@ -460,37 +518,13 @@ export function Topbar({ title }) {
                 <div className="px-4 py-3 text-sm text-sub">{t("topbar.searchEmpty")}</div>
               )}
             </div>
-          ) : (
+          ) : focused ? (
             <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
-              <div className="px-4 py-2 text-xs uppercase tracking-wider text-sub">
-                {t("topbar.searchRecentAlerts")}
+              <div className="px-4 py-3 text-sm text-sub">
+                Digite para buscar veículos…
               </div>
-              <ul>
-                {recentEvents.map((event) => (
-                  <li key={event.id ?? `${event.deviceId}-${event.time}` } className="px-4 py-2 text-sm text-sub">
-                    <div className="font-medium text-text">
-                      {translateEventType(
-                        event.type ?? event.event,
-                        locale,
-                        t,
-                        event.protocol || event.attributes?.protocol || null,
-                        event,
-                      )}
-                    </div>
-                    <div className="text-xs text-sub">
-                      {formatDate(event.time ?? event.eventTime ?? event.serverTime, locale, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }) || "—"}
-                    </div>
-                  </li>
-                ))}
-                {!recentEvents.length && (
-                  <li className="px-4 py-2 text-sm text-sub">{t("topbar.searchNoEvents")}</li>
-                )}
-              </ul>
             </div>
-          ))}
+          ) : null}
         </form>
 
         <div className="flex items-center gap-2">
