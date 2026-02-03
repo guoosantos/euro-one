@@ -14,8 +14,9 @@ import api, {
   setStoredSession,
 } from "./api.js";
 import { API_ROUTES } from "./api-routes.js";
-import { normalizeAdminClientName } from "./admin-general.js";
+import { isAdminGeneralClientName, normalizeAdminClientName } from "./admin-general.js";
 import { resolvePermissionEntry } from "./permissions/permission-gate.js";
+import { resolveMirrorClientParams, resolveMirrorHeaders } from "./mirror-params.js";
 
 const TenantContext = createContext(null);
 const MIRROR_OWNER_STORAGE_KEY = "euro-one.mirror.owner-client-id";
@@ -26,6 +27,31 @@ const RECEIVER_TYPES = new Set([
   "GERENCIADORA DE RISCO",
   "COMPANHIA DE SEGURO",
 ]);
+
+function isValidCssColor(value) {
+  if (!value) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  if (typeof window !== "undefined" && window.CSS?.supports) {
+    return window.CSS.supports("color", text);
+  }
+  return /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(text) || /^(rgb|hsl)a?\(/i.test(text);
+}
+
+function resolveBrandColor(client) {
+  if (!client) return null;
+  const candidate =
+    client.brandColor ??
+    client.attributes?.brandColor ??
+    client.attributes?.brand_color ??
+    client.attributes?.accentColor ??
+    client.attributes?.accent_color ??
+    null;
+  if (!candidate) return null;
+  const value = String(candidate).trim();
+  if (!value) return null;
+  return isValidCssColor(value) ? value : null;
+}
 
 function isReceiverClient(client) {
   const type =
@@ -68,16 +94,53 @@ function normaliseClients(payload, currentUser) {
     id: client.id,
     name: normalizeAdminClientName(client.companyName || client.name),
     segment: client.attributes?.segment || "Frota",
+    brandColor: resolveBrandColor(client),
     deviceLimit: client.deviceLimit,
     userLimit: client.userLimit,
     attributes: client.attributes || {},
   }));
 }
 
-function resolveMirrorOwners(list = [], currentUser) {
+function resolveAdminGeneralTenantId(list = []) {
+  const match = Array.isArray(list)
+    ? list.find((client) => isAdminGeneralClientName(client?.name || client?.companyName))
+    : null;
+  return match?.id ?? null;
+}
+
+function normalizeAdminTenantId(tenantId, user, tenantList) {
+  if (!user || user.role !== "admin") return tenantId;
+  if (tenantId === null || tenantId === undefined) return null;
+  const adminTenantId = resolveAdminGeneralTenantId(tenantList);
+  if (adminTenantId && String(adminTenantId) === String(tenantId)) {
+    return null;
+  }
+  return tenantId;
+}
+
+function filterAdminTenants(list = [], isAdmin) {
+  if (!isAdmin) return list;
+  if (!Array.isArray(list)) return [];
+  return list.filter((client) => !isAdminGeneralClientName(client?.name || client?.companyName));
+}
+
+function resolveMirrorOwners(list = [], { homeClientId, currentUser } = {}) {
   if (!currentUser || currentUser.role === "admin") return null;
-  const owners = list.filter((client) => String(client.id) !== String(currentUser.clientId));
+  const owners = list.filter((client) => String(client.id) !== String(homeClientId ?? currentUser.clientId));
   return owners.length ? owners : null;
+}
+
+function mergeTenantLists(base = [], extra = []) {
+  if (!Array.isArray(extra) || extra.length === 0) return base;
+  const seen = new Set(base.map((client) => String(client.id)));
+  const merged = [...base];
+  extra.forEach((client) => {
+    const id = String(client?.id ?? "");
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    merged.push(client);
+  });
+  return merged;
 }
 
 function resolveValidTenantId({ currentTenantId, suggestedTenantId, tenants, isAdmin }) {
@@ -93,19 +156,47 @@ function resolveValidTenantId({ currentTenantId, suggestedTenantId, tenants, isA
   return fallback ?? null;
 }
 
+function areSameTenants(current = [], next = []) {
+  if (current === next) return true;
+  if (!Array.isArray(current) || !Array.isArray(next)) return false;
+  if (current.length !== next.length) return false;
+  for (let index = 0; index < current.length; index += 1) {
+    const currentId = current[index]?.id ?? null;
+    const nextId = next[index]?.id ?? null;
+    if (String(currentId ?? "") !== String(nextId ?? "")) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areSameMirror(current, next) {
+  if (current === next) return true;
+  if (!current && !next) return true;
+  if (!current || !next) return false;
+  return (
+    String(current.ownerClientId ?? "") === String(next.ownerClientId ?? "") &&
+    String(current.targetClientId ?? "") === String(next.targetClientId ?? "") &&
+    String(current.mirrorId ?? "") === String(next.mirrorId ?? "") &&
+    String(current.permissionGroupId ?? "") === String(next.permissionGroupId ?? "") &&
+    String(current.vehicleGroupId ?? "") === String(next.vehicleGroupId ?? "")
+  );
+}
+
 function getStoredMirrorOwnerId() {
   if (typeof window === "undefined") return null;
   try {
     const sessionValue = window.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY);
-    if (sessionValue) return sessionValue;
+  if (sessionValue) return sessionValue;
     const localValue = window.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY);
-    return localValue || null;
+  if (localValue) return localValue;
+    return null;
   } catch (_error) {
     return null;
   }
 }
 
-function setStoredMirrorOwnerId(value) {
+export function setStoredMirrorOwnerId(value) {
   if (typeof window === "undefined") return;
   try {
     if (value) {
@@ -126,14 +217,15 @@ export function TenantProvider({ children }) {
     stored?.user && Object.prototype.hasOwnProperty.call(stored.user, "tenantId");
   const storedTenantId = hasStoredTenantId ? stored.user.tenantId : null;
   const storedActiveMirrorOwnerClientId =
-    stored?.user?.activeMirrorOwnerClientId ?? getStoredMirrorOwnerId() ?? null;
+    getStoredMirrorOwnerId() ?? stored?.user?.activeMirrorOwnerClientId ?? null;
   const storedMirrorContextMode = stored?.user?.mirrorContextMode ?? null;
 
-  const [tenantId, setTenantId] = useState(
+  const [tenantId, setTenantIdState] = useState(
     hasStoredTenantId ? storedTenantId : stored?.user?.clientId ?? null,
   );
   const [user, setUser] = useState(stored?.user ?? null);
   const [token, setToken] = useState(stored?.token ?? null);
+  const [homeClientId, setHomeClientId] = useState(stored?.user?.clientId ?? null);
   const [tenants, setTenants] = useState([]);
   const [mirrorOwners, setMirrorOwners] = useState(null);
   const [activeMirror, setActiveMirror] = useState(null);
@@ -153,33 +245,48 @@ export function TenantProvider({ children }) {
   const [permissionLoading, setPermissionLoading] = useState(false);
   const [permissionTenantId, setPermissionTenantId] = useState(null);
   const [permissionLoaded, setPermissionLoaded] = useState(false);
+  const [apiUnavailable, setApiUnavailable] = useState(false);
+  const [contextSwitching, setContextSwitching] = useState(false);
+  const [contextSwitchKey, setContextSwitchKey] = useState("init");
+  const [contextAbortSignal, setContextAbortSignal] = useState(null);
   const lastUserIdRef = useRef(stored?.user?.id ?? null);
+  const tenantsRef = useRef(tenants);
+  const userRef = useRef(user);
+  const tenantIdRef = useRef(tenantId);
+  const hydratedRef = useRef(false);
+  const lastTokenRef = useRef(stored?.token ?? null);
+  const contextSwitchRef = useRef({ key: "init", id: 0 });
+  const contextAbortRef = useRef(null);
+  const contextSwitchingRef = useRef(false);
+  const switchSeqRef = useRef(0);
+  const bootstrapSeqRef = useRef(0);
+  const contextFetchSeqRef = useRef(0);
+  const mirrorStateRef = useRef({
+    mirrorContextMode,
+    mirrorModeEnabled,
+    activeMirrorOwnerClientId,
+    activeMirror,
+  });
+  const contextRequestRef = useRef({ key: null, ts: 0, promise: null, data: null, errorTs: 0 });
+  const mirrorRequestRef = useRef({ key: null, ts: 0, promise: null, data: null, errorTs: 0 });
+  const lastContextEffectRef = useRef({ key: null, ts: 0 });
+  const lastContextSuccessRef = useRef({ key: null, ts: 0 });
+  const mirrorDebugRef = useRef({ last: 0 });
+  const apiUnavailableRef = useRef({ until: 0 });
+  const permissionFetchRef = useRef(false);
 
-  const fetchTenantContext = useCallback(async ({ clientId } = {}) => {
-    try {
-      const params = clientId === null || clientId === undefined ? undefined : { clientId };
-      const response = await api.get(API_ROUTES.context, { params });
-      return response?.data || null;
-    } catch (contextError) {
-      const status = contextError?.status || contextError?.response?.status;
-      if (status === 403) {
-        console.warn("Contexto de tenant negado", contextError);
-        return { error: contextError, status };
-      }
-      throw contextError;
-    }
+  const logMirrorDebug = useCallback((label, details = {}) => {
+    const now = Date.now();
+    if (now - mirrorDebugRef.current.last < 800) return;
+    mirrorDebugRef.current.last = now;
+    console.info("[mirror-debug]", label, details);
   }, []);
 
-  const fetchMirrorContext = useCallback(async ({ ownerClientId } = {}) => {
-    try {
-      const params = ownerClientId ? { ownerClientId } : undefined;
-      const headers = ownerClientId ? { "X-Owner-Client-Id": ownerClientId } : undefined;
-      const response = await api.get(API_ROUTES.mirrorsContext, { params, headers });
-      return response?.data || null;
-    } catch (mirrorError) {
-      console.warn("Falha ao carregar contexto de mirror", mirrorError);
-      return null;
-    }
+  const markApiUnavailable = useCallback((error) => {
+    if (error?.code !== "API_UNREACHABLE") return false;
+    apiUnavailableRef.current = { until: Date.now() + 8000 };
+    setApiUnavailable(true);
+    return true;
   }, []);
 
   const applyPermissionContext = useCallback((payload, resolvedTenantId) => {
@@ -196,14 +303,399 @@ export function TenantProvider({ children }) {
     setPermissionLoading(false);
   }, []);
 
+  const fetchPermissionContext = useCallback(async ({ clientId, signal } = {}) => {
+    const params = clientId === null || clientId === undefined ? {} : { clientId };
+    const mirrorOwnerClientId =
+      mirrorContextMode === "target" && activeMirrorOwnerClientId
+        ? String(activeMirrorOwnerClientId)
+        : null;
+    const headers = mirrorOwnerClientId
+      ? { "X-Owner-Client-Id": mirrorOwnerClientId, "X-Mirror-Mode": "target" }
+      : undefined;
+    try {
+      const response = await api.get(API_ROUTES.permissionsContext, { params, headers, signal });
+      return response?.data || {};
+    } catch (permissionError) {
+      if (permissionError?.name === "AbortError" || permissionError?.code === "ERR_CANCELED") {
+        return { aborted: true };
+      }
+      throw permissionError;
+    }
+  }, [activeMirrorOwnerClientId, mirrorContextMode]);
+
+  useEffect(() => {
+    contextSwitchingRef.current = contextSwitching;
+  }, [contextSwitching]);
+
+  const beginContextSwitch = useCallback(
+    (nextKey, reason = "manual") => {
+      const prevSwitch = contextSwitchRef.current;
+      const seq = ++switchSeqRef.current;
+      contextSwitchRef.current = { key: nextKey, id: seq };
+      if (contextAbortRef.current) {
+        try {
+          contextAbortRef.current.abort(new Error("Context switch"));
+          logMirrorDebug("switch:abort", {
+            seq: prevSwitch.id,
+            key: prevSwitch.key,
+            reason,
+          });
+        } catch (_error) {
+          // ignore abort errors
+        }
+      }
+      const controller = new AbortController();
+      contextAbortRef.current = controller;
+      setContextAbortSignal(controller.signal);
+      setContextSwitchKey(nextKey);
+      setContextSwitching(true);
+      logMirrorDebug("switch:begin", {
+        seq,
+        key: nextKey,
+        reason,
+        route: typeof window !== "undefined" ? window.location.pathname : "",
+        tenantId: tenantIdRef.current ?? null,
+        mirrorContextMode: mirrorStateRef.current?.mirrorContextMode ?? null,
+        activeMirrorOwnerClientId: mirrorStateRef.current?.activeMirrorOwnerClientId ?? null,
+      });
+      return { seq, signal: controller.signal, key: nextKey };
+    },
+    [logMirrorDebug],
+  );
+
+  const finishContextSwitch = useCallback(
+    (key, seq, status = "done") => {
+      if (contextSwitchRef.current.key !== key) return;
+      if (seq !== undefined && contextSwitchRef.current.id !== seq) return;
+      setContextSwitching(false);
+      logMirrorDebug("switch:end", {
+        seq: contextSwitchRef.current.id,
+        key,
+        status,
+        route: typeof window !== "undefined" ? window.location.pathname : "",
+      });
+    },
+    [logMirrorDebug],
+  );
+
+  const setTenantId = useCallback(
+    (nextTenantId) => {
+      let resolved =
+        nextTenantId === "" || nextTenantId === undefined ? null : nextTenantId;
+      resolved = normalizeAdminTenantId(resolved, userRef.current, tenantsRef.current);
+      if (contextSwitchingRef.current) {
+        setTenantIdState((current) => {
+          if (String(current ?? "") === String(resolved ?? "")) {
+            return current;
+          }
+          return resolved;
+        });
+        return;
+      }
+      setTenantIdState((current) => {
+        if (String(current ?? "") === String(resolved ?? "")) {
+          return current;
+        }
+        return resolved;
+      });
+      if (mirrorContextMode === "target") {
+        const resolvedHome = homeClientId ?? userRef.current?.clientId ?? null;
+        const shouldMirror =
+          resolved !== null &&
+          resolved !== undefined &&
+          resolvedHome &&
+          String(resolved) !== String(resolvedHome);
+        const mirrorOwnerIds = Array.isArray(mirrorOwners)
+          ? new Set(mirrorOwners.map((owner) => String(owner.id)))
+          : null;
+        const nextOwnerId = shouldMirror ? String(resolved) : null;
+        setActiveMirrorOwnerClientId((current) => {
+          if (!shouldMirror) {
+            if (!mirrorOwnerIds || mirrorOwnerIds.size === 0) {
+              return current;
+            }
+            return null;
+          }
+          if (mirrorOwnerIds && mirrorOwnerIds.size > 0 && !mirrorOwnerIds.has(String(nextOwnerId ?? ""))) {
+            return current;
+          }
+          if (String(current ?? "") === String(nextOwnerId ?? "")) {
+            return current;
+          }
+          return nextOwnerId;
+        });
+      }
+    },
+    [homeClientId, mirrorContextMode, mirrorOwners],
+  );
+
+  const fetchAdminDirectory = useCallback(async ({ signal, user: userOverride } = {}) => {
+    const currentUser = userOverride || userRef.current;
+    if (!currentUser || currentUser.role !== "admin") return null;
+    try {
+      const response = await api.get(API_ROUTES.clients, {
+        signal,
+        skipMirrorClient: true,
+        headers: { "X-Mirror-Mode": "self" },
+      });
+      const list = Array.isArray(response?.data?.clients) ? response.data.clients : [];
+      if (!list.length) return null;
+      return normaliseClients({ clients: list }, currentUser);
+    } catch (error) {
+      console.warn("Falha ao carregar diretório completo de clientes", error);
+      return null;
+    }
+  }, []);
+
+  const fetchTenantContext = useCallback(async ({ clientId, force = false, minIntervalMs = 4000, signal } = {}) => {
+    const effectiveClientId =
+      clientId === undefined ? (tenantIdRef.current ?? userRef.current?.clientId ?? null) : clientId;
+    const {
+      mirrorContextMode: resolvedMirrorMode,
+      mirrorModeEnabled: resolvedMirrorEnabled,
+      activeMirrorOwnerClientId: resolvedActiveMirrorOwnerClientId,
+      activeMirror: resolvedActiveMirror,
+    } = mirrorStateRef.current || {};
+    const resolvedOwnerId = resolvedActiveMirrorOwnerClientId ?? resolvedActiveMirror?.ownerClientId ?? null;
+    const mirrorOwnerClientId =
+      resolvedMirrorMode === "target" && resolvedOwnerId ? String(resolvedOwnerId) : null;
+    const modeKey = resolvedMirrorMode ?? "self";
+    const idKey =
+      effectiveClientId === null || effectiveClientId === undefined ? "self" : String(effectiveClientId);
+    const ownerKey = mirrorOwnerClientId ?? "none";
+    const key = `${modeKey}:${ownerKey}:${idKey}`;
+    const now = Date.now();
+    const cached = contextRequestRef.current;
+    if (!force && cached.key === key) {
+      if (cached.promise) {
+        return cached.promise;
+      }
+      if (now - cached.ts < minIntervalMs) {
+        if (cached.errorTs && now - cached.errorTs < minIntervalMs) {
+          return cached.data ?? null;
+        }
+        return cached.data ?? null;
+      }
+    }
+    const params = resolveMirrorClientParams({
+      params:
+        effectiveClientId === null || effectiveClientId === undefined
+          ? undefined
+          : { clientId: effectiveClientId },
+      tenantId: effectiveClientId,
+      mirrorContextMode: resolvedMirrorMode,
+      mirrorOwnerClientId,
+    });
+    const headers = resolveMirrorHeaders({
+      mirrorModeEnabled: resolvedMirrorEnabled,
+      mirrorOwnerClientId,
+    });
+    const request = api
+      .get(API_ROUTES.context, { params, headers, skipMirrorClient: true, signal })
+      .then((response) => {
+        setApiUnavailable(false);
+        return response?.data || null;
+      })
+      .catch((contextError) => {
+        if (contextError?.name === "AbortError" || contextError?.code === "ERR_CANCELED") {
+          return { aborted: true };
+        }
+        const status = contextError?.status || contextError?.response?.status;
+        if (status === 403) {
+          console.warn("Contexto de tenant negado", contextError);
+          return { error: contextError, status };
+        }
+        if (markApiUnavailable(contextError)) {
+          contextRequestRef.current = { key, ts: Date.now(), promise: null, data: cached.data ?? null, errorTs: Date.now() };
+          return { error: contextError, status: 503, code: contextError.code };
+        }
+        contextRequestRef.current = { key, ts: Date.now(), promise: null, data: cached.data ?? null, errorTs: Date.now() };
+        throw contextError;
+      })
+      .finally(() => {
+        if (contextRequestRef.current.key === key) {
+          contextRequestRef.current.promise = null;
+        }
+      });
+    contextRequestRef.current = { key, ts: now, promise: request, data: cached.data, errorTs: 0 };
+    const payload = await request;
+    contextRequestRef.current = { key, ts: Date.now(), promise: null, data: payload, errorTs: 0 };
+    return payload;
+  }, []);
+
+  const switchContext = useCallback(
+    async ({ nextTenantId, nextOwnerClientId, nextMirrorMode } = {}) => {
+      let resolvedTenantId =
+        nextTenantId === "" || nextTenantId === undefined ? null : nextTenantId;
+      resolvedTenantId = normalizeAdminTenantId(resolvedTenantId, userRef.current, tenantsRef.current);
+      const resolvedOwnerId =
+        nextOwnerClientId === "" || nextOwnerClientId === undefined ? null : nextOwnerClientId;
+      const resolvedMirrorMode =
+        nextMirrorMode === undefined || nextMirrorMode === null
+          ? mirrorContextMode
+          : nextMirrorMode || null;
+      const nextKey = `${resolvedTenantId ?? "self"}:${resolvedOwnerId ?? "none"}:${resolvedMirrorMode ?? "self"}`;
+      const currentKey = `${tenantId ?? "self"}:${activeMirrorOwnerClientId ?? "none"}:${mirrorContextMode ?? "self"}`;
+      if (currentKey === nextKey && !contextSwitchingRef.current) {
+        return;
+      }
+      const { seq, signal } = beginContextSwitch(nextKey, "switchContext");
+      contextRequestRef.current = {
+        key: null,
+        ts: 0,
+        promise: null,
+        data: contextRequestRef.current.data ?? null,
+        errorTs: 0,
+      };
+      mirrorRequestRef.current = {
+        key: null,
+        ts: 0,
+        promise: null,
+        data: mirrorRequestRef.current.data ?? null,
+        errorTs: 0,
+      };
+      lastContextEffectRef.current = { key: null, ts: 0 };
+      lastContextSuccessRef.current = { key: null, ts: 0 };
+      setPermissionLoading(true);
+      setPermissionLoaded(false);
+      setPermissionTenantId(null);
+      setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+      setActiveMirror(null);
+      setActiveMirrorOwnerClientId(resolvedOwnerId);
+      setStoredMirrorOwnerId(resolvedOwnerId);
+      setMirrorContextMode(resolvedMirrorMode);
+      mirrorStateRef.current = {
+        ...(mirrorStateRef.current || {}),
+        mirrorContextMode: resolvedMirrorMode,
+        activeMirrorOwnerClientId: resolvedOwnerId,
+        activeMirror: null,
+      };
+      setTenantIdState((current) => {
+        if (String(current ?? "") === String(resolvedTenantId ?? "")) {
+          return current;
+        }
+        return resolvedTenantId;
+      });
+
+      const sessionUser = userRef.current;
+      if (sessionUser && token) {
+        setStoredSession({
+          token,
+          user: {
+            ...sessionUser,
+            tenantId: resolvedTenantId,
+            activeMirrorOwnerClientId: resolvedOwnerId,
+            mirrorContextMode: resolvedMirrorMode,
+          },
+        });
+      }
+      try {
+        await fetchTenantContext({
+          clientId: resolvedTenantId ?? null,
+          force: true,
+          minIntervalMs: 0,
+          signal,
+        });
+        if (contextSwitchRef.current.id !== seq) return;
+        if (sessionUser?.role === "admin") {
+          setPermissionContext({ permissions: null, isFull: true, permissionGroupId: null });
+          setPermissionLoaded(true);
+          setPermissionTenantId(resolvedTenantId ?? null);
+          setPermissionLoading(false);
+        } else {
+          const permissionPayload = await fetchPermissionContext({
+            clientId: resolvedTenantId ?? null,
+            signal,
+          });
+          if (!permissionPayload?.aborted) {
+            applyPermissionContext(permissionPayload, resolvedTenantId ?? null);
+          }
+        }
+      } catch (_error) {
+        // handled by downstream effects
+      } finally {
+        if (contextSwitchRef.current.id === seq) {
+          setPermissionLoading((current) => (current ? false : current));
+          finishContextSwitch(nextKey, seq, "done");
+        }
+      }
+    },
+    [
+      activeMirrorOwnerClientId,
+      beginContextSwitch,
+      applyPermissionContext,
+      fetchPermissionContext,
+      fetchTenantContext,
+      finishContextSwitch,
+      mirrorContextMode,
+      tenantId,
+      token,
+    ],
+  );
+
+  const fetchMirrorContext = useCallback(async ({ ownerClientId, force = false, minIntervalMs = 4000, signal } = {}) => {
+    const key = ownerClientId ? String(ownerClientId) : "self";
+    const now = Date.now();
+    const cached = mirrorRequestRef.current;
+    if (!force && cached.key === key) {
+      if (cached.promise) {
+        return cached.promise;
+      }
+      if (now - cached.ts < minIntervalMs) {
+        if (cached.errorTs && now - cached.errorTs < minIntervalMs) {
+          return cached.data ?? null;
+        }
+        return cached.data ?? null;
+      }
+    }
+    const params = ownerClientId ? { ownerClientId } : undefined;
+    const headers = ownerClientId ? { "X-Owner-Client-Id": ownerClientId } : undefined;
+    const request = api
+      .get(API_ROUTES.mirrorsContext, { params, headers, skipMirrorClient: true, signal })
+      .then((response) => {
+        setApiUnavailable(false);
+        return response?.data || null;
+      })
+      .catch((mirrorError) => {
+        if (mirrorError?.name === "AbortError" || mirrorError?.code === "ERR_CANCELED") {
+          return { aborted: true };
+        }
+        console.warn("Falha ao carregar contexto de mirror", mirrorError);
+        if (markApiUnavailable(mirrorError)) {
+          mirrorRequestRef.current = { key, ts: Date.now(), promise: null, data: cached.data ?? null, errorTs: Date.now() };
+          return { error: mirrorError, status: 503, code: mirrorError.code };
+        }
+        mirrorRequestRef.current = { key, ts: Date.now(), promise: null, data: cached.data ?? null, errorTs: Date.now() };
+        return null;
+      })
+      .finally(() => {
+        if (mirrorRequestRef.current.key === key) {
+          mirrorRequestRef.current.promise = null;
+        }
+      });
+    mirrorRequestRef.current = { key, ts: now, promise: request, data: cached.data, errorTs: 0 };
+    const payload = await request;
+    mirrorRequestRef.current = { key, ts: Date.now(), promise: null, data: payload, errorTs: 0 };
+    return payload;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     async function hydrateSession() {
+      const seq = ++bootstrapSeqRef.current;
       if (!token) {
+        setLoading(false);
         setInitialising(false);
         return;
       }
+      if (hydratedRef.current && lastTokenRef.current === token) {
+        setLoading(false);
+        setInitialising(false);
+        return;
+      }
+      lastTokenRef.current = token;
+      hydratedRef.current = true;
       setLoading(true);
       setError(null);
       try {
@@ -212,27 +704,44 @@ export function TenantProvider({ children }) {
         const payload = response?.data || {};
         const resolvedClientId = payload.clientId || payload.client?.id || payload.user?.clientId || null;
         const nextUser = payload.user ? { ...payload.user, clientId: payload.user.clientId ?? resolvedClientId } : payload || null;
+        const resolvedHomeClientId = nextUser?.clientId ?? resolvedClientId ?? null;
+        if (seq !== bootstrapSeqRef.current) {
+          setPermissionLoading(false);
+          return;
+        }
         setUser(nextUser);
+        if (resolvedHomeClientId) {
+          setHomeClientId(resolvedHomeClientId);
+        }
         setStoredSession({ token, user: nextUser });
 
         setPermissionLoading(true);
         setPermissionLoaded(false);
         setPermissionTenantId(null);
-        const contextResponse = await fetchTenantContext();
+        const contextResponse = await fetchTenantContext({
+          clientId: resolvedClientId ?? tenantIdRef.current ?? null,
+          force: true,
+        });
         const contextPayload = contextResponse?.error ? null : contextResponse;
         const contextClients = normaliseClients(contextPayload?.clients || contextPayload?.client ? contextPayload : null, nextUser);
         const sessionClients = normaliseClients(payload.clients || payload.client ? payload : null, nextUser);
         const availableClients = contextClients.length ? contextClients : sessionClients;
-        const mirrorOwnerList = resolveMirrorOwners(availableClients, nextUser);
-        const effectiveTenants =
-          nextUser?.role !== "admin" && Array.isArray(mirrorOwnerList) && mirrorOwnerList.length
-            ? mirrorOwnerList
-            : availableClients;
+        const mirrorOwnerList = resolveMirrorOwners(availableClients, {
+          homeClientId: resolvedHomeClientId,
+          currentUser: nextUser,
+        });
+        const effectiveTenants = availableClients;
 
+        if (seq !== bootstrapSeqRef.current) {
+          setPermissionLoading(false);
+          return;
+        }
         setMirrorOwners(mirrorOwnerList);
         setTenants(effectiveTenants);
-        setActiveMirror(contextPayload?.mirror || null);
-        setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? storedActiveMirrorOwnerClientId);
+        setActiveMirror((current) => (areSameMirror(current, contextPayload?.mirror || null) ? current : (contextPayload?.mirror || null)));
+        if (storedMirrorContextMode !== "target") {
+          setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? storedActiveMirrorOwnerClientId);
+        }
         setMirrorModeEnabled(
           typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
         );
@@ -246,7 +755,7 @@ export function TenantProvider({ children }) {
 
         if (nextUser) {
           const responseTenant = contextPayload?.clientId || payload.client?.id || payload.clientId || resolvedClientId || null;
-          const preferredTenantId = hasStoredTenantId ? storedTenantId : tenantId;
+          const preferredTenantId = hasStoredTenantId ? storedTenantId : resolvedHomeClientId;
           const nextTenantId = resolveValidTenantId({
             currentTenantId: preferredTenantId,
             suggestedTenantId: responseTenant || nextUser.clientId,
@@ -274,7 +783,7 @@ export function TenantProvider({ children }) {
         setToken(null);
         clearStoredSession();
       } finally {
-        if (!cancelled) {
+        if (!cancelled && seq === bootstrapSeqRef.current) {
           setLoading(false);
           setInitialising(false);
         }
@@ -286,7 +795,84 @@ export function TenantProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [fetchTenantContext, hasStoredTenantId, storedActiveMirrorOwnerClientId, storedTenantId, tenantId, token]);
+  }, [fetchTenantContext, hasStoredTenantId, storedActiveMirrorOwnerClientId, storedTenantId, token]);
+
+  useEffect(() => {
+    tenantsRef.current = tenants;
+  }, [tenants]);
+
+  useEffect(() => {
+    userRef.current = user;
+    if (user?.clientId && String(user.clientId) !== String(homeClientId ?? "")) {
+      setHomeClientId(user.clientId);
+    }
+  }, [homeClientId, user]);
+
+  useEffect(() => {
+    tenantIdRef.current = tenantId;
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    const adminTenantId = resolveAdminGeneralTenantId(tenantsRef.current);
+    if (!adminTenantId) return;
+    if (tenantId !== null && tenantId !== undefined && String(tenantId) === String(adminTenantId)) {
+      setTenantIdState(null);
+    }
+  }, [tenantId, user?.role, tenants]);
+
+  useEffect(() => {
+    if (permissionLoading && permissionContext?.permissions) {
+      setPermissionLoading(false);
+    }
+  }, [permissionContext?.permissions, permissionLoading]);
+
+  useEffect(() => {
+    if (permissionLoading || permissionFetchRef.current) return;
+    if (!user || user.role === "admin") return;
+    if (permissionLoaded || permissionContext?.permissions) return;
+    permissionFetchRef.current = true;
+    fetchPermissionContext({ clientId: tenantId ?? null, signal: contextAbortSignal })
+      .then((payload) => {
+        if (!payload?.aborted) {
+          applyPermissionContext(payload, tenantId ?? null);
+        }
+      })
+      .catch(() => {
+        setPermissionLoading(false);
+      })
+      .finally(() => {
+        permissionFetchRef.current = false;
+      });
+  }, [
+    applyPermissionContext,
+    contextAbortSignal,
+    fetchPermissionContext,
+    permissionContext?.permissions,
+    permissionLoaded,
+    permissionLoading,
+    tenantId,
+    user,
+  ]);
+
+  useEffect(() => {
+    mirrorStateRef.current = {
+      mirrorContextMode,
+      mirrorModeEnabled,
+      activeMirrorOwnerClientId,
+      activeMirror,
+    };
+  }, [activeMirror, activeMirrorOwnerClientId, mirrorContextMode, mirrorModeEnabled]);
+
+  useEffect(() => {
+    contextRequestRef.current = {
+      key: null,
+      ts: 0,
+      promise: null,
+      data: contextRequestRef.current.data ?? null,
+      errorTs: 0,
+    };
+  }, [activeMirrorOwnerClientId, mirrorContextMode]);
 
   useEffect(() => {
     const currentId = user?.id ?? null;
@@ -313,8 +899,17 @@ export function TenantProvider({ children }) {
         setMirrorContextMode("admin");
         return;
       }
-      const payload = await fetchMirrorContext();
+      const payload = await fetchMirrorContext({ minIntervalMs: 30000, signal: contextAbortSignal });
       if (cancelled || !payload) return;
+      if (payload?.error?.code === "API_UNREACHABLE") {
+        return;
+      }
+      logMirrorDebug("bootstrap:mirror-context", {
+        mode: payload?.mode ?? null,
+        owners: Array.isArray(payload?.owners) ? payload.owners.length : null,
+        targets: Array.isArray(payload?.targets) ? payload.targets.length : null,
+        mirrorModeEnabled: payload?.mirrorModeEnabled ?? null,
+      });
       if (typeof payload.mirrorModeEnabled === "boolean") {
         setMirrorModeEnabled(payload.mirrorModeEnabled);
       }
@@ -323,21 +918,52 @@ export function TenantProvider({ children }) {
       }
       if (payload.mode !== "target") return;
       const owners = normaliseClients(payload.owners || [], user);
-      if (!owners.length) return;
-      const storedOwnerId = getStoredMirrorOwnerId() ?? storedActiveMirrorOwnerClientId;
+      if (!owners.length) {
+        setMirrorOwners([]);
+        setActiveMirrorOwnerClientId(null);
+        setStoredMirrorOwnerId(null);
+        logMirrorDebug("bootstrap:owners-empty", { mode: payload?.mode ?? null });
+        return;
+      }
+      const storedOwnerId = getStoredMirrorOwnerId() ?? null;
+      const wantsAll = storedOwnerId && String(storedOwnerId) === "all";
       const selectedOwnerId =
-        owners.find((owner) => String(owner.id) === String(storedOwnerId))?.id ?? owners[0].id;
+        owners.find((owner) => String(owner.id) === String(storedOwnerId))?.id ??
+        (owners[0] ? owners[0].id : null);
       setMirrorOwners(owners);
-      setTenants(owners);
-      setActiveMirrorOwnerClientId(selectedOwnerId);
-      setStoredMirrorOwnerId(selectedOwnerId);
+      setTenants((current) => mergeTenantLists(current, owners));
+      if (wantsAll) {
+        setActiveMirrorOwnerClientId("all");
+        setStoredMirrorOwnerId("all");
+        setActiveMirror(null);
+        logMirrorDebug("bootstrap:owners-all", { count: owners.length });
+        return;
+      }
+      if (selectedOwnerId) {
+        setActiveMirrorOwnerClientId(selectedOwnerId);
+        setStoredMirrorOwnerId(selectedOwnerId);
+      }
 
-      const ownerPayload = await fetchMirrorContext({ ownerClientId: selectedOwnerId });
+      const ownerPayload = selectedOwnerId
+        ? await fetchMirrorContext({
+            ownerClientId: selectedOwnerId,
+            minIntervalMs: 30000,
+            signal: contextAbortSignal,
+          })
+        : null;
       if (cancelled || !ownerPayload) return;
+      if (ownerPayload?.error?.code === "API_UNREACHABLE") {
+        return;
+      }
+      logMirrorDebug("bootstrap:owner-context", {
+        ownerClientId: selectedOwnerId,
+        mirrorModeEnabled: ownerPayload?.mirrorModeEnabled ?? null,
+        hasMirror: Boolean(ownerPayload?.activeMirror),
+      });
       if (typeof ownerPayload.mirrorModeEnabled === "boolean") {
         setMirrorModeEnabled(ownerPayload.mirrorModeEnabled);
       }
-      setActiveMirror(ownerPayload.activeMirror || null);
+      setActiveMirror((current) => (areSameMirror(current, ownerPayload.activeMirror || null) ? current : (ownerPayload.activeMirror || null)));
     }
 
     bootstrapMirrorContext();
@@ -345,69 +971,179 @@ export function TenantProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [fetchMirrorContext, storedActiveMirrorOwnerClientId, token, user]);
+  }, [contextAbortSignal, fetchMirrorContext, storedActiveMirrorOwnerClientId, token, user?.id, user?.role, user?.clientId]);
 
   useEffect(() => {
     if (!user || user.role === "admin") return;
+    const storedOwnerId = getStoredMirrorOwnerId();
+    if (String(storedOwnerId ?? "") === "all" && mirrorContextMode === "target") {
+      if (String(activeMirrorOwnerClientId ?? "") !== "all") {
+        setActiveMirrorOwnerClientId("all");
+      }
+      return;
+    }
     if (activeMirrorOwnerClientId) {
       setStoredMirrorOwnerId(String(activeMirrorOwnerClientId));
     } else {
       setStoredMirrorOwnerId(null);
     }
-  }, [activeMirrorOwnerClientId, user]);
+  }, [activeMirrorOwnerClientId, mirrorContextMode, user]);
+
+  useEffect(() => {
+    if (mirrorContextMode === "target") return;
+    if (activeMirrorOwnerClientId !== null) {
+      setActiveMirrorOwnerClientId(null);
+      setStoredMirrorOwnerId(null);
+    }
+  }, [activeMirrorOwnerClientId, mirrorContextMode]);
 
   useEffect(() => {
     if (mirrorContextMode !== "target") return;
-    if (!Array.isArray(mirrorOwners) || mirrorOwners.length === 0) return;
-    const ownerIds = mirrorOwners.map((owner) => String(owner.id));
-    const tenantMatchesOwner = tenantId !== null && tenantId !== undefined && ownerIds.includes(String(tenantId));
-    const preferredOwnerId = tenantMatchesOwner
-      ? String(tenantId)
-      : activeMirrorOwnerClientId ?? ownerIds[0];
+    if (contextSwitching) return;
+    if (!user) return;
+    const storedOwnerId = getStoredMirrorOwnerId();
+    if (String(storedOwnerId ?? "") === "all") {
+      if (String(activeMirrorOwnerClientId ?? "") !== "all") {
+        setActiveMirrorOwnerClientId("all");
+      }
+      return;
+    }
+    const mirrorOwnerIds = Array.isArray(mirrorOwners)
+      ? new Set(mirrorOwners.map((owner) => String(owner.id)))
+      : null;
+    const nextOwnerId =
+      storedOwnerId && mirrorOwnerIds?.has(String(storedOwnerId))
+        ? String(storedOwnerId)
+        : mirrorOwnerIds && mirrorOwnerIds.size > 0
+          ? Array.from(mirrorOwnerIds)[0]
+          : null;
+    if (!nextOwnerId) return;
+    if (String(activeMirrorOwnerClientId ?? "") !== String(nextOwnerId)) {
+      logMirrorDebug("sync-owner:set", {
+        nextOwnerId,
+        activeMirrorOwnerClientId: activeMirrorOwnerClientId ?? null,
+      });
+      setActiveMirrorOwnerClientId(nextOwnerId);
+    }
+  }, [activeMirrorOwnerClientId, contextSwitching, mirrorContextMode, mirrorOwners, user]);
 
-    if (!tenantMatchesOwner && preferredOwnerId && String(tenantId ?? "") !== String(preferredOwnerId)) {
-      setTenantId(preferredOwnerId);
+  useEffect(() => {
+    if (mirrorContextMode !== "target") return;
+    if (!activeMirrorOwnerClientId) return;
+    if (!tenantId) return;
+    if (String(activeMirrorOwnerClientId) === String(tenantId)) {
+      const storedOwnerId = getStoredMirrorOwnerId();
+      const fallbackOwner =
+        String(storedOwnerId ?? "") === "all"
+          ? "all"
+          : storedOwnerId
+            ? String(storedOwnerId)
+            : "all";
+      setActiveMirrorOwnerClientId(fallbackOwner);
     }
-    if (preferredOwnerId && String(activeMirrorOwnerClientId ?? "") !== String(preferredOwnerId)) {
-      setActiveMirrorOwnerClientId(preferredOwnerId);
-    }
-  }, [activeMirrorOwnerClientId, mirrorContextMode, mirrorOwners, setTenantId, tenantId]);
+  }, [activeMirrorOwnerClientId, mirrorContextMode, tenantId]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!user || !token) return () => {};
-    if (user.role === "admin" && tenantId === null) {
-      setActiveMirror(null);
-      setActiveMirrorOwnerClientId(null);
+    const switchId = contextSwitchRef.current.id;
+    const effectId = ++contextFetchSeqRef.current;
+    if (!token) return () => {};
+    const currentUser = userRef.current;
+    if (!currentUser) return () => {};
+    const contextKey = `${tenantId ?? "self"}:${activeMirrorOwnerClientId ?? "none"}:${mirrorContextMode ?? "self"}`;
+    const now = Date.now();
+    if (
+      permissionLoaded &&
+      !permissionLoading &&
+      lastContextSuccessRef.current.key === contextKey &&
+      now - lastContextSuccessRef.current.ts < 30000
+    ) {
+      if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+        finishContextSwitch(contextKey, switchId, "cached");
+      }
       return () => {
         cancelled = true;
       };
     }
-    setPermissionLoading(true);
-    setPermissionLoaded(false);
-    setPermissionTenantId(null);
-    fetchTenantContext({ clientId: tenantId })
+    if (lastContextEffectRef.current.key === contextKey && now - lastContextEffectRef.current.ts < 4000) {
+      if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+        finishContextSwitch(contextKey, switchId, "throttled");
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+    lastContextEffectRef.current = { key: contextKey, ts: now };
+    if (apiUnavailableRef.current.until > Date.now()) {
+      if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+        finishContextSwitch(contextKey, switchId, "api-unavailable");
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (currentUser.role === "admin" && tenantId === null) {
+      setActiveMirror(null);
+      setActiveMirrorOwnerClientId(null);
+      if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+        finishContextSwitch(contextKey, switchId, "admin-self");
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+    const softRefresh = permissionLoaded && !permissionLoading;
+    if (!softRefresh) {
+      setPermissionLoading(true);
+      setPermissionLoaded(false);
+      setPermissionTenantId(null);
+    }
+    logMirrorDebug("context:fetch", {
+      tenantId: tenantId ?? null,
+      mirrorContextMode: mirrorContextMode ?? null,
+      activeMirrorOwnerClientId: activeMirrorOwnerClientId ?? null,
+    });
+    fetchTenantContext({ clientId: tenantId, minIntervalMs: 30000, signal: contextAbortSignal })
       .then((payload) => {
-        if (cancelled || !user) return;
+        if (cancelled || !currentUser) return;
+        if (contextSwitchRef.current.id !== switchId) return;
+        if (payload?.aborted) return;
         if (payload?.error) {
-          const fallbackTenant = tenants[0]?.id ?? user.clientId ?? null;
+          const fallbackTenant = tenantsRef.current?.[0]?.id ?? currentUser.clientId ?? null;
           if (fallbackTenant && fallbackTenant !== tenantId) {
             setTenantId(fallbackTenant);
           }
+          setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+          setPermissionLoaded(false);
+          setPermissionTenantId(null);
+          setPermissionLoading(false);
+          if (payload?.code === "API_UNREACHABLE") {
+            return;
+          }
+          if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+            finishContextSwitch(contextKey, switchId, "error");
+          }
           return;
         }
-        const normalizedClients = normaliseClients(payload?.clients || payload?.client ? payload : null, user);
-        const mirrorOwnerList = resolveMirrorOwners(normalizedClients, user);
+        setApiUnavailable(false);
+        const normalizedClients = normaliseClients(payload?.clients || payload?.client ? payload : null, currentUser);
+        const mirrorOwnerList = resolveMirrorOwners(normalizedClients, {
+          homeClientId: homeClientId ?? currentUser.clientId,
+          currentUser,
+        });
         const effectiveTenants =
-          user.role !== "admin" && Array.isArray(mirrorOwnerList) && mirrorOwnerList.length
-            ? mirrorOwnerList
-            : normalizedClients;
+          mirrorContextMode === "target" ? mergeTenantLists(normalizedClients, mirrorOwners) : normalizedClients;
         if (effectiveTenants.length) {
-          setTenants(effectiveTenants);
-          setMirrorOwners(mirrorOwnerList);
+          setTenants((current) => (areSameTenants(current, effectiveTenants) ? current : effectiveTenants));
+          if (mirrorOwnerList?.length) {
+            setMirrorOwners(mirrorOwnerList);
+          }
         }
-        setActiveMirror(payload?.mirror || null);
-        setActiveMirrorOwnerClientId(payload?.mirror?.ownerClientId ?? null);
+        const nextMirror = payload?.mirror || null;
+        setActiveMirror((current) => (areSameMirror(current, nextMirror) ? current : nextMirror));
+        if (mirrorContextMode && mirrorContextMode !== "target") {
+          setActiveMirrorOwnerClientId(nextMirror?.ownerClientId ?? null);
+        }
         setMirrorModeEnabled(typeof payload?.mirrorModeEnabled === "boolean" ? payload.mirrorModeEnabled : null);
         if (payload?.permissionContext) {
           applyPermissionContext(payload.permissionContext, payload?.clientId || tenantId);
@@ -416,30 +1152,97 @@ export function TenantProvider({ children }) {
           setPermissionLoaded(false);
           setPermissionTenantId(null);
         }
+        lastContextSuccessRef.current = { key: contextKey, ts: Date.now() };
+        if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+          finishContextSwitch(contextKey, switchId, "done");
+        }
+        logMirrorDebug("context:done", {
+          tenantId: tenantId ?? null,
+          tenants: effectiveTenants.length,
+          mirrorOwners: mirrorOwnerList?.length ?? 0,
+          mirrorContextMode: mirrorContextMode ?? null,
+          activeMirrorOwnerClientId: activeMirrorOwnerClientId ?? null,
+          hasMirror: Boolean(nextMirror),
+        });
       })
       .catch((contextError) => {
         if (!cancelled) {
+          if (contextError?.name === "AbortError" || contextError?.code === "ERR_CANCELED") {
+            if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+              finishContextSwitch(contextKey, switchId, "aborted");
+            }
+            return;
+          }
           console.warn("Falha ao carregar contexto do tenant", contextError);
+          if (markApiUnavailable(contextError)) {
+            setPermissionLoading(false);
+            if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+              finishContextSwitch(contextKey, switchId, "api-unavailable");
+            }
+            return;
+          }
+          if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+            finishContextSwitch(contextKey, switchId, "error");
+          }
         }
       });
     return () => {
       cancelled = true;
+      if (contextFetchSeqRef.current === effectId) {
+        setPermissionLoading(false);
+      }
     };
-  }, [fetchTenantContext, tenantId, tenants, token, user]);
+  }, [
+    activeMirrorOwnerClientId,
+    contextAbortSignal,
+    contextSwitching,
+    fetchTenantContext,
+    finishContextSwitch,
+    homeClientId,
+    mirrorContextMode,
+    mirrorOwners,
+    tenantId,
+    token,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!user || !token || mirrorContextMode !== "target" || !activeMirrorOwnerClientId) {
+    const switchId = contextSwitchRef.current.id;
+    if (
+      !user ||
+      !token ||
+      mirrorContextMode !== "target" ||
+      !activeMirrorOwnerClientId ||
+      contextSwitching
+    ) {
       return () => {};
     }
 
     async function loadActiveMirror() {
-      const payload = await fetchMirrorContext({ ownerClientId: activeMirrorOwnerClientId });
+      logMirrorDebug("mirror:fetch", {
+        ownerClientId: activeMirrorOwnerClientId,
+        mirrorContextMode: mirrorContextMode ?? null,
+      });
+      const payload = await fetchMirrorContext({
+        ownerClientId: activeMirrorOwnerClientId,
+        minIntervalMs: 30000,
+        signal: contextAbortSignal,
+      });
       if (cancelled || !payload) return;
+      if (contextSwitchRef.current.id !== switchId) return;
+      if (payload?.aborted) return;
+      if (payload?.error?.code === "API_UNREACHABLE") {
+        return;
+      }
       if (typeof payload.mirrorModeEnabled === "boolean") {
         setMirrorModeEnabled(payload.mirrorModeEnabled);
       }
       setActiveMirror(payload.activeMirror || null);
+      logMirrorDebug("mirror:done", {
+        ownerClientId: activeMirrorOwnerClientId,
+        mirrorModeEnabled: payload?.mirrorModeEnabled ?? null,
+        hasMirror: Boolean(payload?.activeMirror),
+      });
     }
 
     loadActiveMirror();
@@ -447,17 +1250,35 @@ export function TenantProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [activeMirrorOwnerClientId, fetchMirrorContext, mirrorContextMode, token, user]);
+  }, [
+    activeMirrorOwnerClientId,
+    contextAbortSignal,
+    contextSwitching,
+    fetchMirrorContext,
+    mirrorContextMode,
+    token,
+    user,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
+    const switchId = contextSwitchRef.current.id;
 
     async function loadPermissionContext() {
-      if (permissionLoading) {
+      if (contextSwitching) {
         return;
       }
-      if (permissionLoaded && String(permissionTenantId ?? "") === String(tenantId ?? "")) {
+      if (permissionFetchRef.current) {
         return;
+      }
+      const activeMirrorPermissionGroupId = activeMirror?.permissionGroupId ?? null;
+      if (permissionLoaded && String(permissionTenantId ?? "") === String(tenantId ?? "")) {
+        if (!activeMirrorPermissionGroupId) {
+          return;
+        }
+        if (String(permissionContext?.permissionGroupId ?? "") === String(activeMirrorPermissionGroupId)) {
+          return;
+        }
       }
       if (!user) {
         setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
@@ -474,14 +1295,15 @@ export function TenantProvider({ children }) {
         return;
       }
       setPermissionLoading(true);
+      permissionFetchRef.current = true;
       try {
-        const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
-        const response = await api.get(API_ROUTES.permissionsContext, { params });
-        if (cancelled) return;
-        const payload = response?.data || {};
+        const payload = await fetchPermissionContext({ clientId: tenantId ?? null, signal: contextAbortSignal });
+        if (cancelled || contextSwitchRef.current.id !== switchId) return;
+        if (payload?.aborted) return;
         applyPermissionContext(payload, tenantId ?? null);
       } catch (permissionError) {
-        if (cancelled) return;
+        if (cancelled || contextSwitchRef.current.id !== switchId) return;
+        if (permissionError?.name === "AbortError" || permissionError?.code === "ERR_CANCELED") return;
         const status = permissionError?.response?.status ?? permissionError?.status;
         if (
           status === 403 &&
@@ -498,7 +1320,8 @@ export function TenantProvider({ children }) {
         setPermissionLoaded(true);
         setPermissionTenantId(tenantId ?? null);
       } finally {
-        if (!cancelled) setPermissionLoading(false);
+        permissionFetchRef.current = false;
+        if (!cancelled && contextSwitchRef.current.id === switchId) setPermissionLoading(false);
       }
     }
 
@@ -520,9 +1343,13 @@ export function TenantProvider({ children }) {
   }, [
     activeMirror,
     applyPermissionContext,
+    contextAbortSignal,
+    contextSwitching,
+    fetchPermissionContext,
     permissionLoaded,
     permissionLoading,
     permissionTenantId,
+    permissionContext?.permissionGroupId,
     setTenantId,
     tenantId,
     token,
@@ -531,6 +1358,16 @@ export function TenantProvider({ children }) {
 
   useEffect(() => {
     const unsubscribe = registerUnauthorizedHandler(() => {
+      if (contextAbortRef.current) {
+        try {
+          contextAbortRef.current.abort(new Error("Unauthorized"));
+        } catch (_error) {
+          // ignore abort errors
+        }
+      }
+      setContextSwitching(false);
+      setContextSwitchKey("init");
+      setContextAbortSignal(null);
       setToken(null);
       setUser(null);
       setTenants([]);
@@ -549,32 +1386,54 @@ export function TenantProvider({ children }) {
 
   const refreshClients = useCallback(async () => {
     if (!user) return [];
-    const contextPayload = await fetchTenantContext({ clientId: tenantId });
+    const contextPayload = await fetchTenantContext({ clientId: tenantId, signal: contextAbortSignal });
     if (contextPayload?.error) {
       return tenants;
     }
-    const normalized = normaliseClients(contextPayload?.clients || contextPayload?.client ? contextPayload : null, user);
-    const mirrorOwnerList = resolveMirrorOwners(normalized, user);
+    let normalized = normaliseClients(contextPayload?.clients || contextPayload?.client ? contextPayload : null, user);
+    if (user.role === "admin") {
+      const adminDirectory = await fetchAdminDirectory({ signal: contextAbortSignal, user });
+      if (Array.isArray(adminDirectory) && adminDirectory.length) {
+        normalized = adminDirectory;
+      }
+    }
+    const mirrorOwnerList = resolveMirrorOwners(normalized, {
+      homeClientId: homeClientId ?? user?.clientId,
+      currentUser: user,
+    });
     const effectiveTenants =
-      user.role !== "admin" && Array.isArray(mirrorOwnerList) && mirrorOwnerList.length
-        ? mirrorOwnerList
-        : normalized;
+      mirrorContextMode === "target" ? mergeTenantLists(normalized, mirrorOwners) : normalized;
     setMirrorOwners(mirrorOwnerList);
     setTenants(effectiveTenants);
-    setTenantId((currentTenantId) =>
-      resolveValidTenantId({
-        currentTenantId,
-        suggestedTenantId: contextPayload?.clientId || user.clientId,
-        tenants: effectiveTenants,
-        isAdmin: user.role === "admin",
-      }),
-    );
+    const nextTenantId = resolveValidTenantId({
+      currentTenantId: tenantId ?? null,
+      suggestedTenantId: contextPayload?.clientId || user.clientId,
+      tenants: effectiveTenants,
+      isAdmin: user.role === "admin",
+    });
+    setTenantId(nextTenantId);
     return effectiveTenants;
-  }, [fetchTenantContext, tenantId, tenants, user]);
+  }, [
+    contextAbortSignal,
+    fetchAdminDirectory,
+    fetchTenantContext,
+    homeClientId,
+    mirrorContextMode,
+    mirrorOwners,
+    setTenantId,
+    tenantId,
+    tenants,
+    user,
+  ]);
 
   const login = useCallback(async ({ username, password, remember = true }) => {
+    const seq = ++bootstrapSeqRef.current;
     setLoading(true);
     setError(null);
+    setActiveMirror(null);
+    setActiveMirrorOwnerClientId(null);
+    setStoredMirrorOwnerId(null);
+    setMirrorContextMode(null);
     try {
       const payload = { email: username, password, remember };
       const response = await api.post(API_ROUTES.login, payload);
@@ -587,6 +1446,9 @@ export function TenantProvider({ children }) {
         throw new Error("Token de sessão não retornado");
       }
       const nextUser = { ...responseUser, clientId: responseUser.clientId ?? responseClientId ?? responseClient?.id };
+      if (nextUser?.clientId) {
+        setHomeClientId(nextUser.clientId);
+      }
       const nextTenants = normaliseClients(
         responseClients || responseClient ? { clients: responseClients, client: responseClient } : null,
         nextUser,
@@ -598,6 +1460,7 @@ export function TenantProvider({ children }) {
       setStoredSession({ token: responseToken, user: nextUser });
       setTenants(nextTenants);
       setTenantId(resolvedTenantId);
+      if (seq !== bootstrapSeqRef.current) return responseUser;
       try {
         const sessionResponse = await api.get(API_ROUTES.session);
         const sessionPayload = sessionResponse?.data || {};
@@ -606,28 +1469,48 @@ export function TenantProvider({ children }) {
         const sessionUser = sessionPayload.user
           ? { ...sessionPayload.user, clientId: sessionPayload.user.clientId ?? resolvedClientId }
           : nextUser;
-        const contextResponse = await fetchTenantContext();
+        const contextResponse = await fetchTenantContext({
+          clientId: resolvedClientId ?? resolvedTenantId ?? null,
+          force: true,
+        });
         const contextPayload = contextResponse?.error ? null : contextResponse;
-        const contextClients = normaliseClients(contextPayload?.clients || contextPayload?.client ? contextPayload : null, sessionUser);
-        const sessionTenants = normaliseClients(sessionPayload.clients || sessionPayload.client ? sessionPayload : null, sessionUser);
-        const availableClients = contextClients.length ? contextClients : sessionTenants;
-        const mirrorOwnerList = resolveMirrorOwners(availableClients, sessionUser);
-        const effectiveTenants =
-          sessionUser.role !== "admin" && Array.isArray(mirrorOwnerList) && mirrorOwnerList.length
-            ? mirrorOwnerList
-            : availableClients;
+        const contextClients = normaliseClients(
+          contextPayload?.clients || contextPayload?.client ? contextPayload : null,
+          sessionUser,
+        );
+        const sessionTenants = normaliseClients(
+          sessionPayload.clients || sessionPayload.client ? sessionPayload : null,
+          sessionUser,
+        );
+        const adminDirectory = sessionUser.role === "admin"
+          ? await fetchAdminDirectory({ user: sessionUser })
+          : null;
+        const availableClients =
+          Array.isArray(adminDirectory) && adminDirectory.length
+            ? adminDirectory
+            : (contextClients.length ? contextClients : sessionTenants);
+        const mirrorOwnerList = resolveMirrorOwners(availableClients, {
+          homeClientId: sessionUser?.clientId,
+          currentUser: sessionUser,
+        });
+        const effectiveTenants = availableClients;
         const nextTenantId = resolveValidTenantId({
           currentTenantId: tenantId ?? resolvedTenantId,
           suggestedTenantId: contextPayload?.clientId || resolvedClientId || resolvedTenantId,
           tenants: effectiveTenants,
           isAdmin: sessionUser.role === "admin",
         });
+        if (seq !== bootstrapSeqRef.current) return responseUser;
         setUser(sessionUser);
         setMirrorOwners(mirrorOwnerList);
         setTenants(effectiveTenants);
         setTenantId(nextTenantId);
-        setActiveMirror(contextPayload?.mirror || null);
-        setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? null);
+        setActiveMirror((current) =>
+          areSameMirror(current, contextPayload?.mirror || null) ? current : (contextPayload?.mirror || null),
+        );
+        if (storedMirrorContextMode !== "target") {
+          setActiveMirrorOwnerClientId(contextPayload?.mirror?.ownerClientId ?? null);
+        }
         setMirrorModeEnabled(
           typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
         );
@@ -648,16 +1531,28 @@ export function TenantProvider({ children }) {
       setError(loginError);
       throw loginError;
     } finally {
-      setLoading(false);
-      setInitialising(false);
+      if (seq === bootstrapSeqRef.current) {
+        setLoading(false);
+        setInitialising(false);
+      }
     }
-  }, [fetchTenantContext, tenantId]);
+  }, [fetchAdminDirectory, fetchTenantContext, tenantId]);
 
   const logout = useCallback(async () => {
     try {
       await api.post(API_ROUTES.logout).catch(() => undefined);
     } finally {
       clearStoredSession();
+      if (contextAbortRef.current) {
+        try {
+          contextAbortRef.current.abort(new Error("Logout"));
+        } catch (_error) {
+          // ignore abort errors
+        }
+      }
+      setContextSwitching(false);
+      setContextSwitchKey("init");
+      setContextAbortSignal(null);
       setToken(null);
       setUser(null);
       setTenants([]);
@@ -712,18 +1607,59 @@ export function TenantProvider({ children }) {
   const value = useMemo(() => {
     const isAdmin = user?.role === "admin";
     const canSwitchTenant = isAdmin || (Array.isArray(mirrorOwners) && mirrorOwners.length > 0);
+    const tenantPool =
+      mirrorContextMode === "target" ? mergeTenantLists(tenants, mirrorOwners) : tenants;
+    const adminGeneralTenantId = isAdmin ? resolveAdminGeneralTenantId(tenantPool) : null;
+    const filteredTenantPool = filterAdminTenants(tenantPool, isAdmin);
+    const activeTenantId =
+      isAdmin && adminGeneralTenantId && String(adminGeneralTenantId) === String(tenantId ?? "")
+        ? null
+        : tenantId;
     const tenant =
-      tenants.find((item) => item.id === tenantId) ??
-      (isAdmin && !tenantId ? { id: null, name: "Todos os clientes", segment: "Todas as frotas" } : tenants[0] ?? null);
+      filteredTenantPool.find((item) => String(item.id) === String(activeTenantId ?? "")) ??
+      (isAdmin && (activeTenantId === null || activeTenantId === undefined)
+        ? { id: null, name: "Todos os clientes", segment: "Todas as frotas" }
+        : filteredTenantPool[0] ?? null);
+    const tenantScope = isAdmin && (activeTenantId === null || activeTenantId === undefined) ? "ALL" : "SINGLE";
+    const resolvedHomeClientId = homeClientId ?? user?.clientId ?? null;
+    const homeClient =
+      tenantPool.find((item) => String(item.id) === String(resolvedHomeClientId)) ??
+      (resolvedHomeClientId
+        ? {
+            id: resolvedHomeClientId,
+            name: user?.attributes?.companyName || user?.name || "Meu cliente",
+            segment: user?.attributes?.segment || "Frota",
+            brandColor: resolveBrandColor(user),
+            attributes: user?.attributes || {},
+          }
+        : null);
+    const activeClient = tenant;
+    const activeClientId = activeTenantId ?? null;
+    const activeClientType = isAdmin && activeClientId === null
+      ? "global"
+      : resolvedHomeClientId && activeClientId !== null && activeClientId !== undefined
+        ? (String(activeClientId) === String(resolvedHomeClientId) ? "owned" : "mirrored")
+        : "owned";
     const isMirrorReceiver = Boolean(
       !isAdmin &&
-        ((Array.isArray(mirrorOwners) && mirrorOwners.length > 0) || (tenant ? isReceiverClient(tenant) : false)),
+        ((Array.isArray(mirrorOwners) && mirrorOwners.length > 0) ||
+          (homeClient ? isReceiverClient(homeClient) : false)),
     );
     return {
+      homeClientId: resolvedHomeClientId,
+      homeClient,
       tenantId,
+      tenantScope,
       setTenantId,
+      switchContext,
+      contextSwitching,
+      contextSwitchKey,
+      contextAbortSignal,
+      activeClientId,
+      activeClient,
+      activeClientType,
       tenant,
-      tenants,
+      tenants: filteredTenantPool,
       user,
       token,
       login,
@@ -740,8 +1676,10 @@ export function TenantProvider({ children }) {
       role: user?.role ?? "guest",
       activeMirror,
       activeMirrorOwnerClientId,
+      setActiveMirrorOwnerClientId,
       activeMirrorPermissionGroupId: activeMirror?.permissionGroupId ?? null,
       mirrorOwners,
+      apiUnavailable,
       isMirrorReceiver,
       mirrorModeEnabled,
       mirrorContextMode,
@@ -750,6 +1688,7 @@ export function TenantProvider({ children }) {
       canAccess,
     };
   }, [
+    homeClientId,
     tenantId,
     tenants,
     user,
@@ -763,10 +1702,17 @@ export function TenantProvider({ children }) {
     mirrorOwners,
     activeMirror,
     activeMirrorOwnerClientId,
+    setActiveMirrorOwnerClientId,
+    setTenantId,
+    switchContext,
+    contextSwitching,
+    contextSwitchKey,
+    contextAbortSignal,
     mirrorModeEnabled,
     mirrorContextMode,
     permissionContext,
     permissionLoading,
+    apiUnavailable,
     canAccess,
   ]);
 
@@ -774,6 +1720,10 @@ export function TenantProvider({ children }) {
 }
 
 export function useTenant() {
+  const isTestEnv = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+  if (isTestEnv && globalThis.__tenantOverride) {
+    return globalThis.__tenantOverride;
+  }
   const ctx = useContext(TenantContext);
   if (!ctx) {
     throw new Error("useTenant deve ser usado dentro de TenantProvider");
