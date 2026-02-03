@@ -1551,7 +1551,7 @@ export default function Devices() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+    <div className="flex min-h-[calc(100vh-72px)] flex-col gap-6">
       {toast && <div className={toastClassName}>{toast.message}</div>}
 
       <PageHeader
@@ -1666,7 +1666,7 @@ export default function Devices() {
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col pb-4">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10" tableClassName="text-white/80 table-auto w-full">
             <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">

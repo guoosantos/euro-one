@@ -14,6 +14,40 @@ import NotificationsPopover from "./popovers/NotificationsPopover.jsx";
 import UserMenuPopover from "./popovers/UserMenuPopover.jsx";
 import TenantCombobox from "./inputs/TenantCombobox.jsx";
 
+function normalizePlateValue(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function isNumericIdPlate(value, id) {
+  if (!value) return false;
+  const normalized = String(value).trim();
+  if (!normalized || !/^\d+$/.test(normalized)) return false;
+  return String(id) === normalized;
+}
+
+function getDeviceKey(device) {
+  const key = device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.name ?? null;
+  return key == null ? null : String(key);
+}
+
+function resolveDevicePlate(device) {
+  if (!device) return "";
+  const attributes = device.attributes ?? {};
+  return (
+    device.plate ??
+    device.registrationNumber ??
+    device.vehiclePlate ??
+    attributes.plate ??
+    attributes.plateNumber ??
+    attributes.vehiclePlate ??
+    attributes.registrationNumber ??
+    device.vehicle?.plate ??
+    device.vehicle?.registrationNumber ??
+    ""
+  );
+}
+
 export function Topbar({ title }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
@@ -46,6 +80,16 @@ export function Topbar({ title }) {
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
   const { events: recentEvents } = useEvents({ limit: 3 });
+  const deviceByKey = useMemo(() => {
+    const map = new Map();
+    devices.forEach((device) => {
+      const key = getDeviceKey(device);
+      if (key) map.set(key, device);
+      if (device?.uniqueId != null) map.set(String(device.uniqueId), device);
+      if (device?.deviceId != null) map.set(String(device.deviceId), device);
+    });
+    return map;
+  }, [devices]);
 
   const mirrorOwnerIds = useMemo(() => {
     if (!Array.isArray(mirrorOwners)) return new Set();
@@ -140,10 +184,21 @@ export function Topbar({ title }) {
         row?.id ??
         null,
       name: row.name,
-      plate: row.plate,
+      plate: (() => {
+        const rowPlate = normalizePlateValue(row?.plate);
+        const safeRowPlate = isNumericIdPlate(rowPlate, row?.id) ? "" : rowPlate;
+        if (safeRowPlate) return safeRowPlate;
+        const deviceRef =
+          row?.device ??
+          row?.position?.device ??
+          deviceByKey.get(String(row?.device?.id ?? row?.device?.deviceId ?? row?.id ?? "")) ??
+          deviceByKey.get(String(row?.position?.deviceId ?? row?.id ?? ""));
+        const fallback = normalizePlateValue(resolveDevicePlate(deviceRef));
+        return isNumericIdPlate(fallback, row?.id) ? "" : fallback;
+      })(),
       status: row.status,
     }));
-  }, [devices, positions, tenantId]);
+  }, [deviceByKey, devices, positions, tenantId]);
 
   const searchResults = useMemo(() => {
     if (!query.trim()) return [];
@@ -239,6 +294,9 @@ export function Topbar({ title }) {
     }
   };
 
+  const logoStyle = theme === "dark" ? { filter: "invert(1)" } : undefined;
+  const subtitleLabel = title || tenant?.segment || t("topbar.subtitle");
+
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface backdrop-blur">
       <div className="flex w-full items-center gap-4 px-4 py-3 md:px-6 lg:px-8">
@@ -254,6 +312,7 @@ export function Topbar({ title }) {
                   src="https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png"
                   alt="Euro Soluções Tecnológicas"
                   className="h-6 w-auto"
+                  style={logoStyle}
                   loading="lazy"
                   referrerPolicy="no-referrer"
                 />
@@ -261,9 +320,11 @@ export function Topbar({ title }) {
                 tenant?.name ?? "Euro One"
               )}
             </div>
-            <div className="text-[11px] text-sub">
-              {title || tenant?.segment || t("topbar.subtitle")}
-            </div>
+            {!showGlobalTenantLogo && subtitleLabel ? (
+              <div className="text-[11px] text-sub">
+                {subtitleLabel}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -303,7 +364,7 @@ export function Topbar({ title }) {
                         }}
                       >
                         <span className="flex flex-col text-left">
-                          <span className="text-sm font-semibold text-text">{plateLabel}</span>
+                          <span className="text-base font-semibold text-text">{plateLabel}</span>
                           {nameLabel ? <span className="text-xs text-sub">{nameLabel}</span> : null}
                         </span>
                         <span className="text-xs text-sub">

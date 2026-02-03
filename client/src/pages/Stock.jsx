@@ -691,7 +691,7 @@ export default function Stock() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-4">
+    <div className="flex min-h-[calc(100vh-72px)] flex-col gap-4">
       <PageHeader
         title="Estoque"
         subtitle="Controle por cliente, disponíveis e vinculados."
@@ -832,7 +832,7 @@ export default function Stock() {
             </button>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col pb-4">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">

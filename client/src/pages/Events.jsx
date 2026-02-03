@@ -844,7 +844,7 @@ export default function Events() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
+    <div className="flex min-h-[calc(100vh-72px)] w-full flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-4">
         <PageHeader
           overline="Central de eventos"
@@ -1022,7 +1022,7 @@ export default function Events() {
               )}
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pb-4">
               <div className="min-h-0 flex-1 overflow-auto border border-white/10">
                 <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
                   <colgroup>

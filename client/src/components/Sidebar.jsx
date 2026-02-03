@@ -56,7 +56,12 @@ function getInitials(value) {
   const normalized = String(value || "").trim().replace(/\s+/g, " ");
   if (!normalized) return "EU";
   const parts = normalized.split(" ");
-  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  if (parts.length === 1) {
+    const word = parts[0];
+    const first = word.slice(0, 1);
+    const second = word.slice(1, 2);
+    return `${first}${second}`.toUpperCase();
+  }
   const first = parts[0].slice(0, 1);
   const last = parts[parts.length - 1].slice(0, 1);
   return `${first}${last}`.toUpperCase();
@@ -403,7 +408,7 @@ export default function Sidebar() {
                     {userName}
                   </div>
                   <div className="-mt-0.5 text-xs text-sub">
-                    {t("sidebar.clientLabel")}: {clientName}
+                    {clientName}
                   </div>
                 </div>
               )}
