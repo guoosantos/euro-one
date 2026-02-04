@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { resolveAuthorizationHeader } from "../api.js";
 import { normaliseGeocoderUrl, resolveMapPreferences } from "../map-config.js";
+import { useTenant } from "../tenant-context.jsx";
 
 const MAX_CACHE = 24;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
@@ -10,6 +11,7 @@ const RESULT_LIMIT = 10;
 const COUNTRY_BIAS = "br";
 const ACCEPT_LANGUAGE = "pt-BR";
 const UNAUTHORIZED_COOLDOWN_MS = 3 * 60 * 1000; // aguarda antes de novas tentativas
+const FORBIDDEN_COOLDOWN_MS = 3 * 60 * 1000; // evita spam quando 403
 const UNAVAILABLE_MESSAGE = "Endereço indisponível — faça login novamente";
 const GEOCODER_FORBIDDEN_MESSAGE = "Geocoder recusou a requisição (403/429). Verifique bloqueio/rate limit e considere usar geocoder próprio.";
 const GEOCODER_NETWORK_MESSAGE = "Falha ao consultar geocoder. Verifique conectividade/firewall/CORS.";
@@ -23,6 +25,21 @@ export function mapGeocoderError(error) {
     return GEOCODER_NETWORK_MESSAGE;
   }
   return error?.message || "Não foi possível buscar endereços.";
+}
+
+function toSafeText(value, fallback = "") {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    const parts = value.map((entry) => toSafeText(entry, "")).filter(Boolean);
+    return parts.join(", ");
+  }
+  if (typeof value === "object") {
+    if (value.label) return toSafeText(value.label, fallback);
+    if (value.name) return toSafeText(value.name, fallback);
+  }
+  return String(value);
 }
 
 function parseCoordinateQuery(term) {
@@ -54,7 +71,8 @@ function parseCoordinateQuery(term) {
   };
 }
 
-export default function useGeocodeSearch(mapPreferences) {
+export default function useGeocodeSearch(mapPreferences, options = {}) {
+  const { isAuthenticated, permissionsReady } = useTenant();
   const [isSearching, setIsSearching] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
@@ -65,6 +83,8 @@ export default function useGeocodeSearch(mapPreferences) {
   const unauthorizedRef = useRef(false);
   const guestFallbackRef = useRef(false);
   const cooldownUntilRef = useRef(0);
+  const forbiddenRef = useRef(false);
+  const forbiddenUntilRef = useRef(0);
 
   const setCache = useCallback((key, value) => {
     const cache = cacheRef.current;
@@ -94,14 +114,14 @@ export default function useGeocodeSearch(mapPreferences) {
         const lng = Number(item.lng ?? item.lon ?? item.longitude ?? item.longitud);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-        const address = item.address || item.display_name || item.label || term;
+        const address = toSafeText(item.address || item.display_name || item.label || term, term);
         const concise =
-          item.concise ||
+          toSafeText(item.concise, "") ||
           (item.address?.road &&
             [
-              item.address.road,
-              item.address.city || item.address.town || item.address.village,
-              item.address.state,
+              toSafeText(item.address.road, ""),
+              toSafeText(item.address.city || item.address.town || item.address.village, ""),
+              toSafeText(item.address.state, ""),
             ]
               .filter(Boolean)
               .join(", ")) ||
@@ -113,12 +133,13 @@ export default function useGeocodeSearch(mapPreferences) {
           ? Math.max(0.1, 1 / Math.max(Math.abs(boundingBox[1] - boundingBox[0]) * Math.abs(boundingBox[3] - boundingBox[2]), 0.001))
           : 0;
 
+        const safeLabel = toSafeText(item.label || item.display_name || term, term);
         return {
           id: item.id || item.place_id || `${lat},${lng}`,
           lat,
           lng,
-          label: item.label || item.display_name || term,
-          concise,
+          label: safeLabel,
+          concise: toSafeText(concise, safeLabel),
           raw: item.raw || item,
           boundingBox,
           score: importance + areaScore,
@@ -165,16 +186,24 @@ export default function useGeocodeSearch(mapPreferences) {
     }
 
     if (!response.ok) {
-      const unauthorized = response.status === 401 || response.status === 403;
-      if (unauthorized) {
+      const isUnauthorized = response.status === 401;
+      const isForbidden = response.status === 403;
+      const isRateLimited = response.status === 429;
+      if (isForbidden) {
+        forbiddenRef.current = true;
+        forbiddenUntilRef.current = Date.now() + FORBIDDEN_COOLDOWN_MS;
+        const forbiddenError = new Error(GEOCODER_FORBIDDEN_MESSAGE);
+        forbiddenError.status = response.status;
+        throw forbiddenError;
+      }
+      if (isUnauthorized) {
         unauthorizedRef.current = true;
         cooldownUntilRef.current = Date.now() + UNAUTHORIZED_COOLDOWN_MS;
       }
 
-      const forbidden = response.status === 429 || response.status === 403;
-      const defaultMessage = unauthorized
+      const defaultMessage = isUnauthorized
         ? UNAVAILABLE_MESSAGE
-        : forbidden
+        : isRateLimited
           ? GEOCODER_FORBIDDEN_MESSAGE
           : "Não foi possível buscar endereços.";
       const message = payload?.error?.message || defaultMessage;
@@ -218,6 +247,10 @@ export default function useGeocodeSearch(mapPreferences) {
 
     if (!response.ok) {
       const forbidden = response.status === 403 || response.status === 429;
+      if (forbidden) {
+        forbiddenRef.current = true;
+        forbiddenUntilRef.current = Date.now() + FORBIDDEN_COOLDOWN_MS;
+      }
       const fallbackError = new Error(forbidden ? GEOCODER_FORBIDDEN_MESSAGE : "Não foi possível buscar endereços agora.");
       fallbackError.status = response.status;
       throw fallbackError;
@@ -227,6 +260,12 @@ export default function useGeocodeSearch(mapPreferences) {
     return normaliseList(payload, term);
   }, [buildGeocoderUrl, geocoderBaseUrl, normaliseList]);
 
+  const apiEnabled = useMemo(() => {
+    if (options?.useApi === false) return false;
+    if (options?.useApi === true) return true;
+    return Boolean(isAuthenticated && permissionsReady);
+  }, [isAuthenticated, permissionsReady, options?.useApi]);
+
   const fetchCandidates = useCallback(async (term) => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -234,6 +273,16 @@ export default function useGeocodeSearch(mapPreferences) {
 
     const controller = new AbortController();
     abortRef.current = controller;
+
+    if (!apiEnabled) {
+      return fetchFromPublic(term, controller.signal).catch(() => []);
+    }
+
+    const forbiddenActive = forbiddenRef.current && Date.now() < forbiddenUntilRef.current;
+    if (forbiddenActive) {
+      setError((prev) => (prev?.message === GEOCODER_FORBIDDEN_MESSAGE ? prev : new Error(GEOCODER_FORBIDDEN_MESSAGE)));
+      return [];
+    }
 
     const cooldownActive = cooldownUntilRef.current && Date.now() < cooldownUntilRef.current;
     if (cooldownActive) {
@@ -248,25 +297,34 @@ export default function useGeocodeSearch(mapPreferences) {
     try {
       return await fetchFromApi(term, controller.signal);
     } catch (apiError) {
-      const unauthorized = apiError?.status === 401 || apiError?.status === 403;
+      const unauthorized = apiError?.status === 401;
+      const forbidden = apiError?.status === 403;
       if (unauthorized) {
         unauthorizedRef.current = true;
         cooldownUntilRef.current = Date.now() + UNAUTHORIZED_COOLDOWN_MS;
         setError(new Error(UNAVAILABLE_MESSAGE));
       }
 
-      if (unauthorized || unauthorizedRef.current) {
+      if (forbidden || unauthorized || unauthorizedRef.current) {
         guestFallbackRef.current = true;
         return fetchFromPublic(term, controller.signal).catch(() => []);
       }
 
       throw apiError;
     }
-  }, [fetchFromApi, fetchFromPublic]);
+  }, [apiEnabled, fetchFromApi, fetchFromPublic]);
 
   const searchRegion = useCallback(async (query) => {
     const term = query?.trim();
     if (!term || term.length < MIN_QUERY_LENGTH) return null;
+
+    const forbiddenActive = forbiddenRef.current && Date.now() < forbiddenUntilRef.current;
+    if (forbiddenActive) {
+      setSuggestions([]);
+      setLastResult(null);
+      setError(new Error(GEOCODER_FORBIDDEN_MESSAGE));
+      return null;
+    }
 
     const coordinateResult = parseCoordinateQuery(term);
     if (coordinateResult) {
@@ -297,7 +355,10 @@ export default function useGeocodeSearch(mapPreferences) {
       const [best] = list;
       setSuggestions(list);
       setLastResult(best || null);
-      if (unauthorizedRef.current && Date.now() < cooldownUntilRef.current) {
+      const forbiddenActive = forbiddenRef.current && Date.now() < forbiddenUntilRef.current;
+      if (forbiddenActive) {
+        setError(new Error(GEOCODER_FORBIDDEN_MESSAGE));
+      } else if (unauthorizedRef.current && Date.now() < cooldownUntilRef.current) {
         setError(new Error(UNAVAILABLE_MESSAGE));
       } else {
         setError(list.length ? null : new Error("Nenhum resultado encontrado."));
@@ -327,6 +388,14 @@ export default function useGeocodeSearch(mapPreferences) {
       return [];
     }
 
+    const forbiddenActive = forbiddenRef.current && Date.now() < forbiddenUntilRef.current;
+    if (forbiddenActive) {
+      setSuggestions([]);
+      setLastResult(null);
+      setError(new Error(GEOCODER_FORBIDDEN_MESSAGE));
+      return [];
+    }
+
     const coordinateResult = parseCoordinateQuery(term);
     if (coordinateResult) {
       setSuggestions([coordinateResult]);
@@ -353,7 +422,10 @@ export default function useGeocodeSearch(mapPreferences) {
           const candidates = await fetchCandidates(term);
           const list = candidates;
           setSuggestions(list);
-          if (unauthorizedRef.current && Date.now() < cooldownUntilRef.current) {
+          const forbiddenActive = forbiddenRef.current && Date.now() < forbiddenUntilRef.current;
+          if (forbiddenActive) {
+            setError(new Error(GEOCODER_FORBIDDEN_MESSAGE));
+          } else if (unauthorizedRef.current && Date.now() < cooldownUntilRef.current) {
             setError(new Error(UNAVAILABLE_MESSAGE));
           } else {
             setError(list.length ? null : new Error("Nenhum resultado encontrado."));
