@@ -102,7 +102,17 @@ export default function Sidebar() {
   }));
   const location = useLocation();
 
-  const { homeClient, role, isMirrorReceiver, user, tenant, tenantScope, hasAdminAccess } = useTenant();
+  const {
+    homeClient,
+    role,
+    isMirrorReceiver,
+    user,
+    tenant,
+    tenantScope,
+    hasAdminAccess,
+    permissionsReady,
+    canAccess,
+  } = useTenant();
   const { getPermission } = usePermissions();
   const { t } = useTranslation();
   const allClientsLabel = t("topbar.allClients");
@@ -162,6 +172,8 @@ export default function Sidebar() {
     user?.client?.name,
   ]);
   const userInitials = useMemo(() => getInitials(userName), [userName]);
+  const menuReady = permissionsReady;
+  const showMenuSkeleton = !menuReady;
 
   useEffect(() => {
     if (!openProfile) return;
@@ -190,10 +202,9 @@ export default function Sidebar() {
       if (!item.permission) {
         return item;
       }
-      const permission = getPermission(item.permission);
-      return permission.canShow ? item : null;
+      return canAccess(item.permission) ? item : null;
     },
-    [canManageUsers, getPermission, isEuroImportEnabled, role],
+    [canAccess, canManageUsers, isEuroImportEnabled, role, isMirrorReceiver],
   );
 
   useEffect(() => {
@@ -351,6 +362,20 @@ export default function Sidebar() {
     );
   };
 
+  const renderMenuSkeleton = () => {
+    const itemCount = collapsed ? 6 : 9;
+    return (
+      <div className="space-y-3 animate-pulse">
+        {Array.from({ length: itemCount }).map((_, index) => (
+          <div
+            key={`sidebar-skeleton-${index}`}
+            className={`rounded-xl bg-white/10 ${collapsed ? "h-10" : "h-9"} `}
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
 
     <motion.aside
@@ -443,6 +468,7 @@ export default function Sidebar() {
                 <UserMenuItems
                   onSelect={() => setOpenProfile(false)}
                   className="space-y-2"
+                  showNotifications
                   showLogout={false}
                 />
               </motion.div>
@@ -451,7 +477,7 @@ export default function Sidebar() {
         </div>
 
         <div className="sidebar-scroll flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
-          {menuSections.map((section) => renderSection(section))}
+          {showMenuSkeleton ? renderMenuSkeleton() : menuSections.map((section) => renderSection(section))}
         </div>
       </nav>
     </motion.aside>
