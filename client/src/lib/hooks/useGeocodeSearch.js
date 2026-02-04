@@ -263,7 +263,8 @@ export default function useGeocodeSearch(mapPreferences, options = {}) {
   const apiEnabled = useMemo(() => {
     if (options?.useApi === false) return false;
     if (options?.useApi === true) return true;
-    return Boolean(isAuthenticated && permissionsReady);
+    const envFlag = String(import.meta?.env?.VITE_GEOCODER_USE_API || "").toLowerCase() === "true";
+    return Boolean(envFlag && isAuthenticated && permissionsReady);
   }, [isAuthenticated, permissionsReady, options?.useApi]);
 
   const fetchCandidates = useCallback(async (term) => {
@@ -281,7 +282,7 @@ export default function useGeocodeSearch(mapPreferences, options = {}) {
     const forbiddenActive = forbiddenRef.current && Date.now() < forbiddenUntilRef.current;
     if (forbiddenActive) {
       setError((prev) => (prev?.message === GEOCODER_FORBIDDEN_MESSAGE ? prev : new Error(GEOCODER_FORBIDDEN_MESSAGE)));
-      return [];
+      return fetchFromPublic(term, controller.signal).catch(() => []);
     }
 
     const cooldownActive = cooldownUntilRef.current && Date.now() < cooldownUntilRef.current;
