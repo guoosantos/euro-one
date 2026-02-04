@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { listDevices } from "../models/device.js";
 import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
+import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
 import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 const RECEIVER_TYPES = new Set([
@@ -13,6 +14,7 @@ const RECEIVER_TYPES = new Set([
   "COMPANHIA DE SEGURO",
   "COMPANHIA DE SEGUROS",
 ]);
+const MIRROR_ALL_TOKEN = "all";
 
 function isReceiverType(value) {
   if (!value) return false;
@@ -84,10 +86,68 @@ function isMirrorActive(mirror, now = new Date()) {
   return true;
 }
 
-function resolveMirrorContext({ user, ownerClientId }) {
+function resolveMirrorContext({ user, ownerClientId, strict = true } = {}) {
   if (!config.features?.mirrorMode) return null;
   if (!user?.clientId || !ownerClientId) return null;
   if (String(ownerClientId) === String(user.clientId)) return null;
+
+  const allowedMirrorOwners = resolveAllowedMirrorOwnerIds(user);
+  const allowedOwnerIds = Array.isArray(allowedMirrorOwners)
+    ? new Set(allowedMirrorOwners.map((id) => String(id)))
+    : null;
+  if (allowedOwnerIds && allowedOwnerIds.size === 0) {
+    if (strict) {
+      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+    }
+    return null;
+  }
+
+  if (allowedOwnerIds && String(ownerClientId) !== MIRROR_ALL_TOKEN && !allowedOwnerIds.has(String(ownerClientId))) {
+    if (strict) {
+      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+    }
+    return null;
+  }
+
+  if (String(ownerClientId) === MIRROR_ALL_TOKEN) {
+    const mirrors = listMirrors({ targetClientId: user.clientId }).filter((mirror) =>
+      isMirrorActive(mirror),
+    );
+    if (!mirrors.length) return null;
+    const activeMirrors = mirrors.filter((mirror) => {
+      if (!mirror?.targetType) return true;
+      return isReceiverType(mirror.targetType);
+    });
+    const filteredActiveMirrors = allowedOwnerIds
+      ? activeMirrors.filter((mirror) => allowedOwnerIds.has(String(mirror.ownerClientId)))
+      : activeMirrors;
+    if (!filteredActiveMirrors.length) return null;
+    const ownerClientIds = Array.from(
+      new Set(filteredActiveMirrors.map((mirror) => String(mirror.ownerClientId)).filter(Boolean)),
+    );
+    const vehicleIds = Array.from(
+      new Set(filteredActiveMirrors.flatMap((mirror) => resolveMirrorVehicleIds(mirror)).map(String)),
+    );
+    const allowedVehicleIds = new Set(vehicleIds.map(String));
+    const deviceIds = ownerClientIds.flatMap((ownerId) => {
+      const devices = listDevices({ clientId: ownerId });
+      return devices
+        .filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)))
+        .map((device) => String(device.id));
+    });
+
+    return {
+      mode: "target",
+      ownerClientId: MIRROR_ALL_TOKEN,
+      ownerClientIds,
+      targetClientId: String(user.clientId),
+      mirrorId: null,
+      permissionGroupId: null,
+      vehicleIds,
+      vehicleGroupId: null,
+      deviceIds,
+    };
+  }
 
   const mirrors = listMirrors({ ownerClientId, targetClientId: user.clientId }).filter((mirror) =>
     isMirrorActive(mirror),
@@ -121,6 +181,26 @@ function resolveMirrorContext({ user, ownerClientId }) {
 function isPermissionContextRequest(req) {
   const path = req?.originalUrl || req?.url || "";
   return path.includes("/permissions/context");
+}
+
+function isContextRequest(req) {
+  const path = req?.originalUrl || req?.url || "";
+  if (path.includes("/user/preferences")) return true;
+  if (!path.includes("/context")) return false;
+  if (path.includes("/permissions/context")) return false;
+  if (path.includes("/mirrors/context")) return false;
+  return true;
+}
+
+function isMirrorOverrideSelf(req) {
+  const header = req?.headers?.["x-mirror-mode"];
+  if (header && String(header).toLowerCase() === "self") return true;
+  try {
+    const url = new URL(req?.originalUrl || req?.url || "", "http://localhost");
+    return String(url.searchParams.get("mirrorMode") || "").toLowerCase() === "self";
+  } catch {
+    return false;
+  }
 }
 
 function logDeniedAccess({ user, requestedClientId, reason }) {
@@ -176,7 +256,10 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
   if (existingMirror && (!resolvedRequested || String(existingMirror.ownerClientId) === String(resolvedRequested))) {
     const tenant = {
       requestedClientId: resolvedRequested,
-      clientIdResolved: String(existingMirror.ownerClientId),
+      clientIdResolved:
+        String(existingMirror.ownerClientId) === MIRROR_ALL_TOKEN
+          ? String(user.clientId)
+          : String(existingMirror.ownerClientId),
       mirrorContext: existingMirror,
       accessType: "mirror",
     };
@@ -189,8 +272,10 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
   }
 
   if (user.role === "admin") {
-    const adminClientId = resolvedRequested || (required ? user.clientId : user.clientId) || null;
-    if (required && !adminClientId) {
+    const rawRequested = resolvedRequested ?? (required ? user.clientId : null);
+    const isAllRequested = String(rawRequested) === MIRROR_ALL_TOKEN;
+    const adminClientId = isAllRequested ? null : rawRequested;
+    if (required && !rawRequested) {
       logDeniedAccess({ user, requestedClientId: resolvedRequested, reason: "admin-missing-client" });
       throw createError(401, "clientId é obrigatório");
     }
@@ -198,7 +283,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
       requestedClientId: resolvedRequested,
       clientIdResolved: adminClientId ? String(adminClientId) : null,
       mirrorContext: null,
-      accessType: "admin",
+      accessType: isAllRequested ? "admin-all" : "admin",
     };
     req.tenant = tenant;
     req.clientId = tenant.clientIdResolved;
@@ -214,6 +299,34 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
 
   const userClientId = String(user.clientId);
   if (!resolvedRequested || String(resolvedRequested) === userClientId) {
+    const shouldAutoMirror =
+      config.features?.mirrorMode &&
+      !isContextRequest(req) &&
+      !isMirrorOverrideSelf(req);
+    if (shouldAutoMirror) {
+      const mirrors = listMirrors({ targetClientId: userClientId }).filter((mirror) => isMirrorActive(mirror));
+      if (mirrors.length === 1 && mirrors[0]?.ownerClientId) {
+        const mirrorContext = resolveMirrorContext({
+          user,
+          ownerClientId: mirrors[0].ownerClientId,
+          strict: false,
+        });
+        if (mirrorContext) {
+          const tenant = {
+            requestedClientId: resolvedRequested,
+            clientIdResolved: mirrorContext.ownerClientId,
+            mirrorContext,
+            accessType: "mirror",
+          };
+          req.tenant = tenant;
+          req.clientId = tenant.clientIdResolved;
+          req.mirrorContext = mirrorContext;
+          logMirrorApplied({ user, mirrorContext });
+          logTenantResolution({ user, tenant });
+          return tenant;
+        }
+      }
+    }
     const tenant = {
       requestedClientId: resolvedRequested,
       clientIdResolved: userClientId,
@@ -227,11 +340,18 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     return tenant;
   }
 
-  const mirrorContext = resolveMirrorContext({ user, ownerClientId: resolvedRequested });
+  const mirrorContext = resolveMirrorContext({
+    user,
+    ownerClientId: resolvedRequested,
+    strict: true,
+  });
   if (mirrorContext) {
     const tenant = {
       requestedClientId: resolvedRequested,
-      clientIdResolved: mirrorContext.ownerClientId,
+      clientIdResolved:
+        String(mirrorContext.ownerClientId) === MIRROR_ALL_TOKEN
+          ? String(user.clientId)
+          : mirrorContext.ownerClientId,
       mirrorContext,
       accessType: "mirror",
     };

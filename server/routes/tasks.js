@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 
 import { resolveClientId, resolveClientIdMiddleware } from "../middleware/client.js";
 import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { createTask, listTasks, getTaskById, updateTask } from "../models/task.js";
 import { traccarRequest } from "../services/traccar.js";
 
@@ -31,6 +32,7 @@ export function __resetTasksRouteMocks() {
 }
 
 router.use((req, res, next) => routeDeps.authenticate(req, res, next));
+router.use(authorizePermission({ menuKey: "primary", pageKey: "monitoring" }));
 
 async function createGeofenceForTask(task) {
   if (!task?.latitude || !task?.longitude) return null;

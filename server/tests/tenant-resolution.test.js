@@ -15,6 +15,7 @@ import contextRoutes from "../routes/context.js";
 import permissionsRoutes from "../routes/permissions.js";
 import userRoutes from "../routes/users.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
+import { requestApp } from "./app-request.js";
 
 const createdVehicles = [];
 const createdDevices = [];
@@ -59,9 +60,8 @@ function setupAppWithUsersAndPermissions() {
 }
 
 async function callEndpoint(app, { path, token }) {
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await requestApp(app, {
+    url: path,
     headers: { Authorization: `Bearer ${token}` },
   });
   let payload = null;
@@ -70,7 +70,6 @@ async function callEndpoint(app, { path, token }) {
   } catch (_error) {
     payload = null;
   }
-  server.close();
   return { status: response.status, payload };
 }
 
@@ -214,7 +213,12 @@ describe("tenant resolution", () => {
     });
 
     const app = setupApp();
-    const token = signSession({ id: "user-mirror", role: "user", clientId: receiverClientId });
+    const token = signSession({
+      id: "user-mirror",
+      role: "user",
+      clientId: receiverClientId,
+      attributes: { userAccess: { vehicleAccess: { mode: "selected", vehicleIds: [allowedVehicle.id] } } },
+    });
 
     const response = await callEndpoint(app, {
       path: `/api/core/vehicles?clientId=${ownerClientId}`,

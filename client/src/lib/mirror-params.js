@@ -1,7 +1,14 @@
+import { getStoredSession, resolveMirrorOwnerClientId as resolveMirrorOwnerClientIdFromSession } from "./api.js";
+
+function resolveStoredMirrorOwnerClientId() {
+  return resolveMirrorOwnerClientIdFromSession(getStoredSession());
+}
+
 export function resolveMirrorClientParams({ params, tenantId, mirrorContextMode, mirrorOwnerClientId } = {}) {
   const baseParams = params && typeof params === "object" ? { ...params } : {};
+  const effectiveOwnerId = resolveStoredMirrorOwnerClientId() ?? mirrorOwnerClientId;
 
-  if (mirrorOwnerClientId) {
+  if (effectiveOwnerId) {
     if (Object.prototype.hasOwnProperty.call(baseParams, "clientId")) {
       delete baseParams.clientId;
     }
@@ -45,6 +52,8 @@ export function resolveMirrorOwnerClientId({
   mirrorOwnerClientId,
   mirrorContextMode,
 } = {}) {
+  const storedOwnerId = resolveStoredMirrorOwnerClientId();
+  if (storedOwnerId) return storedOwnerId;
   if (!mirrorOwnerClientId) return null;
   if (mirrorModeEnabled === false) return null;
   if (mirrorContextMode && mirrorContextMode !== "target") return null;

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import Sidebar from "../components/Sidebar";
@@ -7,9 +7,12 @@ import ErrorBoundary from "../components/ErrorBoundary";
 import DeviceModalGlobal from "../components/DeviceModalGlobal";
 import { useUI } from "../lib/store";
 import { useTenant } from "../lib/tenant-context";
+import { usePageMeta } from "../lib/page-meta";
 
 export default function Layout({ children, title, hideTitle = false }) {
   const location = useLocation();
+  const pageMeta = usePageMeta();
+  const resolvedTitle = pageMeta?.title ?? title ?? null;
 
   const isMonitoringPage = location.pathname.startsWith("/monitoring");
   const isGeofencesPage =
@@ -19,6 +22,7 @@ export default function Layout({ children, title, hideTitle = false }) {
   const isRoutesPage = location.pathname.startsWith("/routes");
   const isEventsPage = location.pathname.startsWith("/events");
   const isItinerariesPage = location.pathname.startsWith("/itineraries");
+  const isTripsPage = location.pathname.startsWith("/trips");
   // Rotas fullscreen (sem container / sem padding)
   const isFullWidthPage =
     isMonitoringPage ||
@@ -26,22 +30,41 @@ export default function Layout({ children, title, hideTitle = false }) {
     isRoutesPage ||
     isEventsPage ||
     location.pathname.startsWith("/realtime");
+  const isWidePage = isFullWidthPage || isTripsPage;
 
   const sidebarOpen = useUI((state) => state.sidebarOpen);
   const sidebarCollapsed = useUI((state) => state.sidebarCollapsed);
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
   const locale = useUI((state) => state.locale);
-  const { tenant, isMirrorReceiver, mirrorModeEnabled } = useTenant();
+  const { tenant, isMirrorReceiver, mirrorModeEnabled, apiUnavailable } = useTenant();
   const accentColor = tenant?.brandColor;
   const showMonitoringTopbar = useUI((state) => state.monitoringTopbarVisible !== false);
   const showGeofencesTopbar = useUI((state) => state.geofencesTopbarVisible !== false);
   const showRoutesTopbar = useUI((state) => state.routesTopbarVisible !== false);
+  const [buildInfo, setBuildInfo] = useState(null);
 
   useEffect(() => {
-    if (!title) return;
-    document.title = `${title} · Euro One`;
-  }, [title]);
+    if (typeof document === "undefined") return;
+    const overrideTitle = document.body?.getAttribute("data-page-title-override");
+    const nextTitle = String(overrideTitle || resolvedTitle || "").trim();
+    if (!nextTitle) return;
+    document.title = `EURO ONE • ${nextTitle}`;
+  }, [resolvedTitle]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/version.json", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.builtAt || data.gitSha) setBuildInfo(data);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -80,7 +103,7 @@ export default function Layout({ children, title, hideTitle = false }) {
       <aside
         role="complementary"
         data-collapsed={sidebarCollapsed ? "true" : "false"}
-        className={`app-shell__sidebar border-r border-[#1f2430] bg-[#0f141c] transition-transform ${
+        className={`app-shell__sidebar border-r border-stroke bg-sidebar transition-transform ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
@@ -88,14 +111,21 @@ export default function Layout({ children, title, hideTitle = false }) {
       </aside>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <main className="app-shell__main bg-[#0b0f17]">
+      <main className="app-shell__main bg-surface">
         {/* No monitoring a própria página cuida do cabeçalho */}
         {((!isMonitoringPage && !isGeofencesPage && !isRoutesPage) ||
           (isMonitoringPage && showMonitoringTopbar) ||
           (isGeofencesPage && showGeofencesTopbar) ||
-          (isRoutesPage && showRoutesTopbar)) && <Topbar title={isFullWidthPage ? null : title} />}
+          (isRoutesPage && showRoutesTopbar)) && <Topbar title={isFullWidthPage ? null : resolvedTitle} />}
 
-        <section className={`app-shell__content ${isFullWidthPage ? "p-0" : "p-6"}`}>
+        <section className={`app-shell__content ${isWidePage ? "p-0" : "p-6"}`}>
+          {apiUnavailable && (
+            <div className={isFullWidthPage ? "px-6 pt-6" : undefined}>
+              <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-sm">
+                API indisponível no momento. Verifique a conexão ou o endereço do backend.
+              </div>
+            </div>
+          )}
           {isMirrorReceiver && mirrorModeEnabled === false && (
             <div className={isFullWidthPage ? "px-6 pt-6" : undefined}>
               <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 shadow-sm">
@@ -103,23 +133,25 @@ export default function Layout({ children, title, hideTitle = false }) {
               </div>
             </div>
           )}
-          {isFullWidthPage ? (
+          {isWidePage ? (
             // 🔵 Páginas fullscreen (monitoring / realtime)
-            <div className="flex min-h-0 w-full flex-1 flex-col bg-[#0b0f17]">
+            <div className="flex min-h-0 w-full flex-1 flex-col bg-surface">
               <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           ) : (
             // 🔹 Demais páginas com container centralizado
             <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6">
-              {title && !hideTitle && (
-                <h1 className="text-3xl font-semibold text-white">{title}</h1>
-              )}
               <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           )}
         </section>
       </main>
 
+      {buildInfo && (
+        <div className="pointer-events-none fixed bottom-3 right-3 z-50 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-white/70 shadow">
+          Build: {buildInfo.builtAt ? new Date(buildInfo.builtAt).toLocaleString("pt-BR") : "unknown"}
+        </div>
+      )}
       <DeviceModalGlobal />
     </div>
   );

@@ -1,7 +1,7 @@
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { getAdminGeneralClient, getClientById } from "../models/client.js";
@@ -13,11 +13,12 @@ import {
   listUsers,
   updateUser,
 } from "../models/user.js";
+import { getUserPreferences, resetUserPreferences, saveUserPreferences } from "../models/user-preferences.js";
+import { createUserConfigTransferLog } from "../models/user-config-transfer.js";
 
 const router = express.Router();
 
 router.use(authenticate);
-router.use("/users", requireRole("manager", "admin"));
 router.use("/users", async (req, _res, next) => {
   try {
     if (req.user?.role !== "admin") {
@@ -48,6 +49,122 @@ function normalizePermissionGroupId(value) {
   if (value === null) return null;
   const trimmed = String(value).trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeTransferMode(value) {
+  if (!value) return "OVERWRITE";
+  const normalized = String(value).trim().toUpperCase();
+  return normalized === "MERGE" ? "MERGE" : "OVERWRITE";
+}
+
+function uniqueList(items = []) {
+  return Array.from(new Set(items.map((item) => String(item)).filter(Boolean)));
+}
+
+function resolveVehicleGroupIds(userAccess) {
+  if (!userAccess) return [];
+  const groupIds = Array.isArray(userAccess.vehicleGroupIds)
+    ? userAccess.vehicleGroupIds
+    : userAccess.vehicleGroupId
+      ? [userAccess.vehicleGroupId]
+      : [];
+  return uniqueList(groupIds);
+}
+
+function mergeUserAccess(source = {}, target = {}) {
+  const sourceAccess = source || {};
+  const targetAccess = target || {};
+  const mergedGroupIds = uniqueList([
+    ...resolveVehicleGroupIds(targetAccess),
+    ...resolveVehicleGroupIds(sourceAccess),
+  ]);
+  const sourceVehicleAccess = sourceAccess.vehicleAccess || {};
+  const targetVehicleAccess = targetAccess.vehicleAccess || {};
+  const mergedVehicleIds = uniqueList([
+    ...(targetVehicleAccess.vehicleIds || []),
+    ...(sourceVehicleAccess.vehicleIds || []),
+  ]);
+  return {
+    ...sourceAccess,
+    ...targetAccess,
+    vehicleAccess: {
+      ...sourceVehicleAccess,
+      ...targetVehicleAccess,
+      vehicleIds: mergedVehicleIds,
+    },
+    vehicleGroupIds: mergedGroupIds,
+  };
+}
+
+async function transferUserConfig({ fromUserId, toUserId, mode, req }) {
+  const source = await getUserById(fromUserId, { includeSensitive: true });
+  if (!source) {
+    throw createError(404, "Usuário origem não encontrado");
+  }
+  const target = await getUserById(toUserId, { includeSensitive: true });
+  if (!target) {
+    throw createError(404, "Usuário destino não encontrado");
+  }
+
+  if (req.user.role !== "admin") {
+    await ensureClientAccess(req.user, source.clientId);
+    await ensureClientAccess(req.user, target.clientId);
+    if (String(source.clientId) !== String(target.clientId)) {
+      throw createError(403, "Usuários devem pertencer ao mesmo cliente");
+    }
+    if (source.role === "admin" || target.role === "admin") {
+      throw createError(403, "Não é permitido transferir acesso de administradores");
+    }
+  }
+
+  const normalizedMode = normalizeTransferMode(mode);
+  const sourceAttributes = source.attributes || {};
+  const targetAttributes = target.attributes || {};
+  const nextUserAccess =
+    normalizedMode === "MERGE"
+      ? mergeUserAccess(sourceAttributes.userAccess || {}, targetAttributes.userAccess || {})
+      : sourceAttributes.userAccess || targetAttributes.userAccess;
+
+  const nextPermissionGroupId =
+    normalizedMode === "MERGE"
+      ? targetAttributes.permissionGroupId || sourceAttributes.permissionGroupId || null
+      : sourceAttributes.permissionGroupId || null;
+
+  const nextMirrorAccess =
+    normalizedMode === "MERGE"
+      ? targetAttributes.mirrorAccess || sourceAttributes.mirrorAccess
+      : sourceAttributes.mirrorAccess || targetAttributes.mirrorAccess;
+
+  const nextAttributes = {
+    ...targetAttributes,
+    userAccess: nextUserAccess || targetAttributes.userAccess,
+    permissionGroupId: nextPermissionGroupId,
+    mirrorAccess: nextMirrorAccess,
+  };
+
+  const updated = await updateUser(toUserId, { attributes: nextAttributes });
+
+  const sourcePreferences = getUserPreferences(fromUserId);
+  const targetPreferences = getUserPreferences(toUserId);
+  if (normalizedMode === "OVERWRITE") {
+    if (sourcePreferences) {
+      saveUserPreferences(toUserId, sourcePreferences);
+    } else {
+      resetUserPreferences(toUserId);
+    }
+  } else if (normalizedMode === "MERGE" && !targetPreferences && sourcePreferences) {
+    saveUserPreferences(toUserId, sourcePreferences);
+  }
+
+  const logEntry = createUserConfigTransferLog({
+    fromUserId,
+    toUserId,
+    performedBy: req.user?.id || null,
+    mode: normalizedMode,
+    clientId: target.clientId || null,
+  });
+
+  return { updated, logEntry };
 }
 
 router.get(
@@ -251,40 +368,40 @@ router.post(
   async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { toUserId } = req.body || {};
+    const { toUserId, mode } = req.body || {};
     if (!toUserId) {
       throw createError(400, "toUserId é obrigatório");
     }
-    const source = await getUserById(id, { includeSensitive: true });
-    if (!source) {
-      throw createError(404, "Usuário origem não encontrado");
-    }
-    const target = await getUserById(toUserId, { includeSensitive: true });
-    if (!target) {
-      throw createError(404, "Usuário destino não encontrado");
-    }
-    if (req.user.role !== "admin") {
-      await ensureClientAccess(req.user, source.clientId);
-      await ensureClientAccess(req.user, target.clientId);
-      if (String(source.clientId) !== String(target.clientId)) {
-        throw createError(403, "Usuários devem pertencer ao mesmo cliente");
-      }
-      if (source.role === "admin" || target.role === "admin") {
-        throw createError(403, "Não é permitido transferir acesso de administradores");
-      }
-    }
+    const { updated, logEntry } = await transferUserConfig({
+      fromUserId: id,
+      toUserId,
+      mode: mode || "OVERWRITE",
+      req,
+    });
+    return res.json({ user: updated, log: logEntry });
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
 
-    const sourceAttributes = source.attributes || {};
-    const targetAttributes = target.attributes || {};
-    const nextAttributes = {
-      ...targetAttributes,
-      userAccess: sourceAttributes.userAccess || targetAttributes.userAccess,
-      permissionGroupId: sourceAttributes.permissionGroupId || null,
-      mirrorAccess: sourceAttributes.mirrorAccess || targetAttributes.mirrorAccess,
-    };
-
-    const updated = await updateUser(toUserId, { attributes: nextAttributes });
-    return res.json({ user: updated });
+router.post(
+  "/users/:id/transfer-config",
+  authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+  async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { fromUserId, mode } = req.body || {};
+    if (!fromUserId) {
+      throw createError(400, "fromUserId é obrigatório");
+    }
+    const { updated, logEntry } = await transferUserConfig({
+      fromUserId,
+      toUserId: id,
+      mode: mode || "OVERWRITE",
+      req,
+    });
+    return res.json({ user: updated, log: logEntry });
   } catch (error) {
     return next(error);
   }

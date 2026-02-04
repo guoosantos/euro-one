@@ -62,6 +62,7 @@ export function resolvePermissionDecision(
     permissionContext,
     isGlobalAdmin,
     permissionsReady = true,
+    readOnly = false,
     menuAccessContext,
     pageKey,
     subKey,
@@ -69,14 +70,17 @@ export function resolvePermissionDecision(
 ) {
   const permission = normalizePermissionInput(moduleKey, pageKey, subKey);
   if (!permission) {
+    const ready = Boolean(permissionsReady);
+    const isFull = !readOnly;
     return {
-      ready: Boolean(permissionsReady),
+      ready,
       allowedByTenant: true,
       canShow: true,
       hasAccess: true,
-      isFull: true,
+      isFull,
       requireFull: false,
-      allowed: Boolean(permissionsReady),
+      allowed: ready,
+      readOnly: Boolean(readOnly),
     };
   }
 
@@ -85,13 +89,16 @@ export function resolvePermissionDecision(
   const allowedByTenant = canShowMenuItem({ permission, context: accessContext });
   const access = resolvePermissionAccess(permission, { user, permissionContext, isGlobalAdmin });
   const requireFull = Boolean(permission.requireFull);
-  const allowed = ready && allowedByTenant && access.hasAccess && (!requireFull || access.isFull);
+  const effectiveIsFull = access.isFull && !readOnly;
+  const allowed = ready && allowedByTenant && access.hasAccess && (!requireFull || effectiveIsFull);
   return {
     ready,
     allowedByTenant,
     requireFull,
     allowed,
     ...access,
+    isFull: effectiveIsFull,
+    readOnly: Boolean(readOnly),
   };
 }
 

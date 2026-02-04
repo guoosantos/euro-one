@@ -4,7 +4,7 @@ import buildPositionsSchema from "../../shared/buildPositionsSchema.js";
 import { resolveColumn, resolveColumnLabel } from "../../shared/positionsColumns.js";
 import { resolveEventDescriptor } from "../../shared/telemetryDictionary.js";
 
-test("does not include generic IO columns without values and dedupes by key", () => {
+test("does not include generic IO columns without values and filters excluded IO keys", () => {
   const schemaWithoutValues = buildPositionsSchema([
     { gpsTime: "2024-01-01T00:00:00Z", attributes: { protocol: "teltonika" } },
   ]);
@@ -19,17 +19,13 @@ test("does not include generic IO columns without values and dedupes by key", ()
     },
   ]);
   const keysWithValues = schemaWithValues.map((c) => c.key);
-  assert.deepEqual(
-    keysWithValues.filter((key) => key === "digitalInput2"),
-    ["digitalInput2"],
-    "digitalInput2 should appear only once",
-  );
+  assert.ok(!keysWithValues.includes("digitalInput2"), "digitalInput2 should be excluded from schema");
   assert.ok(keysWithValues.includes("temperature"), "dynamic attribute should be present when value exists");
 });
 
 test("resolves IO and event labels from dictionaries", () => {
   const ioColumn = resolveColumn("io157");
-  assert.equal(resolveColumnLabel(ioColumn, "pt"), "Freio de estacionamento");
+  assert.equal(resolveColumnLabel(ioColumn, "pt"), "CAN – Pedal da Embreagem Pressionado");
 
   const eventDescriptor = resolveEventDescriptor("136", { protocol: "gt06" });
   assert.equal(eventDescriptor?.labelPt, "Farol baixo");

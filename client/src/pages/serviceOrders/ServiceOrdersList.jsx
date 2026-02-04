@@ -311,8 +311,6 @@ export default function ServiceOrdersList() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Ordem de Serviço"
-        subtitle="Solicitações, execução e aprovação das OS."
         actions={
           <>
             {listPermission.isFull && user?.role === "admin" && (

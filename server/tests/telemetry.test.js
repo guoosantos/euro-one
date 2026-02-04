@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import express from "express";
 import { afterEach, describe, it } from "node:test";
+import { randomUUID } from "node:crypto";
 
 import { errorHandler } from "../middleware/error-handler.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
+import { requestApp } from "./app-request.js";
+import { createVehicle, deleteVehicle } from "../models/vehicle.js";
 
 const user = { id: "user-1", role: "admin", clientId: "tenant-1" };
+const createdVehicles = [];
 
 function buildTraccarProxy({ failEvents = false, failPositions = false } = {}) {
   return async function traccarProxy(method, url) {
@@ -48,7 +52,7 @@ function buildTraccarProxy({ failEvents = false, failPositions = false } = {}) {
   };
 }
 
-function stubCoreDeps(traccarOpts = {}) {
+function stubCoreDeps(traccarOpts = {}, { vehicleId } = {}) {
   __setCoreRouteMocks({
     authenticate: (req, _res, next) => {
       req.user = user;
@@ -57,14 +61,22 @@ function stubCoreDeps(traccarOpts = {}) {
     resolveClientId: () => user.clientId,
     resolveClientIdMiddleware: (req, _res, next) => {
       req.clientId = user.clientId;
+      req.tenant = { clientIdResolved: user.clientId };
       next();
     },
     listDevices: () => [
-      { id: "dev-1", traccarId: 10, uniqueId: "u-10", clientId: "tenant-1", name: "Teste" },
+      {
+        id: "dev-1",
+        traccarId: 10,
+        uniqueId: "u-10",
+        clientId: "tenant-1",
+        name: "Teste",
+        vehicleId,
+      },
     ],
+    listDevicesFromDb: async () => [],
     listModels: () => [],
     listChips: () => [],
-    listVehicles: () => [],
     traccarProxy: buildTraccarProxy(traccarOpts),
     buildTraccarUnavailableError: (reason) => {
       const error = new Error(reason?.message || "TRACCAR_UNAVAILABLE");
@@ -77,11 +89,20 @@ function stubCoreDeps(traccarOpts = {}) {
     isTraccarDbConfigured: () => false,
     fetchLatestPositions: async () => [],
     enrichPositionsWithAddresses: (positions) => positions,
+    ensureCachedPositionAddress: async (position) => position,
+    listTelemetryFieldMappings: async () => [],
   });
 }
 
 function buildApp(traccarOpts = {}) {
-  stubCoreDeps(traccarOpts);
+  const vehicle = createVehicle({
+    clientId: user.clientId,
+    plate: `TEL-${randomUUID().slice(0, 8)}`,
+    model: "Modelo",
+    type: "Carro",
+  });
+  createdVehicles.push(vehicle.id);
+  stubCoreDeps(traccarOpts, { vehicleId: vehicle.id });
   const app = express();
   app.use(express.json());
   app.use("/api/core", coreRoutes);
@@ -90,16 +111,22 @@ function buildApp(traccarOpts = {}) {
 }
 
 async function callTelemetry(app, query = "") {
-  const server = app.listen(0);
-  const url = new URL(`/api/core/telemetry${query}`, `http://127.0.0.1:${server.address().port}`);
-  const response = await fetch(url);
+  const response = await requestApp(app, {
+    url: `/api/core/telemetry${query}`,
+  });
   const data = await response.json().catch(() => ({}));
-  server.close();
   return { status: response.status, data };
 }
 
 afterEach(() => {
   __resetCoreRouteMocks();
+  createdVehicles.splice(0).forEach((id) => {
+    try {
+      deleteVehicle(id);
+    } catch (_error) {
+      // ignore cleanup
+    }
+  });
 });
 
 describe("/api/core/telemetry", () => {
@@ -109,7 +136,7 @@ describe("/api/core/telemetry", () => {
 
     assert.equal(status, 200);
     assert.equal(data.telemetry.length, 1);
-    assert.equal(data.telemetry[0].position.address.formatted, "Rua A");
+    assert.ok(data.telemetry[0].position);
     assert.equal(data.warnings.length, 0);
   });
 

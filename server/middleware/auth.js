@@ -34,6 +34,26 @@ function cacheUser(userId, data) {
   });
 }
 
+function hasBearerAuth(req) {
+  const auth = req.headers?.authorization;
+  return Boolean(auth && auth.startsWith("Bearer "));
+}
+
+function hasTokenSetCookie(res) {
+  const existing = res.getHeader?.("Set-Cookie");
+  if (!existing) return false;
+  const values = Array.isArray(existing) ? existing : [existing];
+  return values.some((value) => typeof value === "string" && value.trim().startsWith("token="));
+}
+
+function shouldSetAuthCookie(req, res) {
+  if (!res) return false;
+  if (req?.authCookieSet) return false;
+  if (hasBearerAuth(req)) return false;
+  if (hasTokenSetCookie(res)) return false;
+  return true;
+}
+
 function extractTokenFromCookies(req) {
   if (req.cookies?.token) {
     return req.cookies.token;
@@ -79,24 +99,34 @@ async function rehydrateUserFromStore(req, res) {
   const cached = getCachedUser(userId);
   let stored = cached?.data ?? null;
   if (!stored) {
+    let prismaFailed = false;
     if (isPrismaAvailable()) {
-      stored = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          role: true,
-          clientId: true,
-          name: true,
-          email: true,
-          username: true,
-          attributes: true,
-        },
-      });
-    } else {
+      try {
+        stored = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            role: true,
+            clientId: true,
+            name: true,
+            email: true,
+            username: true,
+            attributes: true,
+          },
+        });
+      } catch (error) {
+        console.warn("[auth] falha ao reidratar usuário no banco, usando storage", error?.message || error);
+        prismaFailed = true;
+      }
+    }
+    if (!stored) {
       const users = loadCollection("users", []);
       stored = (Array.isArray(users) ? users : []).find((user) => String(user?.id) === userId) || null;
     }
     if (!stored) {
+      if (!isPrismaAvailable() || prismaFailed) {
+        return;
+      }
       throw createError(401, "Sessão inválida");
     }
     cacheUser(userId, stored);
@@ -145,9 +175,12 @@ async function rehydrateUserFromStore(req, res) {
       username: stored.username ?? null,
       attributes: storedAttributes,
     };
-    const token = signSession(tokenPayload);
-    res.cookie("token", token, buildRoleSyncCookieOptions());
-    req.sessionToken = token;
+    if (shouldSetAuthCookie(req, res)) {
+      const token = signSession(tokenPayload);
+      res.cookie("token", token, buildRoleSyncCookieOptions());
+      req.sessionToken = token;
+      req.authCookieSet = true;
+    }
   }
 }
 
@@ -272,6 +305,14 @@ export function requireRole(...roles) {
           : null,
       });
     }
+    console.warn("[auth] requireRole denied", {
+      path: req.originalUrl || req.url,
+      method: req.method,
+      userId: req.user?.id ? String(req.user.id) : null,
+      clientId: req.user?.clientId ? String(req.user.clientId) : null,
+      role,
+      allowed,
+    });
     return next(createError(403, "Permissão insuficiente"));
   };
 }

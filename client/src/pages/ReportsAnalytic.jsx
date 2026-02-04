@@ -1088,7 +1088,6 @@ export default function ReportsAnalytic() {
       <div className="flex w-full flex-col gap-4">
         <form onSubmit={handleGenerate} className="flex w-full flex-col gap-4">
           <PageHeader
-            title="Relatório Analítico"
             right={(
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <button

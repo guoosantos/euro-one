@@ -2,6 +2,8 @@ import createError from "http-errors";
 
 import prisma from "../services/prisma.js";
 
+let testOverrides = null;
+
 function validationError(message) {
   const error = createError(422, message);
   error.code = "GEOFENCE_VALIDATION";
@@ -157,6 +159,9 @@ function resolveCircleGeometry(payload, fallback = {}) {
 }
 
 export async function listGeofences({ clientId, groupId } = {}) {
+  if (typeof testOverrides?.listGeofences === "function") {
+    return testOverrides.listGeofences({ clientId, groupId });
+  }
   ensurePrisma();
   const where = {
     ...(clientId ? { clientId: String(clientId) } : {}),
@@ -167,6 +172,9 @@ export async function listGeofences({ clientId, groupId } = {}) {
 }
 
 export async function getGeofenceById(id) {
+  if (typeof testOverrides?.getGeofenceById === "function") {
+    return testOverrides.getGeofenceById(id);
+  }
   ensurePrisma();
   const geofence = await prisma.geofence.findUnique({ where: { id: String(id) } });
   return mapGeofence(geofence);
@@ -246,6 +254,10 @@ export async function createGeofence({
 
   const geofence = await prisma.geofence.create({ data: payload });
   return mapGeofence(geofence);
+}
+
+export function __setGeofenceTestOverrides(overrides = null) {
+  testOverrides = overrides;
 }
 
 export async function updateGeofence(id, updates = {}) {

@@ -89,9 +89,6 @@ export default function Face() {
   return (
     <div className="space-y-6">
       <PageHeader
-        overline="Central de vídeo"
-        title="Reconhecimento facial e cabine"
-        subtitle="Alertas provenientes das câmeras embarcadas Euro Vision (fadiga, distração, uso de cinto). Atualização contínua."
         rightSlot={
           <select
             value={filter}

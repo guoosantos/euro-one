@@ -66,7 +66,7 @@ function formatPhone(value) {
 
 export default function ServiceOrderNew() {
   const navigate = useNavigate();
-  const { tenantId, user, tenants } = useTenant();
+  const { tenantId, tenantScope, user, tenants } = useTenant();
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [createdOrder, setCreatedOrder] = useState(null);
@@ -107,7 +107,7 @@ export default function ServiceOrderNew() {
     CHECKLIST_ITEMS.map((item) => ({ item, before: "", after: "" })),
   );
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const canManageAll = user?.role === "admin";
   const canSignAsTechnician = user?.role === "technician";
   const canSignAsClient = user?.role === "user";
@@ -480,8 +480,6 @@ export default function ServiceOrderNew() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Nova Ordem de Serviço"
-        subtitle="Solicite o serviço e acompanhe o status."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {createdOrder?.id && (

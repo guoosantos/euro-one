@@ -2,8 +2,9 @@ import crypto from "node:crypto";
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { buildItineraryKml } from "../utils/kml.js";
 import { listGeofences } from "../models/geofence.js";
 import { getRouteById, listRoutes, updateRoute } from "../models/route.js";
@@ -53,20 +54,41 @@ router.use(authenticate);
 
 function resolveTargetClient(req, provided, { required = false } = {}) {
   if (req.user.role === "admin") {
-    return provided || req.query?.clientId || req.user.clientId || null;
+    const resolved = provided || req.query?.clientId || null;
+    if (required && !resolved) {
+      return req.user.clientId || null;
+    }
+    return resolved;
   }
-  const clientId = req.user.clientId || null;
+  const mirrorClientId =
+    req.tenant?.accessType === "mirror"
+      ? (req.clientId || req.mirrorContext?.ownerClientId || null)
+      : null;
+  const clientId = mirrorClientId || req.user.clientId || null;
   if (required && !clientId) {
     throw createError(400, "clientId é obrigatório");
   }
   return clientId;
 }
 
-function ensureSameClient(user, clientId) {
+function shouldAllowXdmFailure(error) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status);
+  if (Number.isFinite(status) && status === 405) return true;
+  const code = String(error?.code || error?.details?.code || "").toUpperCase();
+  return code === "XDM_REQUEST_FAILED" && status === 405;
+}
+
+function ensureSameClient(req, clientId) {
+  const user = req.user;
   if (user.role === "admin") return;
-  if (!user.clientId || String(user.clientId) !== String(clientId)) {
-    throw createError(403, "Operação não permitida para este cliente");
-  }
+  if (user.clientId && String(user.clientId) === String(clientId)) return;
+  const mirrorOwnerId = req.mirrorContext?.ownerClientId ?? null;
+  const hasMirrorAccess =
+    req.tenant?.accessType === "mirror" &&
+    mirrorOwnerId &&
+    String(mirrorOwnerId) === String(clientId);
+  if (hasMirrorAccess) return;
+  throw createError(403, `Usuário não tem permissão para clientId ${clientId}`);
 }
 
 function resolveRequestIp(req) {
@@ -534,7 +556,10 @@ async function buildVehicleEmbarkDetail({
   };
 }
 
-router.get("/itineraries", async (req, res, next) => {
+router.get(
+  "/itineraries",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const targetClientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const itineraries = listItineraries(targetClientId ? { clientId: targetClientId } : {})
@@ -543,22 +568,30 @@ router.get("/itineraries", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/:id", async (req, res, next) => {
+router.get(
+  "/itineraries/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const itinerary = getItineraryById(req.params.id);
     if (!itinerary) {
       throw createError(404, "Itinerário não encontrado");
     }
-    ensureSameClient(req.user, itinerary.clientId);
+    ensureSameClient(req, itinerary.clientId);
     return res.json({ data: withSyncStatus(itinerary), error: null });
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/itineraries", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/itineraries",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
@@ -638,21 +671,33 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
         xdmLastError: error?.message || "Falha ao sincronizar na Central",
         xdmLastSyncedAt: new Date().toISOString(),
       });
+      if (shouldAllowXdmFailure(error)) {
+        const updated = getItineraryById(itinerary.id);
+        return res.status(201).json({
+          data: withSyncStatus(updated || itinerary),
+          error: null,
+          xdm: { ok: false, reason: "METHOD_NOT_ALLOWED" },
+        });
+      }
       throw error;
     }
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/itineraries/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const existing = getItineraryById(req.params.id);
     if (!existing) {
       throw createError(404, "Itinerário não encontrado");
     }
     const clientId = resolveTargetClient(req, req.body?.clientId || existing.clientId, { required: true });
-    ensureSameClient(req.user, clientId);
+    ensureSameClient(req, clientId);
     const items = buildItineraryItems({
       items: req.body?.items,
       routeIds: req.body?.routeIds,
@@ -673,6 +718,14 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
         xdmLastSyncError: error?.message || "Falha ao sincronizar na Central",
         xdmLastSyncedAt: new Date().toISOString(),
       });
+      if (shouldAllowXdmFailure(error)) {
+        const refreshed = getItineraryById(updated.id);
+        return res.status(200).json({
+          data: withSyncStatus(refreshed || updated),
+          error: null,
+          xdm: { ok: false, reason: "METHOD_NOT_ALLOWED" },
+        });
+      }
       throw error;
     }
 
@@ -788,15 +841,19 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.delete(
+  "/itineraries/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const existing = getItineraryById(req.params.id);
     if (!existing) {
       throw createError(404, "Itinerário não encontrado");
     }
-    ensureSameClient(req.user, existing.clientId);
+    ensureSameClient(req, existing.clientId);
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
     const sentAt = new Date().toISOString();
     let deleteSnapshot = null;
@@ -931,15 +988,19 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/:id/export/kml", async (req, res, next) => {
+router.get(
+  "/itineraries/:id/export/kml",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const itinerary = getItineraryById(req.params.id);
     if (!itinerary) {
       throw createError(404, "Itinerário não encontrado");
     }
-    ensureSameClient(req.user, itinerary.clientId);
+    ensureSameClient(req, itinerary.clientId);
     const clientId = resolveClientId(req, req.query?.clientId, { required: false }) || itinerary.clientId;
 
     const geofenceItems = (itinerary.items || []).filter((item) => item.type === "geofence").map((item) => item.id);
@@ -967,9 +1028,13 @@ router.get("/itineraries/:id/export/kml", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/embark/history", async (req, res, next) => {
+router.get(
+  "/itineraries/embark/history",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const deployments = listDeployments(clientId ? { clientId } : {});
@@ -997,9 +1062,13 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/embark/vehicles", async (req, res, next) => {
+router.get(
+  "/itineraries/embark/vehicles",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const correlationId = req.headers["x-correlation-id"] || null;
@@ -1068,16 +1137,20 @@ router.get("/itineraries/embark/vehicles", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/embark/vehicles/:vehicleId/status", async (req, res, next) => {
+router.get(
+  "/itineraries/embark/vehicles/:vehicleId/status",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const vehicleId = req.params.vehicleId;
     const vehicle = getVehicleById(vehicleId);
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
-    ensureSameClient(req.user, vehicle.clientId);
+    ensureSameClient(req, vehicle.clientId);
     const correlationId = req.headers["x-correlation-id"] || null;
 
     const deployments = listDeployments({ clientId: vehicle.clientId }).filter(
@@ -1129,16 +1202,20 @@ router.get("/itineraries/embark/vehicles/:vehicleId/status", async (req, res, ne
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/embark/vehicles/:vehicleId/history", async (req, res, next) => {
+router.get(
+  "/itineraries/embark/vehicles/:vehicleId/history",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const vehicleId = req.params.vehicleId;
     const vehicle = getVehicleById(vehicleId);
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
-    ensureSameClient(req.user, vehicle.clientId);
+    ensureSameClient(req, vehicle.clientId);
 
     const history = listVehicleEmbarkHistory({ vehicle: vehicle });
 
@@ -1146,15 +1223,19 @@ router.get("/itineraries/embark/vehicles/:vehicleId/history", async (req, res, n
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/itineraries/:id/embark/history", async (req, res, next) => {
+router.get(
+  "/itineraries/:id/embark/history",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
+  async (req, res, next) => {
   try {
     const itinerary = getItineraryById(req.params.id);
     if (!itinerary) {
       throw createError(404, "Itinerário não encontrado");
     }
-    ensureSameClient(req.user, itinerary.clientId);
+    ensureSameClient(req, itinerary.clientId);
 
     const deployments = listDeployments({ clientId: itinerary.clientId }).filter(
       (deployment) => String(deployment.itineraryId) === String(itinerary.id),
@@ -1180,9 +1261,13 @@ router.get("/itineraries/:id/embark/history", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/itineraries/:itineraryId/embark",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const itineraryId = req.params.itineraryId;
     const itinerary = getItineraryById(itineraryId);
@@ -1190,7 +1275,7 @@ router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"),
       throw createError(404, "Itinerário não encontrado");
     }
     const clientId = resolveTargetClient(req, req.body?.clientId || itinerary.clientId, { required: true });
-    ensureSameClient(req.user, clientId);
+    ensureSameClient(req, clientId);
 
     const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
     if (!vehicleIds.length) {
@@ -1224,9 +1309,13 @@ router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"),
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/itineraries/:itineraryId/disembark",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const operationId = req.headers["x-correlation-id"] || crypto.randomUUID();
     const itineraryId = req.params.itineraryId;
@@ -1235,7 +1324,7 @@ router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin
       throw createError(404, "Itinerário não encontrado");
     }
     const clientId = resolveTargetClient(req, req.body?.clientId || itinerary.clientId, { required: true });
-    ensureSameClient(req.user, clientId);
+    ensureSameClient(req, clientId);
 
     const vehicleIds = Array.isArray(req.body?.vehicleIds)
       ? Array.from(new Set(req.body.vehicleIds.map(String)))
@@ -1272,9 +1361,13 @@ router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/itineraries/disembark", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/itineraries/disembark",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const operationId = req.headers["x-correlation-id"] || crypto.randomUUID();
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
@@ -1479,9 +1572,13 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/itineraries/embark",
+  authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
+  async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
     const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
@@ -1603,7 +1700,8 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 router.get("/deployments/:id", async (req, res, next) => {
   try {
@@ -1611,7 +1709,7 @@ router.get("/deployments/:id", async (req, res, next) => {
     if (!deployment) {
       throw createError(404, "Deploy não encontrado");
     }
-    ensureSameClient(req.user, deployment.clientId);
+    ensureSameClient(req, deployment.clientId);
     return res.json({ data: deployment, error: null });
   } catch (error) {
     return next(error);

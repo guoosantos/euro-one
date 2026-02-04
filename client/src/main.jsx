@@ -11,6 +11,7 @@ import ConfirmDialogProvider from "./components/ui/ConfirmDialogProvider.jsx";
 
 import "./styles.css";
 import "./styles/euro-ui.css";
+import "./lib/map/leaflet-default-icon.js";
 
 installFiltersPolish();
 

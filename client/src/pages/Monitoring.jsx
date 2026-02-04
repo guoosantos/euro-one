@@ -28,7 +28,6 @@ import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
-import { matchesTenant } from "../lib/tenancy.js";
 import useOverlayActivity from "../lib/hooks/useOverlayActivity.js";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
@@ -54,6 +53,7 @@ import {
   getLastUpdate,
   isLinkedToVehicle,
   isOnline,
+  matchesAnyTenant,
   minutesSince,
   pickCoordinate,
   pickSpeed,
@@ -96,12 +96,18 @@ const GEO_MAX_CACHE_ENTRIES = 500;
 const GEO_MAX_CONCURRENT = 4;
 const GEO_QUEUE_DELAY_MS = 120;
 const LAYOUT_STORAGE_KEY = "monitoring:layout-visibility:v1";
-const normaliseLayoutVisibility = (value = {}) => ({
-  showMap: value.showMap !== false,
-  showTable: value.showTable !== false,
-  showToolbar: value.showToolbar !== false,
-  showTopbar: value.showTopbar !== false,
-});
+const normaliseLayoutVisibility = (value = {}) => {
+  const next = {
+    showMap: value.showMap !== false,
+    showTable: value.showTable !== false,
+    showToolbar: value.showToolbar !== false,
+    showTopbar: value.showTopbar !== false,
+  };
+  if (!next.showMap && !next.showTable) {
+    next.showMap = true;
+  }
+  return next;
+};
 
 const DEVICE_FOCUS_ZOOM = 17;
 const normaliseBoundingBox = (boundingBox) => {
@@ -406,13 +412,15 @@ export default function Monitoring() {
     intervalMs: 60_000,
     pauseWhenOverlayOpen: true,
   });
+  const pendingAlertParams = useMemo(() => ({ status: "pending" }), []);
+  const conjugatedAlertParams = useMemo(() => ({ windowHours: 5 }), []);
   const { alerts: pendingAlerts } = useAlerts({
-    params: { status: "pending" },
+    params: pendingAlertParams,
     refreshInterval: pendingAlertsRefresh.intervalMs,
     enabled: pendingAlertsRefresh.enabled && canAccessAlerts,
   });
   const { alerts: conjugatedAlerts } = useConjugatedAlerts({
-    params: { windowHours: 5 },
+    params: conjugatedAlertParams,
     refreshInterval: conjugatedAlertsRefresh.intervalMs,
     enabled: conjugatedAlertsRefresh.enabled && canAccessConjugatedAlerts,
   });
@@ -450,6 +458,21 @@ export default function Monitoring() {
     });
     return map;
   }, [vehicles]);
+
+  const allowedTenantIds = useMemo(() => {
+    const ids = new Set();
+    if (tenantId !== null && tenantId !== undefined) {
+      ids.add(String(tenantId));
+    }
+    if (isRestricted && Array.isArray(accessibleVehicles)) {
+      accessibleVehicles.forEach((vehicle) => {
+        if (vehicle?.clientId !== null && vehicle?.clientId !== undefined) {
+          ids.add(String(vehicle.clientId));
+        }
+      });
+    }
+    return Array.from(ids.values());
+  }, [accessibleVehicles, isRestricted, tenantId]);
 
   const pendingAlertDeviceIds = useMemo(() => {
     const set = new Set();
@@ -899,11 +922,7 @@ export default function Monitoring() {
 
       return { device, source: item, vehicle };
     })
-    .filter((entry) =>
-      matchesTenant(entry?.device, tenantId) ||
-      matchesTenant(entry?.vehicle, tenantId) ||
-      matchesTenant(entry?.source, tenantId),
-    ), [safeTelemetry, tenantId, vehiclesById]);
+    .filter((entry) => matchesAnyTenant(entry, allowedTenantIds)), [allowedTenantIds, safeTelemetry, vehiclesById]);
 
   const linkedTelemetry = useMemo(
     () =>
@@ -1381,6 +1400,21 @@ export default function Monitoring() {
     return displayRows
       .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
       .map(r => {
+        const resolvedVehicle = r.vehicle || r.device?.vehicle || null;
+        const resolvedDeviceId = r.deviceId ?? r.device?.id ?? r.device?.traccarId ?? null;
+        const deviceFromVehicle = resolvedVehicle?.devices?.find((device) => {
+          if (!resolvedDeviceId) return false;
+          const candidates = [device?.traccarId, device?.id, device?.uniqueId].filter(Boolean).map(String);
+          return candidates.includes(String(resolvedDeviceId));
+        });
+        const resolvedDevice = r.device || deviceFromVehicle || null;
+        const resolvedAttributes =
+          r.attributes ||
+          resolvedDevice?.attributes ||
+          resolvedVehicle?.attributes ||
+          deviceFromVehicle?.attributes ||
+          {};
+
         const status = r.statusBadge;
         const statusLabel = status === "online"
           ? t("monitoring.filters.online")
@@ -1392,21 +1426,30 @@ export default function Monitoring() {
           r.ignition === true ? "#22c55e" : r.ignition === false ? "#ef4444" : "#94a3b8";
         const markerIconType = resolveMarkerIconType(
           {
-            iconType: r.iconType,
-            vehicleType: r.vehicleType,
-            type: r.device?.type || r.vehicle?.type,
-            category: r.vehicle?.category,
-            attributes: r.attributes || r.device?.attributes || {},
+            iconType: r.iconType || resolvedAttributes?.iconType,
+            vehicleType: r.vehicleType || resolvedVehicle?.vehicleType || resolvedVehicle?.type,
+            type: resolvedDevice?.type || resolvedVehicle?.type || r.device?.type,
+            category: resolvedVehicle?.category,
+            attributes: resolvedAttributes,
           },
-          [r.vehicleType, r.attributes?.vehicleType, r.vehicle?.category],
+          [
+            r.vehicleType,
+            resolvedAttributes?.vehicleType,
+            resolvedVehicle?.vehicleType,
+            resolvedVehicle?.category,
+            resolvedVehicle?.type,
+          ],
         );
 
-        const plateLabel = (r.vehicle?.plate ?? r.device?.plate ?? r.plate ?? "").trim() || "Sem placa";
-        const vehicleName = r.vehicle?.name || r.vehicle?.item || r.device?.vehicle?.name || null;
+        const plateLabel = (resolvedVehicle?.plate ?? resolvedDevice?.plate ?? r.plate ?? "").trim() || "Sem placa";
+        const vehicleName = resolvedVehicle?.name || resolvedVehicle?.item || resolvedDevice?.vehicle?.name || null;
         const vehicleLabel = vehicleName || plateLabel;
-        const modelLabel = [r.vehicle?.brand, r.vehicle?.model].filter(Boolean).join(" ") || r.vehicle?.model || "—";
-        const eventDefinition = resolveEventDefinitionFromPayload(r.position || r.device?.position || {});
-        const eventTime = getEventTime(r.position || r.device?.position || null);
+        const modelLabel =
+          [resolvedVehicle?.brand, resolvedVehicle?.model].filter(Boolean).join(" ") ||
+          resolvedVehicle?.model ||
+          "—";
+        const eventDefinition = resolveEventDefinitionFromPayload(r.position || resolvedDevice?.position || {});
+        const eventTime = getEventTime(r.position || resolvedDevice?.position || null);
         const ignitionLabel =
           r.ignition === true ? "Ligada" : r.ignition === false ? "Desligada" : "—";
 

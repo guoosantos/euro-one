@@ -74,6 +74,37 @@ const baseFormState = {
   profile: defaultProfile,
 };
 
+function normalizePresentationCandidate(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
+  if (candidate.permissions && typeof candidate.permissions === "object") {
+    return candidate.permissions;
+  }
+  return candidate;
+}
+
+function resolvePresentationPermissions(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = [
+    attributes.presentationPermissions,
+    attributes.presentation,
+    attributes.apresentacao,
+    attributes.apresentacaoPermissions,
+    attributes.menuPresentation,
+    attributes.menuPermissions,
+    attributes.presentationMenu,
+    attributes.menuConfig,
+    attributes.modules,
+    attributes.modulePermissions,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizePresentationCandidate(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 const tabs = [
   {
     id: "informacoes",
@@ -93,6 +124,11 @@ const tabs = [
   {
     id: "permissoes",
     label: "Grupo de Permissões",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-permissions" },
+  },
+  {
+    id: "apresentacao",
+    label: "Apresentação",
     permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-permissions" },
   },
   {
@@ -147,6 +183,8 @@ export default function ClientDetailsPage() {
   const [permissionDrawerOpen, setPermissionDrawerOpen] = useState(false);
   const [editingPermissionGroup, setEditingPermissionGroup] = useState(null);
   const [permissionGroupForm, setPermissionGroupForm] = useState({ name: "", description: "", permissions: {} });
+  const [presentationForm, setPresentationForm] = useState({ permissions: {} });
+  const [presentationSaving, setPresentationSaving] = useState(false);
   const [mirrors, setMirrors] = useState(EMPTY_LIST);
   const [mirrorDrawerOpen, setMirrorDrawerOpen] = useState(false);
   const [editingMirror, setEditingMirror] = useState(null);
@@ -161,6 +199,13 @@ export default function ClientDetailsPage() {
   const [clients, setClients] = useState(EMPTY_LIST);
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
+  const selfRequestOptions = useMemo(
+    () => ({
+      skipMirrorClient: true,
+      headers: { "X-Mirror-Mode": "self" },
+    }),
+    [],
+  );
   const { getPermission } = usePermissions();
   const availableTabs = useMemo(() => tabs.filter((tab) => getPermission(tab.permission).canShow), [getPermission]);
   const activeTabPermission = useMemo(() => {
@@ -239,6 +284,10 @@ export default function ClientDetailsPage() {
           vehicleLimit: attributes.vehicleLimit ?? 0,
           profile,
         });
+        const presentationPermissions = resolvePresentationPermissions(attributes);
+        setPresentationForm({
+          permissions: buildPermissionEditorState(presentationPermissions || {}, PERMISSION_REGISTRY),
+        });
       } catch (loadError) {
         if (!isMounted) return;
         console.error("Erro ao carregar cliente", loadError);
@@ -265,7 +314,10 @@ export default function ClientDetailsPage() {
     let isMounted = true;
     async function loadUsers() {
       try {
-        const response = await api.get(API_ROUTES.users, { params: { clientId: client.id } });
+        const response = await api.get(API_ROUTES.users, {
+          params: { clientId: client.id },
+          ...selfRequestOptions,
+        });
         if (!isMounted) return;
         const list = response?.data?.users || response?.data || [];
         setUsers(Array.isArray(list) ? list : EMPTY_LIST);
@@ -447,6 +499,30 @@ export default function ClientDetailsPage() {
     } catch (permissionError) {
       console.error("Erro ao salvar grupo de permissões", permissionError);
       setError(permissionError);
+    }
+  };
+
+  const handlePresentationSave = async (event) => {
+    event.preventDefault();
+    if (!client?.id) return;
+    setPresentationSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const nextAttributes = {
+        ...(client.attributes || {}),
+        presentationPermissions: normalizePermissionPayload(presentationForm.permissions),
+      };
+      const response = await api.put(`/clients/${client.id}`, { attributes: nextAttributes });
+      const updated = response?.data?.client || client;
+      setClient(updated);
+      showToast("Apresentação atualizada com sucesso.");
+    } catch (presentationError) {
+      console.error("Erro ao salvar apresentação", presentationError);
+      showToast("Falha ao salvar apresentação.", "error");
+      setError(presentationError);
+    } finally {
+      setPresentationSaving(false);
     }
   };
 
@@ -1250,6 +1326,37 @@ export default function ClientDetailsPage() {
                   </tbody>
                 </DataTable>
               </div>
+            </section>
+          )}
+
+          {activeTabPermission?.canRead && activeTab === "apresentacao" && (
+            <section className="border border-white/10 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Apresentação</h2>
+                  <p className="text-xs text-white/60">
+                    Define quais módulos aparecem para este cliente. A visibilidade final depende da permissão
+                    do usuário + apresentação.
+                  </p>
+                </div>
+              </div>
+              <form onSubmit={handlePresentationSave} className="mt-4 space-y-4">
+                <PermissionTreeEditor
+                  permissions={presentationForm.permissions}
+                  onChange={(nextPermissions) =>
+                    setPresentationForm((prev) => ({ ...prev, permissions: nextPermissions }))
+                  }
+                />
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <button
+                    type="submit"
+                    disabled={presentationSaving}
+                    className="rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {presentationSaving ? "Salvando…" : "Salvar apresentação"}
+                  </button>
+                </div>
+              </form>
             </section>
           )}
 

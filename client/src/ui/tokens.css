@@ -3,4 +3,14 @@
   --txt:#eaeef0; --txt-muted:#aab1c2; --focus:rgba(57,189,248,.35);
   --pill-bg:#141821; --pill-h:42px; --radius:16px;
 }
+
+:root[data-theme='light']{
+  --bg-card:#FFFFFF;
+  --bd-soft:#E3E8F2;
+  --bd:#E3E8F2;
+  --txt:#0F172A;
+  --txt-muted:#64748B;
+  --focus:rgba(37,160,255,.25);
+  --pill-bg:#F3F6FB;
+}
 .card{background:var(--bg-card);border:1px solid var(--bd);border-radius:12px;padding:12px}

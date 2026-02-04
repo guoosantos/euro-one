@@ -192,21 +192,30 @@ const mergeHistoryItems = (items = []) => {
 const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export default function Commands() {
-  const { tenantId, tenant, user } = useTenant();
+  const { tenantId } = useTenant();
   const { getPermission } = usePermissionResolver();
   const listPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "list" });
   const advancedPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "advanced" });
   const createPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "create" });
+  const historyResponsePermission = usePermissionGate({
+    menuKey: "primary",
+    pageKey: "commands",
+    subKey: "history-response",
+  });
   const canEditList = listPermission.isFull;
   const canEditAdvanced = advancedPermission.isFull;
   const canEditCreate = createPermission.isFull;
   const canAccessCreateTab = createPermission.hasAccess;
-  const { vehicles, loading: vehiclesLoading } = useVehicles();
-  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
-  const { confirmDelete } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0].id);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const { vehicles, loading: vehiclesLoading } = useVehicles();
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)),
+    [vehicles, selectedVehicleId],
+  );
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const { confirmDelete } = useConfirmDialog();
   const [device, setDevice] = useState(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceError, setDeviceError] = useState(null);
@@ -250,24 +259,16 @@ export default function Commands() {
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingCommandId, setDeletingCommandId] = useState(null);
-  const isMasterTenant = useMemo(() => {
-    const candidate =
-      tenant?.attributes?.isMasterAdmin ||
-      tenant?.attributes?.clientProfile?.clientType ||
-      tenant?.attributes?.clientType ||
-      user?.attributes?.isMasterAdmin ||
-      user?.attributes?.clientProfile?.clientType ||
-      user?.attributes?.clientType ||
-      null;
-    if (candidate === true) return true;
-    if (typeof candidate === "string") {
-      return candidate.trim().toUpperCase() === "ADMIN_MASTER";
-    }
-    return false;
-  }, [tenant, user]);
+  const canShowHistoryResponse = historyResponsePermission.canShow;
   const historyColumns = useMemo(
-    () => HISTORY_COLUMNS.filter((column) => column.id !== "result" || isMasterTenant),
-    [isMasterTenant],
+    () =>
+      HISTORY_COLUMNS.filter((column) => {
+        if (column.id === "result" || column.id === "responseAt") {
+          return canShowHistoryResponse;
+        }
+        return true;
+      }),
+    [canShowHistoryResponse],
   );
   const availableTabs = useMemo(
     () => COMMAND_TABS.filter((tab) => getPermission(tab.permission).canShow),
@@ -515,13 +516,24 @@ export default function Commands() {
       setCommandErrors({});
       return;
     }
-    setDeviceLoading(true);
-    setDeviceError(null);
     setProtocolCommands([]);
     setCommandsError(null);
     setExpandedCommandId(null);
     setCommandParams({});
     setCommandErrors({});
+    const cachedDevice = selectedVehicle?.primaryDevice ?? selectedVehicle?.device ?? null;
+    if (selectedVehicle && !cachedDevice) {
+      setDevice(null);
+      setDeviceError("Veículo sem equipamento vinculado no Traccar");
+      return;
+    }
+    if (cachedDevice && !cachedDevice.traccarId) {
+      setDevice(null);
+      setDeviceError("Equipamento vinculado sem traccarId");
+      return;
+    }
+    setDeviceLoading(true);
+    setDeviceError(null);
     try {
       const traccarDevice = await resolveDeviceFromVehicle(selectedVehicleId);
       if (!traccarDevice) {
@@ -552,7 +564,7 @@ export default function Commands() {
     } finally {
       setDeviceLoading(false);
     }
-  }, [resolveDeviceFromVehicle, selectedVehicleId]);
+  }, [resolveDeviceFromVehicle, selectedVehicle, selectedVehicleId]);
 
   const fetchCommands = useCallback(async () => {
     if (!device?.protocol) {
@@ -573,6 +585,12 @@ export default function Commands() {
   }, [device?.protocol]);
 
   const fetchCustomCommands = useCallback(async () => {
+    if (!canAccessCreateTab) {
+      setCustomCommands([]);
+      setCustomCommandsError(null);
+      setCustomCommandsLoading(false);
+      return [];
+    }
     setCustomCommandsLoading(true);
     setCustomCommandsError(null);
     const params = {
@@ -594,7 +612,7 @@ export default function Commands() {
       setCustomCommandsLoading(false);
     }
     return [];
-  }, [device?.protocol, device?.traccarId, tenantId]);
+  }, [canAccessCreateTab, device?.protocol, device?.traccarId, tenantId]);
 
   const fetchHistory = useCallback(
     async ({ useLoading, bustCache } = {}) => {
@@ -602,6 +620,21 @@ export default function Commands() {
         setHistory([]);
         setHistoryError(null);
         setHistoryWarning(null);
+        setHistoryTotal(0);
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
+        return;
+      }
+      if (deviceLoading) {
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
+        return;
+      }
+      if (!device?.traccarId) {
+        const message = deviceError || "Veículo sem equipamento vinculado no Traccar";
+        setHistory([]);
+        setHistoryError(null);
+        setHistoryWarning(message);
         setHistoryTotal(0);
         setHistoryLoading(false);
         setHistoryRefreshing(false);
@@ -668,7 +701,7 @@ export default function Commands() {
         setHistoryRefreshing(false);
       }
     },
-    [selectedVehicleId, historyPage, historyPerPage, tenantId],
+    [device?.traccarId, deviceError, deviceLoading, selectedVehicleId, historyPage, historyPerPage, tenantId],
   );
 
   const getPendingHistoryIds = useCallback(() => {
@@ -1208,7 +1241,7 @@ export default function Commands() {
 
     return (
       <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <div>
             <p className="text-sm font-semibold text-white/90">{command.name || commandKey}</p>
             {command.description && <p className="mt-1 text-xs text-white/60">{command.description}</p>}
@@ -1220,7 +1253,7 @@ export default function Commands() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             {canDeleteCustom && (
               <button
                 type="button"
@@ -1333,12 +1366,9 @@ export default function Commands() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
-      <section className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex w-full flex-col gap-6 pb-6">
+      <section className="flex flex-col gap-4">
         <PageHeader
-          overline="Central de comandos"
-          title="Comandos"
-          subtitle="Envie comandos aos veículos, personalize preferências e acompanhe o histórico."
           actions={(
             <>
               <Button type="button" onClick={handleShow}>
@@ -1383,7 +1413,7 @@ export default function Commands() {
             Sem acesso aos módulos de comandos.
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="flex flex-col gap-4">
           {activeTab === "list" && (
             <>
               <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
@@ -1690,7 +1720,7 @@ export default function Commands() {
         )}
       </section>
 
-      <section className="flex min-h-0 flex-col gap-4">
+      <section className="flex flex-col gap-4">
         <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1703,7 +1733,7 @@ export default function Commands() {
               onClick={handleRefreshHistory}
               disabled={historyRefreshing || historyLoading}
             >
-              <RefreshCw className={`h-4 w-4 ${historyRefreshing || historyLoading ? "animate-spin" : ""}`} />
+              <RefreshCw className="h-4 w-4" />
               <span>{historyRefreshing || historyLoading ? "Atualizando…" : "Atualizar"}</span>
             </Button>
           </div>
@@ -1719,7 +1749,7 @@ export default function Commands() {
           )}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+        <div className="max-h-[520px] overflow-auto rounded-xl border border-white/10 bg-[#0b0f17] md:max-h-[560px] lg:max-h-[600px]">
           <table className="w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               {historyColumns.map((column) => (

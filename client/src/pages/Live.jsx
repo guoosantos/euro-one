@@ -129,11 +129,7 @@ export default function Live() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de vídeo"
-        title="Streams ao vivo"
-        subtitle="O Euro One detecta automaticamente URLs de streaming nos atributos dos dispositivos Traccar (streamUrl, videoUrl)."
-      />
+      <PageHeader />
       <section className="card space-y-4">
         <p className="text-xs opacity-70">
           Também é possível informar manualmente um endpoint RTSP/HLS.

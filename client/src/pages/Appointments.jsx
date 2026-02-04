@@ -112,8 +112,8 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Appointments() {
-  const { tenantId, user, tenants } = useTenant();
-  const resolvedClientId = tenantId || user?.clientId || "";
+  const { tenantId, tenantScope, user, tenants } = useTenant();
+  const resolvedClientId = tenantScope === "ALL" ? "" : tenantId || user?.clientId || "";
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [technicians, setTechnicians] = useState([]);
@@ -453,8 +453,6 @@ export default function Appointments() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Agendamentos"
-        subtitle="Gestão operacional com janela, responsável e status por agendamento."
         actions={
           <div className="flex items-center gap-2">
             <button

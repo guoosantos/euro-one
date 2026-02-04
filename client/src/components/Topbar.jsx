@@ -10,6 +10,7 @@ import useTelemetry from "../lib/hooks/useTelemetry";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { buildFleetState } from "../lib/fleet-utils";
 import { useTranslation } from "../lib/i18n.js";
+import { isAdminGeneralClientName, normalizeAdminClientName } from "../lib/admin-general.js";
 import NotificationsPopover from "./popovers/NotificationsPopover.jsx";
 import UserMenuPopover from "./popovers/UserMenuPopover.jsx";
 import TenantCombobox from "./inputs/TenantCombobox.jsx";
@@ -110,6 +111,34 @@ function resolveVehicleDescriptor(device, vehicle) {
   };
 }
 
+const ADMIN_SCOPE_STORAGE_KEY = "euro-one.admin.scope";
+const ADMIN_SCOPE_ALL = "all";
+const ADMIN_SCOPE_EURO = "euro";
+const ADMIN_ALL_OPTION_ID = "all";
+const ADMIN_GENERAL_OPTION_ID = "admin-general";
+
+function readAdminScope() {
+  if (typeof window === "undefined") return ADMIN_SCOPE_ALL;
+  try {
+    return window.localStorage?.getItem(ADMIN_SCOPE_STORAGE_KEY) || ADMIN_SCOPE_ALL;
+  } catch (_error) {
+    return ADMIN_SCOPE_ALL;
+  }
+}
+
+function persistAdminScope(value) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!value) {
+      window.localStorage?.removeItem(ADMIN_SCOPE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage?.setItem(ADMIN_SCOPE_STORAGE_KEY, value);
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
 export function Topbar({ title }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
@@ -136,9 +165,12 @@ export function Topbar({ title }) {
   const { locale, t } = useTranslation();
 
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [switchLocked, setSwitchLocked] = useState(false);
   const switchTimerRef = useRef(null);
+  const searchDebounceRef = useRef(null);
+  const [adminScope, setAdminScope] = useState(() => readAdminScope());
 
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
@@ -146,7 +178,11 @@ export function Topbar({ title }) {
   const { vehicles = [] } = useVehicles();
   const effectiveTenantId = tenantId === "" ? null : tenantId;
   const isGlobalScope = hasAdminAccess && (tenantScope === "ALL" || effectiveTenantId === null);
+  const searchTerm = debouncedQuery.trim();
+  const searchActive = Boolean(searchTerm) && focused;
+  const useGlobalSearchData = isGlobalScope && searchActive;
   const telemetryDevices = useMemo(() => {
+    if (!useGlobalSearchData) return [];
     const list = Array.isArray(telemetry) ? telemetry : [];
     return list
       .map((entry) => {
@@ -172,21 +208,27 @@ export function Topbar({ title }) {
         };
       })
       .filter(Boolean);
-  }, [telemetry]);
+  }, [telemetry, useGlobalSearchData]);
   const telemetryPositions = useMemo(() => {
+    if (!useGlobalSearchData) return [];
     const list = Array.isArray(telemetry) ? telemetry : [];
     return list.map((entry) => entry?.position).filter(Boolean);
-  }, [telemetry]);
+  }, [telemetry, useGlobalSearchData]);
   const activeDevices = useMemo(
-    () => (isGlobalScope ? telemetryDevices : devices),
-    [devices, isGlobalScope, telemetryDevices],
+    () => (searchActive ? (isGlobalScope ? telemetryDevices : devices) : []),
+    [devices, isGlobalScope, searchActive, telemetryDevices],
   );
   const activePositions = useMemo(
-    () => (isGlobalScope ? telemetryPositions : positions),
-    [isGlobalScope, positions, telemetryPositions],
+    () => (searchActive ? (isGlobalScope ? telemetryPositions : positions) : []),
+    [isGlobalScope, positions, searchActive, telemetryPositions],
   );
+  const activePositionsRef = useRef([]);
+  if (searchActive) {
+    activePositionsRef.current = activePositions;
+  }
   const activeTenantId = isGlobalScope ? null : effectiveTenantId;
   const deviceByKey = useMemo(() => {
+    if (!searchActive) return new Map();
     const map = new Map();
     activeDevices.forEach((device) => {
       const key = getDeviceKey(device);
@@ -195,8 +237,9 @@ export function Topbar({ title }) {
       if (device?.deviceId != null) map.set(String(device.deviceId), device);
     });
     return map;
-  }, [activeDevices]);
+  }, [activeDevices, searchActive]);
   const vehicleById = useMemo(() => {
+    if (!searchActive) return new Map();
     const map = new Map();
     vehicles.forEach((vehicle) => {
       const id = vehicle?.id ?? vehicle?.vehicleId ?? vehicle?.vehicle_id;
@@ -204,8 +247,9 @@ export function Topbar({ title }) {
       map.set(String(id), vehicle);
     });
     return map;
-  }, [vehicles]);
+  }, [searchActive, vehicles]);
   const plateByDeviceKey = useMemo(() => {
+    if (!searchActive) return new Map();
     const map = new Map();
     vehicles.forEach((vehicle) => {
       const plateValue = sanitizePlate(resolveVehiclePlate(vehicle), vehicle?.id);
@@ -228,16 +272,35 @@ export function Topbar({ title }) {
       if (preferredKey != null) map.set(String(preferredKey), plateValue);
     });
     return map;
-  }, [vehicles]);
+  }, [searchActive, vehicles]);
 
   const mirrorOwnerIds = useMemo(() => {
     if (!Array.isArray(mirrorOwners)) return new Set();
     return new Set(mirrorOwners.map((owner) => String(owner.id)));
   }, [mirrorOwners]);
   const isMirrorSelectable = isMirrorReceiver && Array.isArray(mirrorOwners) && mirrorOwners.length > 0;
-  const selectValue = mirrorContextMode === "target"
+  const selectValueRaw = mirrorContextMode === "target"
     ? (activeMirrorOwnerClientId ? String(activeMirrorOwnerClientId) : (isMirrorSelectable ? "all" : String(homeClientId ?? tenantId ?? "")))
     : String(tenantId ?? "");
+  const adminGeneralOption = useMemo(() => {
+    if (!hasAdminAccess) return null;
+    const candidate = homeClient && isAdminGeneralClientName(homeClient?.name) ? homeClient : null;
+    if (!candidate) return null;
+    return {
+      id: ADMIN_GENERAL_OPTION_ID,
+      label: normalizeAdminClientName(candidate.name) || "EURO ONE",
+    };
+  }, [hasAdminAccess, homeClient]);
+  const selectValue = useMemo(() => {
+    if (!hasAdminAccess) return selectValueRaw;
+    if (tenantId !== null && tenantId !== undefined && String(tenantId) !== "") {
+      return String(tenantId);
+    }
+    if (adminScope === ADMIN_SCOPE_EURO && adminGeneralOption) {
+      return ADMIN_GENERAL_OPTION_ID;
+    }
+    return ADMIN_ALL_OPTION_ID;
+  }, [adminGeneralOption, adminScope, hasAdminAccess, selectValueRaw, tenantId]);
   const ownedTenants = useMemo(() => {
     if (hasAdminAccess) return [];
     let base = tenants.filter((item) => !mirrorOwnerIds.has(String(item.id)));
@@ -253,7 +316,6 @@ export function Topbar({ title }) {
     if (hasAdminAccess) return [];
     return Array.isArray(mirrorOwners) ? mirrorOwners : [];
   }, [hasAdminAccess, mirrorOwners]);
-  const showMirrorOwnerLabel = isMirrorReceiver && Array.isArray(mirrorOwners) && mirrorOwners.length > 1;
   const mirrorAllLabel = t("topbar.mirrorAll");
   const handleTenantSelect = (nextValue) => {
     const nextId = nextValue || null;
@@ -263,6 +325,39 @@ export function Topbar({ title }) {
     }
     setSwitchLocked(true);
     switchTimerRef.current = setTimeout(() => {
+      if (hasAdminAccess) {
+        if (nextId === ADMIN_ALL_OPTION_ID) {
+          setAdminScope(ADMIN_SCOPE_ALL);
+          persistAdminScope(ADMIN_SCOPE_ALL);
+          setStoredMirrorOwnerId(null);
+          switchContext({
+            nextTenantId: null,
+            nextOwnerClientId: null,
+            nextMirrorMode: "self",
+          });
+          return;
+        }
+        if (nextId === ADMIN_GENERAL_OPTION_ID) {
+          setAdminScope(ADMIN_SCOPE_EURO);
+          persistAdminScope(ADMIN_SCOPE_EURO);
+          setStoredMirrorOwnerId(null);
+          switchContext({
+            nextTenantId: homeClientId ?? null,
+            nextOwnerClientId: null,
+            nextMirrorMode: "self",
+          });
+          return;
+        }
+        setAdminScope(ADMIN_SCOPE_ALL);
+        persistAdminScope(ADMIN_SCOPE_ALL);
+        setStoredMirrorOwnerId(null);
+        switchContext({
+          nextTenantId: nextId,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
       if (isMirrorSelectable) {
         if (nextId === "all") {
           setStoredMirrorOwnerId("all");
@@ -307,12 +402,27 @@ export function Topbar({ title }) {
     }
   }, [contextSwitching, switchLocked]);
 
+  useEffect(() => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 250);
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [query]);
+
   useEffect(() => () => {
     if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
   }, []);
 
   const fleetIndex = useMemo(() => {
-    const { rows } = buildFleetState(activeDevices, activePositions, { tenantId: activeTenantId });
+    if (!searchActive) return [];
+    const { rows } = buildFleetState(activeDevices, activePositionsRef.current, { tenantId: activeTenantId });
     return rows.map((row) => ({
       id: row.id,
       deviceId:
@@ -373,11 +483,11 @@ export function Topbar({ title }) {
       })(),
       status: row.status,
     }));
-  }, [activeDevices, activePositions, activeTenantId, deviceByKey, plateByDeviceKey, vehicleById]);
+  }, [activeDevices, activeTenantId, deviceByKey, plateByDeviceKey, searchActive, vehicleById]);
 
   const searchResults = useMemo(() => {
-    if (!query.trim()) return [];
-    const term = query.trim().toLowerCase();
+    if (!searchTerm) return [];
+    const term = searchTerm.toLowerCase();
     const scored = [];
     fleetIndex.forEach((item) => {
       if (!item.deviceId) return;
@@ -402,15 +512,19 @@ export function Topbar({ title }) {
         return String(a.__name || "").localeCompare(String(b.__name || ""));
       })
       .slice(0, 5);
-  }, [query, fleetIndex]);
+  }, [fleetIndex, searchTerm]);
 
   const allClientsLabel = t("topbar.allClients");
   const tenantOptions = useMemo(() => {
     if (hasAdminAccess) {
-      return [
-        { id: "", label: allClientsLabel },
-        ...tenants.map((item) => ({ id: String(item.id ?? ""), label: item.name })),
+      const options = [
+        { id: ADMIN_ALL_OPTION_ID, label: allClientsLabel },
       ];
+      if (adminGeneralOption) {
+        options.push(adminGeneralOption);
+      }
+      options.push(...tenants.map((item) => ({ id: String(item.id ?? ""), label: item.name })));
+      return options;
     }
     const options = [];
     if (ownedTenants.length > 0) {
@@ -437,14 +551,37 @@ export function Topbar({ title }) {
       );
     }
     return options;
-  }, [allClientsLabel, hasAdminAccess, isMirrorSelectable, mirrorAllLabel, mirroredTenants, ownedTenants, tenants]);
+  }, [
+    adminGeneralOption,
+    allClientsLabel,
+    hasAdminAccess,
+    isMirrorSelectable,
+    mirrorAllLabel,
+    mirroredTenants,
+    ownedTenants,
+    tenants,
+  ]);
 
   const selectedTenantLabel = useMemo(() => {
     const selected = tenantOptions.find((option) => String(option.id) === String(selectValue));
     if (selected) return selected.label;
-    if (!tenantId && hasAdminAccess) return allClientsLabel;
+    if (!tenantId && hasAdminAccess) {
+      if (adminScope === ADMIN_SCOPE_EURO && adminGeneralOption) {
+        return adminGeneralOption.label;
+      }
+      return allClientsLabel;
+    }
     return tenant?.name ?? allClientsLabel;
-  }, [hasAdminAccess, selectValue, t, tenant?.name, tenantId, tenantOptions]);
+  }, [
+    adminGeneralOption,
+    adminScope,
+    allClientsLabel,
+    hasAdminAccess,
+    selectValue,
+    tenant?.name,
+    tenantId,
+    tenantOptions,
+  ]);
   // Reusa o fluxo de foco do monitoramento via location.state, mesmo quando já estamos na rota.
   const handleDeviceFocus = (deviceId) => {
     if (!deviceId) return;
@@ -470,7 +607,7 @@ export function Topbar({ title }) {
       : { filter: "brightness(0)" };
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-surface backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-border bg-surface backdrop-blur">
       <div className="flex w-full items-center gap-4 px-4 py-3 md:px-6 lg:px-8">
         <div className="flex flex-1 items-center gap-3">
           <button type="button" className="btn md:hidden" onClick={toggleSidebar} aria-label={t("topbar.openMenu")}>
@@ -509,7 +646,7 @@ export function Topbar({ title }) {
           </label>
 
           {focused && query.trim() ? (
-            <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
+            <div className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               {searchResults.length ? (
                 <ul>
                   {searchResults.map((item) => {
@@ -543,7 +680,7 @@ export function Topbar({ title }) {
               )}
             </div>
           ) : focused ? (
-            <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
+            <div className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               <div className="px-4 py-3 text-sm text-sub">
                 Digite para buscar veículos…
               </div>
@@ -552,12 +689,7 @@ export function Topbar({ title }) {
         </form>
 
         <div className="flex items-center gap-2">
-          <div className="hidden flex-col items-start gap-1 md:flex">
-            {showMirrorOwnerLabel && (
-              <span className="text-[10px] uppercase tracking-[0.12em] text-sub">
-                {t("topbar.ownerLabel")}
-              </span>
-            )}
+          <div className="hidden items-center md:flex">
             <TenantCombobox
               className="min-w-[220px]"
               value={selectValue}

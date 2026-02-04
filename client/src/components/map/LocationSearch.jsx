@@ -164,12 +164,6 @@ export default function LocationSearch({
         />
 
         <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-2 text-white/40">
-          {isSearching ? (
-            <div
-              className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent"
-              aria-label="loading"
-            />
-          ) : null}
           {showClearButton ? (
             <button
               type="button"

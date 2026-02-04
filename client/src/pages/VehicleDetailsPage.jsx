@@ -33,6 +33,7 @@ function AdminBindingsTab({
   vehicleAttributes,
   clients,
   tenantId,
+  tenantScope,
   user,
   onSaveVehicle,
   saving,
@@ -92,7 +93,8 @@ function AdminBindingsTab({
       status: vehicle.status || "ativo",
       notes: vehicle.notes || "",
       deviceId: vehicle.device?.id || "",
-      clientId: vehicle.clientId || tenantId || user?.clientId || "",
+      clientId:
+        vehicle.clientId || (tenantScope === "ALL" ? "" : tenantId || user?.clientId || ""),
       item: vehicle.item || "",
       identifier: vehicle.identifier || "",
       model: vehicle.model || vehicle.name || "",
@@ -109,7 +111,7 @@ function AdminBindingsTab({
         ? vehicle.attributes.vehicleAttributes
         : [],
     });
-  }, [tenantId, user?.clientId, vehicle]);
+  }, [tenantId, tenantScope, user?.clientId, vehicle]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -219,7 +221,7 @@ function AdminBindingsTab({
 export default function VehicleDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { tenantId, user, tenants, setTenantId } = useTenant();
+  const { tenantId, tenantScope, user, tenants, setTenantId } = useTenant();
   const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
   const { confirmDelete } = useConfirmDialog();
   const { isAdminGeneral } = useAdminGeneralAccess();
@@ -244,7 +246,7 @@ export default function VehicleDetailsPage() {
   const geocodeCacheRef = useRef(new Map());
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const isMirrorContextActive = Boolean(user?.activeMirrorOwnerClientId);
 
   const trackedDeviceIds = useMemo(() => {
@@ -1055,6 +1057,7 @@ export default function VehicleDetailsPage() {
                 vehicleAttributes={vehicleAttributes}
                 clients={clients}
                 tenantId={tenantId}
+                tenantScope={tenantScope}
                 user={user}
                 onSaveVehicle={handleSaveVehicle}
                 saving={saving}

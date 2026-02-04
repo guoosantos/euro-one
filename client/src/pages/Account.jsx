@@ -1,6 +1,7 @@
 import React from "react";
 
 import { useTenant } from "../lib/tenant-context";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function Account() {
   const { tenant, tenants, setTenantId, user, role, canSwitchTenant } = useTenant();
@@ -8,6 +9,7 @@ export default function Account() {
 
   return (
     <div className="space-y-4">
+      <PageHeader />
       <section className="card space-y-2">
         <div className="text-sm font-medium text-white">Sessão atual</div>
         <div className="text-xs text-white/60">{user?.email}</div>

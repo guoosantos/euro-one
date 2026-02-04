@@ -6,6 +6,7 @@ import DataCard from "../../components/ui/DataCard.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import api from "../../lib/api.js";
 import { usePermissionGate } from "../../lib/permissions/permission-gate.js";
+import { useTenant } from "../../lib/tenant-context.jsx";
 
 const STATUS_OPTIONS = [
   "SOLICITADA",
@@ -67,8 +68,10 @@ function mapPayload(formState) {
 
 export default function ServiceOrderDetails() {
   const { id } = useParams();
+  const { tenantId, tenantScope, user } = useTenant();
   const permission = usePermissionGate({ menuKey: "fleet", pageKey: "services", subKey: "service-orders" });
   const canEdit = permission.isFull;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [item, setItem] = useState(null);
@@ -78,7 +81,9 @@ export default function ServiceOrderDetails() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get(`core/service-orders/${id}`);
+      const response = await api.get(`core/service-orders/${id}`, {
+        params: resolvedClientId ? { clientId: resolvedClientId } : undefined,
+      });
       setItem(response?.data?.item || null);
     } catch (error) {
       console.error("Falha ao carregar OS", error);
@@ -86,7 +91,7 @@ export default function ServiceOrderDetails() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, resolvedClientId]);
 
   useEffect(() => {
     load();
@@ -124,7 +129,10 @@ export default function ServiceOrderDetails() {
     setSaving(true);
     try {
       const nextForm = { ...form, ...overrides };
-      const payload = mapPayload(nextForm);
+      const payload = {
+        ...mapPayload(nextForm),
+        ...(resolvedClientId ? { clientId: resolvedClientId } : {}),
+      };
       const response = await api.patch(`core/service-orders/${id}`, payload);
       if (!response?.data?.ok) {
         throw new Error(response?.data?.error || "Falha ao atualizar OS");
@@ -144,7 +152,10 @@ export default function ServiceOrderDetails() {
 
   const handleDownloadPdf = async () => {
     try {
-      const response = await api.get(`core/service-orders/${id}/pdf`, { responseType: "blob" });
+      const response = await api.get(`core/service-orders/${id}/pdf`, {
+        responseType: "blob",
+        params: resolvedClientId ? { clientId: resolvedClientId } : undefined,
+      });
       if (!response?.data) {
         throw new Error("Falha ao gerar PDF");
       }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Circle, MapContainer, Polygon, Polyline, TileLayer, useMap } from "react-leaflet";
 import { latLngBounds } from "leaflet";
 import {
@@ -21,7 +22,9 @@ import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../lib/mapLayers.js";
 import { canInteractWithMap } from "../lib/map/mapSafety.js";
+import { resolveMirrorHeaders } from "../lib/mirror-params.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
@@ -141,6 +144,17 @@ function resolveApiError(error, fallback) {
   const baseMessage = serverMessage || error?.message || fallback;
   if (!status) return baseMessage;
   return `${baseMessage} (HTTP ${status})`;
+}
+
+function isForbiddenError(error) {
+  return Number(error?.response?.status ?? error?.status) === 403;
+}
+
+function logItineraryError(label, error) {
+  if (isForbiddenError(error)) return;
+  if (import.meta.env?.DEV) {
+    console.error(label, error);
+  }
 }
 
 function resolveEmbarkErrorMessage(error) {
@@ -585,9 +599,9 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
             </div>
             <div className="h-[360px] overflow-hidden rounded-xl border border-white/10">
               {items.length ? (
-                <div className="relative h-full w-full">
+                <div className="relative h-full w-full pointer-events-auto">
                   {!mapReady && !fallbackReason && tileConfig.isReady && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70 pointer-events-none">
                       Carregando mapa…
                     </div>
                   )}
@@ -603,7 +617,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
                         touchZoom
                         doubleClickZoom
                         keyboard
-                        className="h-full w-full"
+                        className="h-full w-full pointer-events-auto"
                         whenReady={() => setMapReady(true)}
                       >
                         {tileConfig.isReady && (
@@ -676,6 +690,7 @@ function ItineraryModal({
   saving,
   onSave,
   onDelete,
+  canManage = true,
   form,
   onChange,
   postSavePrompt,
@@ -715,6 +730,7 @@ function ItineraryModal({
 
   const canEmbark = embarkState.selectedVehicleIds.length > 0 && embarkState.selectedItineraryIds.length > 0;
   const canDisembark = disembarkState.selectedVehicleIds.length > 0 && disembarkState.selectedItineraryIds.length > 0;
+  const manageTooltip = canManage ? "" : "Sem permissão";
   const embarkValidationMessage = resolveSelectionValidation({
     hasVehicles: embarkState.selectedVehicleIds.length > 0,
     hasItineraries: embarkState.selectedItineraryIds.length > 0,
@@ -755,7 +771,14 @@ function ItineraryModal({
           </div>
           <div className="flex items-center gap-2">
             {onDelete && (
-              <Button size="sm" variant="ghost" onClick={onDelete} icon={Trash2}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                icon={Trash2}
+                disabled={!canManage}
+                title={manageTooltip || "Excluir"}
+              >
                 Excluir
               </Button>
             )}
@@ -1120,7 +1143,7 @@ function ItineraryModal({
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
           {activeTab === "embarcar" || activeTab === "desembarcar" ? (
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={onSave} disabled={saving} icon={Save}>
+              <Button size="sm" variant="secondary" onClick={onSave} disabled={saving || !canManage} icon={Save} title={manageTooltip || "Salvar"}>
                 {saving ? "Salvando..." : "Salvar"}
               </Button>
               {activeTab === "embarcar" ? (
@@ -1134,7 +1157,7 @@ function ItineraryModal({
               )}
             </div>
           ) : (
-            <Button onClick={onSave} disabled={saving} icon={Save}>
+            <Button onClick={onSave} disabled={saving || !canManage} icon={Save} title={manageTooltip || "Salvar"}>
               {saving ? "Salvando..." : "Salvar"}
             </Button>
           )}
@@ -1880,8 +1903,24 @@ function DisembarkModal({
 }
 
 export default function Itineraries() {
+  const navigate = useNavigate();
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
-  const { tenants, tenantId } = useTenant();
+  const { tenants, tenantId, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const itineraryPermission = usePermissionGate({ menuKey: "fleet", pageKey: "itineraries" });
+  const canManageItineraries = itineraryPermission.isFull;
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const effectiveClientId = useMemo(() => {
+    if (tenantId) return tenantId;
+    if (mirrorContextMode === "target") {
+      return mirrorOwnerClientId || null;
+    }
+    return null;
+  }, [mirrorContextMode, mirrorOwnerClientId, tenantId]);
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
+  const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
   const { vehicles } = useVehicles();
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { confirmDelete } = useConfirmDialog();
@@ -1892,6 +1931,7 @@ export default function Itineraries() {
   const [form, setForm] = useState({ name: "", description: "", items: [] });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [accessError, setAccessError] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [editorTab, setEditorTab] = useState("detalhes");
   const [activeTab, setActiveTab] = useState("embarcado");
@@ -1986,16 +2026,29 @@ export default function Itineraries() {
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const handleAccessDenied = useCallback((error, message = "Sem acesso a este módulo.") => {
+    if (!isForbiddenError(error)) return false;
+    setAccessError({ message });
+    return true;
+  }, []);
+
   const loadRoutes = useCallback(async () => {
+    if (shouldWaitForMirror) {
+      return;
+    }
     try {
-      const response = await api.get(API_ROUTES.routes);
+      const response = await api.get(API_ROUTES.routes, { headers: mirrorHeaders });
       const list = response?.data?.routes || response?.data?.data || [];
       setRoutes(list);
     } catch (error) {
-      console.error("[itineraries] Falha ao carregar rotas salvas", error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para consultar rotas neste cliente.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao carregar rotas salvas", error);
       showToast(resolveApiError(error, "Não foi possível carregar as rotas salvas."), "warning");
     }
-  }, [showToast]);
+  }, [mirrorHeaders, shouldWaitForMirror, showToast]);
 
   const loadItineraries = useCallback(async () => {
     setLoading(true);
@@ -2003,13 +2056,17 @@ export default function Itineraries() {
       const response = await api.get(API_ROUTES.itineraries);
       const list = response?.data?.data || [];
       setItineraries(list);
+      setAccessError(null);
     } catch (error) {
-      console.error("[itineraries] Falha ao carregar itinerários", error);
+      if (handleAccessDenied(error, "Sem acesso a itinerários neste cliente.")) {
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao carregar itinerários", error);
       showToast(resolveApiError(error, "Não foi possível carregar os itinerários."), "warning");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [handleAccessDenied, showToast]);
 
   const loadHistory = useCallback(async () => {
     if (historyRequestRef.current) return;
@@ -2017,7 +2074,7 @@ export default function Itineraries() {
     setHistoryLoading(true);
     try {
       const response = await api.get(API_ROUTES.itineraryEmbarkHistory, {
-        params: tenantId ? { clientId: tenantId } : undefined,
+        params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
       });
       if (response?.status === 304) {
         return;
@@ -2025,36 +2082,44 @@ export default function Itineraries() {
       const list = response?.data?.data || response?.data?.history || [];
       setHistoryEntries(Array.isArray(list) ? list : []);
     } catch (error) {
-      console.error("[itineraries] Falha ao carregar histórico de embarques", error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso ao histórico de embarques neste cliente.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao carregar histórico de embarques", error);
       showToast(resolveApiError(error, "Não foi possível carregar o histórico de embarques."), "warning");
     } finally {
       historyRequestRef.current = false;
       setHistoryLoading(false);
     }
-  }, [showToast, tenantId]);
+  }, [effectiveClientId, showToast]);
 
   const loadEmbarkDetails = useCallback(async () => {
     setEmbarkDetailsLoading(true);
     try {
       const response = await api.get(API_ROUTES.itineraryEmbarkVehicles, {
-        params: tenantId ? { clientId: tenantId } : undefined,
+        params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
       });
       const list = response?.data?.data || response?.data?.vehicles || [];
       setEmbarkDetails(Array.isArray(list) ? list : []);
     } catch (error) {
-      console.error("[itineraries] Falha ao carregar detalhes de embarque por veículo", error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso aos detalhes de embarque neste cliente.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao carregar detalhes de embarque por veículo", error);
       showToast(resolveApiError(error, "Não foi possível carregar os detalhes dos veículos."), "warning");
     } finally {
       setEmbarkDetailsLoading(false);
     }
-  }, [showToast, tenantId]);
+  }, [effectiveClientId, showToast]);
 
   const refreshVehicleStatus = useCallback(
     async (vehicleId) => {
       if (!vehicleId) return;
       try {
         const response = await api.get(API_ROUTES.itineraryEmbarkVehicleStatus(vehicleId), {
-          params: tenantId ? { clientId: tenantId } : undefined,
+          params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
         });
         const detail = response?.data?.data || null;
         if (!detail) return;
@@ -2062,11 +2127,15 @@ export default function Itineraries() {
           current.map((item) => (String(item.vehicleId) === String(detail.vehicleId) ? detail : item)),
         );
       } catch (error) {
-        console.error("[itineraries] Falha ao atualizar status do veículo", error);
+        if (isForbiddenError(error)) {
+          showToast("Sem acesso para atualizar o status neste cliente.", "warning");
+          return;
+        }
+        logItineraryError("[itineraries] Falha ao atualizar status do veículo", error);
         showToast(resolveApiError(error, "Não foi possível atualizar o status do veículo."), "warning");
       }
     },
-    [showToast, tenantId],
+    [effectiveClientId, showToast],
   );
 
   const loadVehicleHistory = useCallback(
@@ -2078,18 +2147,22 @@ export default function Itineraries() {
       setVehicleHistoryLoading(true);
       try {
         const response = await api.get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId), {
-          params: tenantId ? { clientId: tenantId } : undefined,
+          params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
         });
         const list = response?.data?.data || response?.data?.history || [];
         setVehicleHistory(Array.isArray(list) ? list : []);
       } catch (error) {
-        console.error("[itineraries] Falha ao carregar histórico do veículo", error);
+        if (isForbiddenError(error)) {
+          showToast("Sem acesso ao histórico do veículo neste cliente.", "warning");
+          return;
+        }
+        logItineraryError("[itineraries] Falha ao carregar histórico do veículo", error);
         showToast(resolveApiError(error, "Não foi possível carregar o histórico do veículo."), "warning");
       } finally {
         setVehicleHistoryLoading(false);
       }
     },
-    [showToast, tenantId],
+    [effectiveClientId, showToast],
   );
 
   useEffect(() => {
@@ -2212,6 +2285,14 @@ export default function Itineraries() {
   }, []);
 
   const openEditor = (itinerary = null) => {
+    if (!canManageItineraries) {
+      showToast("Sem permissão para criar ou editar itinerários.", "warning");
+      return;
+    }
+    if (!itinerary && !effectiveClientId) {
+      showToast("Selecione um cliente antes de criar um itinerário.", "warning");
+      return;
+    }
     if (itinerary) {
       setSelectedId(itinerary.id);
       setForm({
@@ -2282,17 +2363,33 @@ export default function Itineraries() {
       showToast("Informe um nome para o itinerário.", "warning");
       return null;
     }
+    if (!canManageItineraries) {
+      showToast("Sem permissão para criar ou editar itinerários.", "warning");
+      return null;
+    }
+    const resolvedClientId = effectiveClientId ?? selected?.clientId ?? null;
+    if (!resolvedClientId && !selectedId) {
+      showToast("Selecione um cliente antes de criar um itinerário.", "warning");
+      return null;
+    }
     const isNew = !selectedId;
     setSaving(true);
     try {
-      const payload = { ...form, items: form.items || [] };
+      const payload = { ...form, items: form.items || [], clientId: resolvedClientId ?? undefined };
       const response = selectedId
         ? await api.put(`${API_ROUTES.itineraries}/${selectedId}`, payload)
         : await api.post(API_ROUTES.itineraries, payload);
-      const saved = response?.data?.data || payload;
+      const responsePayload = response?.data || {};
+      const saved = responsePayload?.data || payload;
       await loadItineraries();
       setSelectedId(saved.id || selectedId);
       showToast("Itinerário salvo com sucesso.");
+      if (responsePayload?.xdm?.ok === false) {
+        showToast(
+          "Itinerário salvo localmente, mas não foi possível sincronizar com a Central.",
+          "warning",
+        );
+      }
       if (isNew) {
         setEditorTab("detalhes");
         setPostSavePrompt({
@@ -2304,7 +2401,11 @@ export default function Itineraries() {
       }
       return saved;
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para criar itinerário neste cliente.", "warning");
+        return null;
+      }
+      logItineraryError("[itineraries] Falha ao salvar itinerário", error);
       showToast(resolveApiError(error, "Não foi possível salvar o itinerário."), "warning");
       return null;
     } finally {
@@ -2318,6 +2419,10 @@ export default function Itineraries() {
 
   const handleDelete = async (id) => {
     if (!id) return;
+    if (!canManageItineraries) {
+      showToast("Sem permissão para excluir itinerários.", "warning");
+      return;
+    }
     const existing = itineraries.find((item) => item.id === id);
     await confirmDelete({
       title: "Excluir itinerário",
@@ -2330,7 +2435,11 @@ export default function Itineraries() {
           if (selectedId === id) resetForm();
           showToast("Excluído com sucesso.");
         } catch (error) {
-          console.error(error);
+          if (isForbiddenError(error)) {
+            showToast("Sem acesso para excluir este itinerário.", "warning");
+            return;
+          }
+          logItineraryError("[itineraries] Falha ao excluir itinerário", error);
           if (error?.response?.status === 409) {
             setDeleteConflict({ id, name: existing?.name || "Itinerário" });
           }
@@ -2358,7 +2467,11 @@ export default function Itineraries() {
         return next;
       });
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para exportar este itinerário.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao exportar KML", error);
       showToast(resolveApiError(error, "Não foi possível exportar o KML."), "warning");
     }
   };
@@ -2571,6 +2684,10 @@ export default function Itineraries() {
   };
 
   const handleOpenEmbarkModal = () => {
+    if (!canManageItineraries) {
+      showToast("Sem permissão para embarcar itinerários.", "warning");
+      return;
+    }
     if (!hasBatchSelection) {
       showToast("Selecione ao menos 1 itinerário.", "warning");
       return;
@@ -2579,6 +2696,10 @@ export default function Itineraries() {
   };
 
   const handleOpenDisembarkModal = () => {
+    if (!canManageItineraries) {
+      showToast("Sem permissão para desembarcar itinerários.", "warning");
+      return;
+    }
     if (!hasBatchSelection) {
       showToast("Selecione ao menos 1 itinerário.", "warning");
       return;
@@ -2633,6 +2754,10 @@ export default function Itineraries() {
   );
 
   const handleEmbarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
+    if (!canManageItineraries) {
+      showToast("Sem permissão para embarcar itinerários.", "warning");
+      return;
+    }
     const vehicleIds = normalizeIdList(selectedEmbarkVehicleIds);
     const itineraryIds = normalizeIdList(overrideItineraryIds || selectedBatchItineraryIds);
     const validationMessage = resolveSelectionValidation({
@@ -2645,7 +2770,7 @@ export default function Itineraries() {
     }
     const inferredClientId =
       overrideClientId ||
-      tenantId ||
+      effectiveClientId ||
       itineraries.find((item) => String(item.id) === String(itineraryIds[0]))?.clientId ||
       null;
     if (!inferredClientId) {
@@ -2678,7 +2803,12 @@ export default function Itineraries() {
         await loadEmbarkDetails();
       }
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para embarcar itinerários neste cliente.", "warning");
+        setEmbarkSummary("Sem acesso para embarcar itinerários neste cliente.");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao embarcar", error);
       const friendlyMessage = resolveEmbarkErrorMessage(error);
       showToast(friendlyMessage, "warning");
       setEmbarkSummary(friendlyMessage);
@@ -2689,6 +2819,10 @@ export default function Itineraries() {
   };
 
   const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
+    if (!canManageItineraries) {
+      showToast("Sem permissão para desembarcar itinerários.", "warning");
+      return;
+    }
     if (disembarkInFlightRef.current) return;
     const vehicleIds = normalizeIdList(selectedDisembarkVehicleIds);
     const itineraryIds = normalizeIdList(overrideItineraryIds || selectedDisembarkItineraryIds);
@@ -2702,7 +2836,7 @@ export default function Itineraries() {
     }
     const inferredClientId =
       overrideClientId ||
-      tenantId ||
+      effectiveClientId ||
       itineraries.find((item) => String(item.id) === String(itineraryIds[0]))?.clientId ||
       null;
     if (!inferredClientId) {
@@ -2744,7 +2878,12 @@ export default function Itineraries() {
         await loadEmbarkDetails();
       }
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para desembarcar itinerários neste cliente.", "warning");
+        setDisembarkSummary("Sem acesso para desembarcar itinerários neste cliente.");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao desembarcar", error);
       const friendlyMessage = resolveEmbarkErrorMessage(error);
       showToast(friendlyMessage, "warning");
       setDisembarkSummary(friendlyMessage);
@@ -2773,7 +2912,7 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
-    const inferredClientId = selected?.clientId ?? tenantId ?? null;
+    const inferredClientId = selected?.clientId ?? effectiveClientId ?? null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para embarcar.", "warning");
       return;
@@ -2798,7 +2937,11 @@ export default function Itineraries() {
       }
       await loadHistory();
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para embarcar itinerários neste cliente.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao embarcar (editor)", error);
       showToast(resolveEmbarkErrorMessage(error), "warning");
     } finally {
       setEmbarkSending(false);
@@ -2824,7 +2967,7 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
-    const inferredClientId = selected?.clientId ?? tenantId ?? null;
+    const inferredClientId = selected?.clientId ?? effectiveClientId ?? null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para desembarcar.", "warning");
       return;
@@ -2859,7 +3002,11 @@ export default function Itineraries() {
       }
       await loadHistory();
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para desembarcar itinerários neste cliente.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao desembarcar (editor)", error);
       showToast(resolveEmbarkErrorMessage(error), "warning");
       setEditorDisembarkErrorDetails(resolveTechnicalDetails(error));
     } finally {
@@ -2870,12 +3017,16 @@ export default function Itineraries() {
 
   const handleDisembarkAndDelete = async (itineraryId) => {
     if (!itineraryId) return;
+    if (!canManageItineraries) {
+      showToast("Sem permissão para remover itinerários.", "warning");
+      return;
+    }
     setDeleteConflictSending(true);
     try {
       await api.post(API_ROUTES.itineraryDisembarkBatch, {
         vehicleIds: [],
         itineraryIds: [String(itineraryId)],
-        clientId: tenantId ?? undefined,
+        clientId: effectiveClientId ?? undefined,
         options: {
           cleanup: {
             deleteGeozoneGroup: false,
@@ -2892,7 +3043,11 @@ export default function Itineraries() {
         await loadEmbarkDetails();
       }
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para remover itinerário neste cliente.", "warning");
+        return;
+      }
+      logItineraryError("[itineraries] Falha ao desembarcar e excluir", error);
       showToast(resolveApiError(error, "Não foi possível desembarcar e excluir."), "warning");
     } finally {
       setDeleteConflictSending(false);
@@ -2901,6 +3056,29 @@ export default function Itineraries() {
 
   const tableColCount = 9;
   const historyColCount = 11;
+  const manageDisabledTooltip = canManageItineraries ? "" : "Sem permissão";
+  const manageDisabledClass = canManageItineraries ? "" : "opacity-50 cursor-not-allowed";
+
+  if (accessError) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
+          <h2 className="text-lg font-semibold">Sem acesso a este módulo</h2>
+          <p className="mt-2 text-sm text-white/60">
+            {accessError.message || "Você não tem permissão para visualizar itinerários."}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => navigate(-1)}>
+              Voltar
+            </Button>
+            <Button size="sm" onClick={() => navigate("/home")}>
+              Trocar cliente
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -2981,31 +3159,50 @@ export default function Itineraries() {
           <div className="sticky top-0 z-30 bg-[#0b0f17] pb-4">
             <div className="space-y-4">
               <PageHeader
-                title={(
-                  <span className="text-xs font-normal uppercase tracking-[0.12em] text-white/50">
-                    Embarcar Itinerários
-                  </span>
-                )}
-                right={(
+                rightControls={
                   <>
                     <span className="map-status-pill">
                       <span className="dot" />
                       {itineraries.length} itinerários
                     </span>
-                    {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="secondary" onClick={handleOpenEmbarkModal}>
-                        Embarcar
-                      </Button>
-                      <Button size="sm" variant="secondary" onClick={handleOpenDisembarkModal}>
-                        Desembarcar
-                      </Button>
-                      <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
-                        Criar novo
-                      </Button>
-                    </div>
+                    {loading && (
+                      <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
+                        Carregando...
+                      </span>
+                    )}
                   </>
-                )}
+                }
+                actions={
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleOpenEmbarkModal}
+                      disabled={!canManageItineraries}
+                      title={manageDisabledTooltip || "Embarcar"}
+                    >
+                      Embarcar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleOpenDisembarkModal}
+                      disabled={!canManageItineraries}
+                      title={manageDisabledTooltip || "Desembarcar"}
+                    >
+                      Desembarcar
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => openEditor(null)}
+                      icon={Plus}
+                      disabled={!canManageItineraries}
+                      title={manageDisabledTooltip || "Criar novo"}
+                    >
+                      Criar novo
+                    </Button>
+                  </>
+                }
               />
               <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
                 {[
@@ -3108,7 +3305,12 @@ export default function Itineraries() {
                           >
                             Limpar busca
                           </Button>
-                          <Button className="inline-flex items-center gap-2" onClick={() => openEditor(null)}>
+                          <Button
+                            className="inline-flex items-center gap-2"
+                            onClick={() => openEditor(null)}
+                            disabled={!canManageItineraries}
+                            title={manageDisabledTooltip || "Criar novo"}
+                          >
                             <Plus className="h-4 w-4" />
                             Criar novo
                           </Button>
@@ -3168,18 +3370,20 @@ export default function Itineraries() {
                             <button
                               type="button"
                               onClick={() => openEditor(item)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                              disabled={!canManageItineraries}
+                              className={`inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${manageDisabledClass}`.trim()}
                               aria-label="Editar"
-                              title="Editar"
+                              title={canManageItineraries ? "Editar" : "Sem permissão"}
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDelete(item.id)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                              disabled={!canManageItineraries}
+                              className={`inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${manageDisabledClass}`.trim()}
                               aria-label="Excluir"
-                              title="Excluir"
+                              title={canManageItineraries ? "Excluir" : "Sem permissão"}
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -3677,6 +3881,7 @@ export default function Itineraries() {
         saving={saving}
         onSave={handleSave}
         onDelete={selected ? () => handleDelete(selected.id) : null}
+        canManage={canManageItineraries}
         form={form}
         onChange={handleFormChange}
         postSavePrompt={postSavePrompt}

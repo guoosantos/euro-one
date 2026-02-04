@@ -3,3 +3,24 @@
 .linput,.lselect,.ltextarea{width:100%;background:rgba(19,23,33,.6);border:1px solid #2a3140;border-radius:12px;padding:10px 12px;color:#eaeef0}
 .ltextarea{min-height:96px}
 .linput:focus,.lselect:focus,.ltextarea:focus{outline:none;box-shadow:0 0 0 2px rgba(57,189,248,.25);border-color:#39bdf8}
+
+:root[data-theme='light'] .lwrap .legend{
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+:root[data-theme='light'] .linput,
+:root[data-theme='light'] .lselect,
+:root[data-theme='light'] .ltextarea{
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+:root[data-theme='light'] .linput:focus,
+:root[data-theme='light'] .lselect:focus,
+:root[data-theme='light'] .ltextarea:focus{
+  box-shadow: 0 0 0 2px rgba(37,160,255,.2);
+  border-color: var(--primary);
+}

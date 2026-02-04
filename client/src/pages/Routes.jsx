@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CircleMarker, Marker, Polyline, TileLayer, useMapEvents } from "react-leaflet";
+import { useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { CircleMarker, Marker, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, PanelTop, Play, Route, Save, SlidersHorizontal, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
@@ -16,6 +18,11 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
+import { resolveMapPreferences } from "../lib/map-config.js";
+import { resolveMirrorHeaders } from "../lib/mirror-params.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import MapToolbar from "../components/map/MapToolbar.jsx";
 import { useUI } from "../lib/store.js";
 import AppMap from "../components/map/AppMap.jsx";
@@ -42,6 +49,10 @@ const GRAPH_HOPPER_URL = alignUrlProtocol(
 );
 const GRAPH_HOPPER_KEY = import.meta?.env?.VITE_GRAPHHOPPER_KEY || import.meta?.env?.VITE_GRAPH_HOPPER_KEY || "";
 const OSRM_BASE_URL = alignUrlProtocol(import.meta?.env?.VITE_OSRM_URL || "https://router.project-osrm.org");
+
+function isForbiddenError(error) {
+  return Number(error?.response?.status ?? error?.status) === 403;
+}
 
 const emptyRoute = () => ({
   id: null,
@@ -263,6 +274,8 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
   const { suggestions, isSearching, clearSuggestions, searchRegion, error } = useGeocodeSearch();
   const [isFocused, setIsFocused] = useState(false);
   const debounceRef = useRef(null);
+  const containerRef = useRef(null);
+  const [portalStyle, setPortalStyle] = useState(null);
 
   useEffect(() => {
     setQuery(value?.label || "");
@@ -284,6 +297,35 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, clearSuggestions, searchRegion]);
+
+  const showSuggestions = isFocused && (suggestions.length > 0 || isSearching);
+
+  useEffect(() => {
+    if (!showSuggestions) {
+      setPortalStyle(null);
+      return;
+    }
+    const updatePosition = () => {
+      const element = containerRef.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      setPortalStyle({
+        position: "fixed",
+        top: rect.bottom + 6,
+        left: rect.left,
+        width: rect.width,
+        zIndex: 1400,
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    document.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [showSuggestions]);
 
   const parseManual = useCallback(() => {
     if (!query) return null;
@@ -319,8 +361,31 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
     }
   };
 
+  const suggestionList = showSuggestions ? (
+    <div
+      className="rounded-xl border border-white/10 bg-neutral-900/95 p-2 shadow-lg"
+      style={portalStyle ?? undefined}
+    >
+      {isSearching && <p className="px-2 py-1 text-xs text-white/60">Buscando endereços...</p>}
+      <div className="max-h-64 overflow-auto">
+        {suggestions.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="block w-full rounded-lg px-2 py-1 text-left text-sm text-white hover:bg-white/5"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => handleSelect(item)}
+          >
+            <span className="block text-white">{item.concise || item.label}</span>
+            <span className="block text-[11px] text-white/60">{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <label className="text-xs font-semibold text-white/70">{label}</label>
       <div className="relative">
         <input
@@ -352,23 +417,7 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
         ) : null}
       </div>
       {error && <p className="mt-1 text-xs text-red-400">{error.message}</p>}
-      {isFocused && (suggestions.length > 0 || isSearching) && (
-        <div className="absolute z-10 mt-1 w-full rounded-xl border border-white/10 bg-neutral-900/95 p-2 shadow-lg">
-          {isSearching && <p className="px-2 py-1 text-xs text-white/60">Buscando endereços...</p>}
-          {suggestions.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="block w-full rounded-lg px-2 py-1 text-left text-sm text-white hover:bg-white/5"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => handleSelect(item)}
-            >
-              <span className="block text-white">{item.concise || item.label}</span>
-              <span className="block text-[11px] text-white/60">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {portalStyle && suggestionList ? createPortal(suggestionList, document.body) : suggestionList}
     </div>
   );
 }
@@ -388,7 +437,7 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
 
 function SidebarCard({ children, className = "" }) {
   return (
-    <div className={`rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl ${className}`.trim()}>
+    <div className={`pointer-events-auto rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl ${className}`.trim()}>
       {children}
     </div>
   );
@@ -495,9 +544,18 @@ function RoutePanel({
 }
 
 export default function RoutesPage() {
+  const navigate = useNavigate();
   const mapRef = useRef(null);
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef });
   const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Routes" });
+  const { tenant, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
+  const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
+  const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
   const userActionRef = useRef(false);
   const [mapInstance, setMapInstance] = useState(null);
   const routesTopbarVisible = useUI((state) => state.routesTopbarVisible !== false);
@@ -513,6 +571,7 @@ export default function RoutesPage() {
   );
   const fileInputRef = useRef(null);
   const [routes, setRoutes] = useState([]);
+  const [accessError, setAccessError] = useState(null);
   const [draftRoute, setDraftRoute] = useState(withWaypoints(emptyRoute()));
   const [baselineRoute, setBaselineRoute] = useState(withWaypoints(emptyRoute()));
   const [activeRouteId, setActiveRouteId] = useState(null);
@@ -534,7 +593,8 @@ export default function RoutesPage() {
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [autocompleteResetKey, setAutocompleteResetKey] = useState(0);
-  const addressSearch = useAddressSearchState();
+  const addressSearch = useAddressSearchState({ mapPreferences });
+  const [searchMarker, setSearchMarker] = useState(null);
   const mapInvalidateKey = useMemo(
     () => `${showRoutesPanel}-${showEditorPanel}-${showToolsPanel}-${activePanel}-${editorMode}-${routesTopbarVisible}`,
     [activePanel, editorMode, routesTopbarVisible, showEditorPanel, showRoutesPanel, showToolsPanel],
@@ -593,12 +653,17 @@ export default function RoutesPage() {
   }, [addressSearch?.resetSuggestions]);
 
   const loadRoutes = useCallback(async ({ updateDraft = true } = {}) => {
+    if (shouldWaitForMirror) {
+      setLoadingRoutes(false);
+      return;
+    }
     setLoadingRoutes(true);
     try {
-      const response = await api.get(API_ROUTES.routes);
+      const response = await api.get(API_ROUTES.routes, { headers: mirrorHeaders });
       const list = response?.data?.data || response?.data?.routes || response?.data || [];
       const normalised = (Array.isArray(list) ? list : []).map(withWaypoints);
       setRoutes(normalised);
+      setAccessError(null);
       if (updateDraft && normalised[0] && !activeRouteId) {
         setDraftRoute(normalised[0]);
         setBaselineRoute(normalised[0]);
@@ -607,11 +672,17 @@ export default function RoutesPage() {
         setEditingRouteId(null);
       }
     } catch (error) {
-      console.error("[routes] Falha ao carregar rotas", error);
+      if (isForbiddenError(error)) {
+        setAccessError({ message: "Sem acesso às rotas neste cliente." });
+        return;
+      }
+      if (import.meta.env?.DEV) {
+        console.error("[routes] Falha ao carregar rotas", error);
+      }
     } finally {
       setLoadingRoutes(false);
     }
-  }, [activeRouteId]);
+  }, [activeRouteId, mirrorHeaders, shouldWaitForMirror]);
 
   useEffect(() => {
     void loadRoutes();
@@ -711,7 +782,13 @@ export default function RoutesPage() {
         await createRoute(draftRoute);
       }
     } catch (error) {
-      console.error(error);
+      if (isForbiddenError(error)) {
+        showToast("Sem acesso para salvar rotas neste cliente.", "warning");
+        return;
+      }
+      if (import.meta.env?.DEV) {
+        console.error(error);
+      }
       showToast(error?.response?.data?.message || error?.message || "Não foi possível salvar a rota.", "warning");
     }
   };
@@ -988,13 +1065,17 @@ export default function RoutesPage() {
   const handleSelectAddress = useCallback(
     (payload) => {
       if (!payload) return;
-      focusDevice(
-        { lat: Number(payload.lat), lng: Number(payload.lng) },
-        { zoom: 16, animate: true, reason: "ROUTE_ADDRESS" },
-      );
+      const lat = Number(payload.lat);
+      const lng = Number(payload.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      focusDevice({ lat, lng }, { zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
+      setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Endereço encontrado" });
     },
     [focusDevice],
   );
+  const handleClearSearch = useCallback(() => {
+    setSearchMarker(null);
+  }, []);
 
   const normalizedDraftPoints = useMemo(() => normalizeRoutePoints(draftRoute.points), [draftRoute.points]);
   const normalizedRoutes = useMemo(
@@ -1028,6 +1109,40 @@ export default function RoutesPage() {
     return () => setRoutesTopbarVisible(true);
   }, [setRoutesTopbarVisible]);
 
+  if (accessError) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
+          <h2 className="text-lg font-semibold">Sem acesso a este módulo</h2>
+          <p className="mt-2 text-sm text-white/60">{accessError.message || "Você não tem acesso às rotas deste cliente."}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => navigate(-1)}
+            >
+              Voltar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => navigate("/home")}
+            >
+              Trocar cliente
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
+
   return (
     <div className="map-page">
       {toast && (
@@ -1045,14 +1160,28 @@ export default function RoutesPage() {
       <div className="map-container">
         <AppMap
           ref={mapRef}
-          className="absolute inset-0 z-0 h-full w-full"
+          scrollWheelZoom
           zoomControl={false}
           zoom={12}
           invalidateKey={mapInvalidateKey}
           whenReady={handleMapReady}
         >
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+          <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
           <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
+          {searchMarker && (
+            <>
+              <CircleMarker
+                center={[searchMarker.lat, searchMarker.lng]}
+                radius={9}
+                pathOptions={{ color: "#0ea5e9", fillColor: "#38bdf8", fillOpacity: 0.35, weight: 2 }}
+              />
+              <Marker position={[searchMarker.lat, searchMarker.lng]} icon={leafletDefaultIcon}>
+                <Tooltip direction="top" sticky>
+                  {searchMarker.label || "Endereço encontrado"}
+                </Tooltip>
+              </Marker>
+            </>
+          )}
           {normalizedRoutes
             .filter((route) => route.points.length && (!draftRoute.id || route.id !== draftRoute.id))
             .map((route) => (
@@ -1068,13 +1197,13 @@ export default function RoutesPage() {
             <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: "#f97316", fillColor: "#f97316" }} />
           ) : null}
           {stops.map((stop) => (
-            <Marker key={stop.id} position={[stop.lat, stop.lng]} />
+            <Marker key={stop.id} position={[stop.lat, stop.lng]} icon={leafletDefaultIcon} />
           ))}
         </AppMap>
       </div>
 
       <div className="pointer-events-none absolute inset-0 z-20">
-        <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
+        <div className="pointer-events-auto absolute left-4 top-4 flex w-fit max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
             <SidebarCard className="w-[640px] max-w-[calc(100vw-2rem)] md:w-[700px] lg:w-[740px]">
               <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-1">
@@ -1082,7 +1211,9 @@ export default function RoutesPage() {
                   <AddressSearchInput
                     state={addressSearch}
                     onSelect={handleSelectAddress}
+                    onClear={handleClearSearch}
                     variant="toolbar"
+                    portalSuggestions
                     containerClassName="flex-1 min-w-0"
                     placeholder="Buscar endereço rápido"
                   />

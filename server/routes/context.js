@@ -1,5 +1,6 @@
 import express from "express";
 import createError from "http-errors";
+import { randomUUID } from "crypto";
 
 import { config } from "../config.js";
 import { getEnvInfo } from "../utils/env.js";
@@ -38,6 +39,12 @@ function dedupeClients(list = []) {
 router.use(authenticate);
 
 router.get("/context", async (req, res, next) => {
+  const correlationId =
+    req.get?.("x-correlation-id") ||
+    req.get?.("x-request-id") ||
+    randomUUID();
+  const startedAt = Date.now();
+  res.set("X-Correlation-Id", correlationId);
   try {
     const ownerHeader = req.get("X-Owner-Client-Id");
     const requestedClientId =
@@ -47,6 +54,13 @@ router.get("/context", async (req, res, next) => {
     if (!user) {
       throw createError(401, "Sessão não autenticada");
     }
+    console.info("[context] start", {
+      correlationId,
+      userId: user?.id ? String(user.id) : null,
+      userClientId: user?.clientId ? String(user.clientId) : null,
+      requestedClientId: requestedClientId ? String(requestedClientId) : null,
+      mirrorMode: req.get?.("X-Mirror-Mode") || null,
+    });
 
     const isAdmin = user.role === "admin";
     let clients = [];
@@ -61,10 +75,12 @@ router.get("/context", async (req, res, next) => {
           .filter((mirror) => isMirrorActive(mirror))
           .map((mirror) => String(mirror.ownerClientId))
         : [];
-      const filteredOwners =
-        Array.isArray(allowedMirrorOwners)
-          ? mirrorOwners.filter((ownerId) => allowedMirrorOwners.includes(String(ownerId)))
-          : mirrorOwners;
+      const effectiveMirrorOwners = Array.isArray(allowedMirrorOwners)
+        ? allowedMirrorOwners.map((ownerId) => String(ownerId))
+        : null;
+      const filteredOwners = Array.isArray(effectiveMirrorOwners)
+        ? mirrorOwners.filter((ownerId) => effectiveMirrorOwners.includes(String(ownerId)))
+        : mirrorOwners;
       let ownerClients = [];
       if (filteredOwners.length) {
         const directory = await listClients();
@@ -114,8 +130,24 @@ router.get("/context", async (req, res, next) => {
       };
     }
 
-    return res.json(responsePayload);
+    res.json(responsePayload);
+    console.info("[context] done", {
+      correlationId,
+      ms: Date.now() - startedAt,
+      clientId: responsePayload.clientId ?? null,
+      clients: Array.isArray(responsePayload.clients) ? responsePayload.clients.length : 0,
+      mirror: Boolean(responsePayload.mirror),
+      mirrorModeEnabled,
+    });
+    return undefined;
   } catch (error) {
+    console.warn("[context] error", {
+      correlationId,
+      ms: Date.now() - startedAt,
+      message: error?.message || String(error),
+      code: error?.code || null,
+      status: error?.status || error?.response?.status || null,
+    });
     return next(error);
   }
 });

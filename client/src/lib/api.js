@@ -19,11 +19,16 @@ const windowBaseUrl = windowHostname
   : null;
 
 const isDevEnvironment = Boolean(import.meta.env?.DEV);
-const RESOLVED_BASE = RAW_BASE_URL || (isDevEnvironment ? windowBaseUrl || FALLBACK_BASE_URL : FALLBACK_BASE_URL);
+const RESOLVED_BASE = RAW_BASE_URL || windowBaseUrl || FALLBACK_BASE_URL;
 
-if (!RAW_BASE_URL && typeof window !== "undefined" && !isDevEnvironment) {
-  const fallback = FALLBACK_BASE_URL;
-  console.error(`[api] VITE_API_BASE_URL ausente em produção. Usando ${fallback} como fallback controlado.`);
+if (!RAW_BASE_URL && typeof window !== "undefined") {
+  const fallback = windowBaseUrl || FALLBACK_BASE_URL;
+  const label = windowBaseUrl ? "base do host atual" : "fallback controlado";
+  if (isDevEnvironment) {
+    console.warn(`[api] VITE_API_BASE_URL ausente. Usando ${fallback} (${label}).`);
+  } else {
+    console.error(`[api] VITE_API_BASE_URL ausente em produção. Usando ${fallback} (${label}).`);
+  }
 }
 
 const BASE_URL = RESOLVED_BASE.replace(/\/$/, "");
@@ -98,6 +103,7 @@ export function clearStoredSession() {
   try {
     storage.removeItem(TOKEN_STORAGE_KEY);
     storage.removeItem(USER_STORAGE_KEY);
+    storage.removeItem(MIRROR_OWNER_STORAGE_KEY);
   } catch (error) {
     console.warn("Falha ao limpar sessão", error);
   }
@@ -120,7 +126,7 @@ export function resolveAuthorizationHeader() {
 }
 
 function friendlyErrorMessage(status, payload, statusText) {
-  const serverMessage = payload?.error || payload?.message || payload?.errorMessage || null;
+  const serverMessage = payload?.message || payload?.error || payload?.errorMessage || null;
   if (serverMessage) return serverMessage;
   if (status === 401) return "Sessão expirada. Faça login novamente.";
   if (status === 403) return "Você não tem permissão para realizar esta ação.";
@@ -128,9 +134,10 @@ function friendlyErrorMessage(status, payload, statusText) {
   return statusText || "Erro na requisição";
 }
 
-const MIRROR_QUERY_ALLOWLIST = [
+const MIRROR_READ_ALLOWLIST = [
   "/context",
   "/permissions/context",
+  "/protocols",
   "/vehicles",
   "/positions",
   "/alerts",
@@ -148,6 +155,7 @@ const MIRROR_QUERY_ALLOWLIST = [
   "/traccar",
   "/tasks",
   "/itineraries",
+  "/euro/routes",
   "/routes",
   "/home",
   "/core/vehicles",
@@ -159,26 +167,61 @@ const MIRROR_QUERY_ALLOWLIST = [
   "/core/service-orders",
   "/core/technicians",
 ];
+const MIRROR_WRITE_ALLOWLIST = [];
 
-function resolveMirrorOwnerClientId(session) {
+const DEDUPE_GET_PATHS = new Set([
+  "/context",
+  "/session",
+  "/permissions/context",
+  "/mirrors/context",
+  "/core/devices",
+  "/core/vehicles",
+  "/core/telemetry",
+  "/core/tasks",
+  "/devices",
+  "/telemetry",
+  "/alerts",
+  "/alerts/conjugated",
+  "/positions/last",
+]);
+const DEDUPE_TTL_MS = 4000;
+const getDedupeCache = (() => {
+  const cache = new Map();
+  return {
+    get(key) {
+      return cache.get(key) || null;
+    },
+    set(key, value) {
+      cache.set(key, value);
+    },
+    delete(key) {
+      cache.delete(key);
+    },
+  };
+})();
+
+export function resolveMirrorOwnerClientId(session) {
   if (session?.user?.role === "admin") return null;
-  if (session?.user?.mirrorContextMode !== "target") return null;
-  const ownerClientId =
-    session?.user?.activeMirrorOwnerClientId ??
-    (() => {
-      try {
-        return (
-          window?.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY) ||
-          window?.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY) ||
-          null
-        );
-      } catch (_error) {
-        return null;
-      }
-    })();
+  const mirrorMode = session?.user?.mirrorContextMode ?? null;
+  if (mirrorMode && mirrorMode !== "target") return null;
+  const storedOwnerId = (() => {
+    try {
+      return (
+        window?.sessionStorage?.getItem(MIRROR_OWNER_STORAGE_KEY) ||
+        window?.localStorage?.getItem(MIRROR_OWNER_STORAGE_KEY) ||
+        null
+      );
+    } catch (_error) {
+      return null;
+    }
+  })();
+  if (storedOwnerId) return String(storedOwnerId);
+  const ownerClientId = session?.user?.activeMirrorOwnerClientId ?? null;
   if (!ownerClientId) return null;
   // O modo salvo pode estar desatualizado; o backend decide se há mirror ativo.
-  return String(ownerClientId);
+  const normalised = String(ownerClientId).trim().replace(/;+$/, "");
+  if (!normalised) return null;
+  return normalised;
 }
 
 function resolvePathname(targetPath) {
@@ -202,22 +245,31 @@ function shouldAttemptAuthRefresh(status, payload, statusText) {
   return message.toLowerCase().includes("permissão insuficiente");
 }
 
-function shouldAttachMirrorClientId(targetPath) {
+function shouldAttachMirrorClientId(targetPath, method = "GET") {
   const pathname = resolvePathname(targetPath);
   const normalised = pathname.replace(/^\/api\//, "/");
-  return MIRROR_QUERY_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
+  const methodUpper = String(method || "GET").toUpperCase();
+  if (methodUpper === "GET" || methodUpper === "HEAD") {
+    return MIRROR_READ_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
+  }
+  if (!MIRROR_WRITE_ALLOWLIST.length) return false;
+  return MIRROR_WRITE_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
 }
 
-function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId }) {
+function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId, method }) {
   if (!mirrorOwnerClientId) return params;
   const nextParams = params && typeof params === "object" ? { ...params } : {};
-  const shouldAttach = shouldAttachMirrorClientId(url);
+  const methodUpper = String(method || "GET").toUpperCase();
+  const isReadMethod = methodUpper === "GET" || methodUpper === "HEAD";
+  const shouldAttach = shouldAttachMirrorClientId(url, methodUpper);
   const shouldStripTarget =
-    shouldAttach ||
-    (userClientId &&
-      [nextParams.clientId, nextParams.tenantId, nextParams.ownerClientId].some(
-        (value) => value !== undefined && value !== null && String(value) === String(userClientId),
-      ));
+    (isReadMethod &&
+      (shouldAttach ||
+        (userClientId &&
+          [nextParams.clientId, nextParams.tenantId, nextParams.ownerClientId].some(
+            (value) => value !== undefined && value !== null && String(value) === String(userClientId),
+          )))) ||
+    (!isReadMethod && shouldAttach);
   if (shouldStripTarget) {
     if (Object.prototype.hasOwnProperty.call(nextParams, "clientId")) {
       delete nextParams.clientId;
@@ -229,7 +281,8 @@ function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClient
       delete nextParams.ownerClientId;
     }
   }
-  if (shouldAttach) {
+  const isMirrorAll = String(mirrorOwnerClientId) === "all";
+  if (shouldAttach && !isMirrorAll) {
     nextParams.clientId = mirrorOwnerClientId;
   }
   return Object.keys(nextParams).length ? nextParams : undefined;
@@ -278,10 +331,16 @@ async function request({
   responseType = "json",
   authRetryCount = 0,
   skipAuthRefresh = false,
+  skipMirrorClient = false,
+  dedupeBypass = false,
 }) {
   const controller = new AbortController();
   const abortReason = new Error("Request timeout");
-  const timer = setTimeout(() => controller.abort(abortReason), timeout);
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort(abortReason);
+  }, timeout);
 
   const forwardAbort = () => {
     try {
@@ -299,20 +358,68 @@ async function request({
     }
   }
 
+  const methodUpper = method.toUpperCase();
   const storedSession = getStoredSession();
   const userClientId = storedSession?.user?.clientId ?? null;
-  const mirrorOwnerClientId = resolveMirrorOwnerClientId(storedSession);
+  const mirrorOwnerClientId = skipMirrorClient ? null : resolveMirrorOwnerClientId(storedSession);
   // Em modo mirror, anexamos o clientId do OWNER apenas para rotas allowlisted de leitura.
-  const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId });
+  const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId, method: methodUpper });
 
   const finalUrl = buildUrl(url, nextParams, { apiPrefix });
+  if (methodUpper === "GET" && !dedupeBypass) {
+    const pathname = resolvePathname(finalUrl);
+    const normalised = pathname.replace(/^\/api\//, "/");
+    if (DEDUPE_GET_PATHS.has(normalised)) {
+      const cacheKey = `${normalised}|${finalUrl}`;
+      const cached = getDedupeCache.get(cacheKey);
+      const now = Date.now();
+      if (cached && now - cached.ts < DEDUPE_TTL_MS) {
+        return cached.promise;
+      }
+      const promise = request({
+        method,
+        url,
+        params,
+        data,
+        headers,
+        timeout,
+        apiPrefix,
+        signal,
+        responseType,
+        authRetryCount,
+        skipAuthRefresh,
+        dedupeBypass: true,
+      });
+      getDedupeCache.set(cacheKey, { ts: now, promise });
+      try {
+        const response = await promise;
+        getDedupeCache.set(cacheKey, { ts: Date.now(), promise: Promise.resolve(response) });
+        return response;
+      } catch (error) {
+        getDedupeCache.delete(cacheKey);
+        throw error;
+      }
+    }
+  }
   const resolvedHeaders = new Headers(headers);
   const authorization = resolveAuthorizationHeader();
   if (authorization && !resolvedHeaders.has("Authorization")) {
     resolvedHeaders.set("Authorization", authorization);
   }
-  if (mirrorOwnerClientId && shouldAttachMirrorClientId(url) && !resolvedHeaders.has("X-Owner-Client-Id")) {
+  if (
+    !skipMirrorClient &&
+    mirrorOwnerClientId &&
+    shouldAttachMirrorClientId(url, methodUpper) &&
+    !resolvedHeaders.has("X-Owner-Client-Id")
+  ) {
     resolvedHeaders.set("X-Owner-Client-Id", mirrorOwnerClientId);
+  }
+  if (!resolvedHeaders.has("X-Mirror-Mode")) {
+    if (resolvedHeaders.has("X-Owner-Client-Id")) {
+      resolvedHeaders.set("X-Mirror-Mode", "target");
+    } else if (storedSession?.user?.mirrorContextMode !== "target") {
+      resolvedHeaders.set("X-Mirror-Mode", "self");
+    }
   }
 
   const init = {
@@ -320,6 +427,7 @@ async function request({
     headers: resolvedHeaders,
     credentials: "include",
     signal: controller.signal,
+    ...(methodUpper === "GET" ? { cache: "no-store" } : {}),
   };
 
   if (data !== undefined && data !== null) {
@@ -357,9 +465,19 @@ async function request({
     };
 
     if (!response.ok) {
+      console.warn("[api] request failed", {
+        method: methodUpper,
+        url: finalUrl,
+        status: response.status,
+        statusText: response.statusText,
+        body: payload,
+      });
       const error = new Error(friendlyErrorMessage(response.status, payload, response.statusText));
       error.status = response.status;
       error.response = normalised;
+      error.method = methodUpper;
+      error.url = finalUrl;
+      error.body = payload;
       const canRefresh =
         !skipAuthRefresh &&
         authRetryCount < 1 &&
@@ -412,7 +530,16 @@ async function request({
     return normalised;
   } catch (error) {
     clearTimeout(timer);
-    const isAborted = error?.name === "AbortError" || error?.message === abortReason?.message;
+    const isAborted =
+      controller.signal.aborted ||
+      error?.name === "AbortError" ||
+      error?.code === "ERR_ABORTED" ||
+      error?.message === abortReason?.message;
+    if (isAborted && (didTimeout || error?.message === abortReason?.message)) {
+      error.code = error.code || "REQUEST_TIMEOUT";
+      error.status = error.status || 504;
+      error.isTimeout = true;
+    }
     const isNetworkError =
       !isAborted &&
       (error?.name === "TypeError" ||

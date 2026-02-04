@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
@@ -7,12 +7,17 @@ import { useLivePositions } from "../lib/hooks/useLivePositions";
 import useTasks from "../lib/hooks/useTasks";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
-import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { formatAddress } from "../lib/format-address.js";
 import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
+import usePolling from "../lib/hooks/usePolling.js";
+import safeApi from "../lib/safe-api.js";
+import { API_ROUTES } from "../lib/api-routes.js";
+import { CoreApi } from "../lib/coreApi.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const COMMUNICATION_BUCKETS = [
   { key: "stale_0_1", label: "0–1h", minMinutes: 0, maxMinutes: 60 },
@@ -24,33 +29,353 @@ const COMMUNICATION_BUCKETS = [
   { key: "stale_10d_30d", label: "10–30d", minMinutes: 14400, maxMinutes: 43200 },
   { key: "stale_30d_plus", label: "30+d", minMinutes: 43200, maxMinutes: Infinity },
 ];
+
+function normalizePositionsPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.positions)) return payload.positions;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return payload ? [payload] : [];
+}
+
+function normalizeAlertsPayload(payload) {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.alerts)) return payload.alerts;
+  if (Array.isArray(payload?.events)) return payload.events;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function normalizeTasksPayload(payload) {
+  if (Array.isArray(payload?.tasks)) return payload.tasks;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function dedupeByDevice(positions = []) {
+  const latestByDevice = new Map();
+  positions.forEach((pos) => {
+    const deviceId = pos?.deviceId ?? pos?.device_id ?? pos?.deviceid ?? pos?.deviceID;
+    const key = deviceId != null ? String(deviceId) : null;
+    if (!key) return;
+    const time = Date.parse(pos.fixTime ?? pos.serverTime ?? pos.deviceTime ?? pos.time ?? 0);
+    const current = latestByDevice.get(key);
+    if (!current || (!Number.isNaN(time) && time > current.time)) {
+      latestByDevice.set(key, { pos, time });
+    }
+  });
+  return Array.from(latestByDevice.values())
+    .map((entry) => entry.pos)
+    .filter(Boolean);
+}
+
+function dedupeById(list = [], getId) {
+  const map = new Map();
+  list.forEach((item) => {
+    const key = getId(item);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
+function resolveEntityId(entity, fallbackKey) {
+  const candidate =
+    entity?.id ??
+    entity?.alertId ??
+    entity?.eventId ??
+    entity?.vehicleId ??
+    entity?.deviceId ??
+    entity?.taskId ??
+    null;
+  if (candidate) return String(candidate);
+  if (fallbackKey) return String(fallbackKey);
+  return null;
+}
+
+async function fetchMirrorOwnerBundle({
+  ownerId,
+  canAccessMonitoring,
+  canAccessAlerts,
+  canAccessConjugatedAlerts,
+} = {}) {
+  const headers = ownerId ? { "X-Owner-Client-Id": ownerId } : undefined;
+  const requests = [
+    CoreApi.listVehicles({ params: { accessible: true }, headers }).catch(() => []),
+    canAccessMonitoring
+      ? safeApi.get(API_ROUTES.lastPositions, {
+          headers,
+          suppressForbidden: true,
+          forbiddenFallbackData: [],
+        })
+      : Promise.resolve({ data: [] }),
+    canAccessMonitoring && canAccessAlerts
+      ? safeApi.get(API_ROUTES.alerts, {
+          params: { status: "pending" },
+          headers,
+          suppressForbidden: true,
+          forbiddenFallbackData: [],
+        })
+      : Promise.resolve({ data: [] }),
+    canAccessMonitoring && canAccessConjugatedAlerts
+      ? safeApi.get(API_ROUTES.alertsConjugated, {
+          params: { windowHours: 5 },
+          headers,
+          suppressForbidden: true,
+          forbiddenFallbackData: [],
+        })
+      : Promise.resolve({ data: [] }),
+    canAccessMonitoring
+      ? CoreApi.listTasks({ params: {}, headers }).catch(() => [])
+      : Promise.resolve([]),
+  ];
+
+  const [vehicles, positionsResponse, alertsResponse, conjugatedResponse, tasksResponse] = await Promise.all(requests);
+  return {
+    vehicles: Array.isArray(vehicles) ? vehicles : [],
+    positions: normalizePositionsPayload(positionsResponse?.data),
+    alerts: normalizeAlertsPayload(alertsResponse?.data),
+    conjugatedAlerts: normalizeAlertsPayload(conjugatedResponse?.data),
+    tasks: normalizeTasksPayload(tasksResponse),
+  };
+}
+
+async function fetchMirrorAllBundle({
+  ownerIds,
+  canAccessMonitoring,
+  canAccessAlerts,
+  canAccessConjugatedAlerts,
+} = {}) {
+  if (!Array.isArray(ownerIds) || ownerIds.length === 0) {
+    return {
+      vehicles: [],
+      positions: [],
+      alerts: [],
+      conjugatedAlerts: [],
+      tasks: [],
+      partial: false,
+    };
+  }
+
+  const results = await Promise.allSettled(
+    ownerIds.map((ownerId) =>
+      fetchMirrorOwnerBundle({
+        ownerId,
+        canAccessMonitoring,
+        canAccessAlerts,
+        canAccessConjugatedAlerts,
+      }),
+    ),
+  );
+
+  const bundles = [];
+  let failed = 0;
+  results.forEach((result) => {
+    if (result.status === "fulfilled" && result.value) {
+      bundles.push(result.value);
+    } else {
+      failed += 1;
+    }
+  });
+
+  const vehicles = dedupeById(
+    bundles.flatMap((bundle) => bundle.vehicles || []),
+    (item) => resolveEntityId(item),
+  );
+  const positions = dedupeByDevice(bundles.flatMap((bundle) => bundle.positions || []));
+  const alerts = dedupeById(
+    bundles.flatMap((bundle) => bundle.alerts || []),
+    (item, index) => resolveEntityId(item, `alert-${index}`),
+  );
+  const conjugatedAlerts = dedupeById(
+    bundles.flatMap((bundle) => bundle.conjugatedAlerts || []),
+    (item, index) => resolveEntityId(item, `conj-${index}`),
+  );
+  const tasks = dedupeById(
+    bundles.flatMap((bundle) => bundle.tasks || []),
+    (item, index) => resolveEntityId(item, `task-${index}`),
+  );
+
+  return {
+    vehicles,
+    positions,
+    alerts,
+    conjugatedAlerts,
+    tasks,
+    partial: failed > 0,
+  };
+}
+
+async function fetchMirrorOwnerBundleSafe({
+  ownerId,
+  canAccessMonitoring,
+  canAccessAlerts,
+  canAccessConjugatedAlerts,
+} = {}) {
+  if (!ownerId) {
+    return {
+      vehicles: [],
+      positions: [],
+      alerts: [],
+      conjugatedAlerts: [],
+      tasks: [],
+      partial: false,
+    };
+  }
+  const bundle = await fetchMirrorOwnerBundle({
+    ownerId,
+    canAccessMonitoring,
+    canAccessAlerts,
+    canAccessConjugatedAlerts,
+  });
+  return { ...bundle, partial: false };
+}
 export default function Home() {
   const { t, locale } = useTranslation();
-  const { tenantId, canAccess } = useTenant();
+  const {
+    tenantId,
+    tenant,
+    canAccess,
+    mirrorContextMode,
+    activeMirrorOwnerClientId,
+    mirrorOwners,
+  } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
   const canAccessMonitoring = canAccess("primary", "monitoring");
   const canAccessAlerts = canAccess("primary", "monitoring", "alerts");
   const canAccessConjugatedAlerts = canAccess("primary", "monitoring", "alerts-conjugated");
+  const mirrorOwnerIds = useMemo(
+    () =>
+      Array.isArray(mirrorOwners)
+        ? mirrorOwners.map((owner) => String(owner.id)).filter(Boolean)
+        : [],
+    [mirrorOwners],
+  );
+  const mirrorOwnersKey = useMemo(() => mirrorOwnerIds.join("|"), [mirrorOwnerIds]);
+  const isMirrorAll =
+    mirrorContextMode === "target" &&
+    String(activeMirrorOwnerClientId ?? "") === "all";
+  const mirrorOwnerTenantId =
+    mirrorContextMode === "target" &&
+    activeMirrorOwnerClientId &&
+    String(activeMirrorOwnerClientId) !== "all"
+      ? String(activeMirrorOwnerClientId)
+      : null;
+  const canAggregateMirrorAll = isMirrorAll && mirrorOwnerIds.length > 0;
+  const canAggregateMirrorOwner = Boolean(
+    mirrorContextMode === "target" && mirrorOwnerTenantId && !isMirrorAll,
+  );
+  const effectiveTenantId = isMirrorAll ? null : (mirrorOwnerTenantId || tenantId);
+  const tasksTenantOverride = isMirrorAll ? null : undefined;
+  const pendingAlertParams = useMemo(() => ({ status: "pending" }), []);
+  const conjugatedAlertParams = useMemo(() => ({ windowHours: 5 }), []);
 
   const { vehicles, loading: loadingVehicles } = useVehicles({ enabled: canAccessMonitoring });
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
     enabled: canAccessMonitoring,
   });
-  const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]), {
+  const taskParams = useMemo(
+    () => (effectiveTenantId ? { clientId: effectiveTenantId } : {}),
+    [effectiveTenantId],
+  );
+  const { tasks } = useTasks(taskParams, {
     enabled: canAccessMonitoring,
+    tenantIdOverride: tasksTenantOverride,
   });
   const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({
-    params: { status: "pending" },
+    params: pendingAlertParams,
     enabled: canAccessMonitoring && canAccessAlerts,
   });
   const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
-    params: { windowHours: 5 },
+    params: conjugatedAlertParams,
     enabled: canAccessMonitoring && canAccessConjugatedAlerts,
   });
+  const mirrorAllPolling = usePolling(
+    useCallback(
+      () =>
+        fetchMirrorAllBundle({
+          ownerIds: mirrorOwnerIds,
+          canAccessMonitoring,
+          canAccessAlerts,
+          canAccessConjugatedAlerts,
+        }),
+      [mirrorOwnerIds, canAccessMonitoring, canAccessAlerts, canAccessConjugatedAlerts],
+    ),
+    {
+      enabled: canAggregateMirrorAll && canAccessMonitoring,
+      intervalMs: 60_000,
+      dependencies: [
+        canAggregateMirrorAll,
+        canAccessMonitoring,
+        mirrorOwnersKey,
+        canAccessAlerts,
+        canAccessConjugatedAlerts,
+      ],
+      resetOnChange: true,
+    },
+  );
+  const mirrorOwnerPolling = usePolling(
+    useCallback(
+      () =>
+        fetchMirrorOwnerBundleSafe({
+          ownerId: mirrorOwnerTenantId,
+          canAccessMonitoring,
+          canAccessAlerts,
+          canAccessConjugatedAlerts,
+        }),
+      [mirrorOwnerTenantId, canAccessMonitoring, canAccessAlerts, canAccessConjugatedAlerts],
+    ),
+    {
+      enabled: canAggregateMirrorOwner && canAccessMonitoring,
+      intervalMs: 60_000,
+      dependencies: [
+        canAggregateMirrorOwner,
+        mirrorOwnerTenantId,
+        canAccessMonitoring,
+        canAccessAlerts,
+        canAccessConjugatedAlerts,
+      ],
+      resetOnChange: true,
+    },
+  );
+  const activeMirrorPolling = isMirrorAll ? mirrorAllPolling : mirrorOwnerPolling;
+  const mirrorBundle = activeMirrorPolling.data;
+  const hasMirrorBundle = Boolean(
+    (isMirrorAll ? canAggregateMirrorAll : canAggregateMirrorOwner) &&
+      mirrorBundle &&
+      !activeMirrorPolling.error,
+  );
+  const mirrorPartial = Boolean(
+    (canAggregateMirrorAll || canAggregateMirrorOwner) &&
+      (activeMirrorPolling.error || mirrorBundle?.partial),
+  );
+  const effectiveVehicles = hasMirrorBundle ? mirrorBundle.vehicles : vehicles;
+  const effectivePositions = hasMirrorBundle ? mirrorBundle.positions : positions;
+  const effectiveTasks = hasMirrorBundle ? mirrorBundle.tasks : tasks;
+  const effectivePendingAlerts = hasMirrorBundle ? mirrorBundle.alerts : pendingAlerts;
+  const effectiveConjugatedAlerts = hasMirrorBundle
+    ? mirrorBundle.conjugatedAlerts
+    : conjugatedAlerts;
+  const effectiveTelemetryFetchedAt = hasMirrorBundle
+    ? activeMirrorPolling.lastUpdated
+    : telemetryFetchedAt;
+  const effectiveVehiclesLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : loadingVehicles;
+  const effectivePositionsLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : loadingPositions;
+  const effectiveAlertsLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : pendingAlertsLoading;
+  const effectiveConjugatedLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : conjugatedAlertsLoading;
 
   const positionByDevice = useMemo(() => {
     const map = new Map();
-    positions.forEach((position) => {
+    effectivePositions.forEach((position) => {
       const key = toDeviceKey(
         position?.deviceId ??
           position?.device?.id ??
@@ -62,33 +387,33 @@ export default function Home() {
       map.set(String(key), position);
     });
     return map;
-  }, [positions]);
+  }, [effectivePositions]);
 
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
-    vehicles.forEach((vehicle) => {
+    effectiveVehicles.forEach((vehicle) => {
       normalizeVehicleDevices(vehicle).forEach((device) => {
-        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        const key = getDeviceKey(device);
         if (key) map.set(String(key), vehicle);
       });
     });
     return map;
-  }, [vehicles]);
+  }, [effectiveVehicles]);
 
   const vehicleTelemetry = useMemo(
     () =>
-      vehicles.map((vehicle) => {
+      effectiveVehicles.map((vehicle) => {
         const devices = normalizeVehicleDevices(vehicle);
         const primaryKey = vehicle.primaryDeviceId ? String(vehicle.primaryDeviceId) : null;
         let primaryDevice = primaryKey
-          ? devices.find((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId) === primaryKey)
+          ? devices.find((device) => getDeviceKey(device) === primaryKey)
           : null;
 
         if (!primaryDevice && devices.length) {
           let newestDevice = null;
           let newestTime = null;
           devices.forEach((device) => {
-            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+            const key = getDeviceKey(device);
             if (!key) return;
             const position = positionByDevice.get(String(key));
             const timestamp = parsePositionTime(position);
@@ -98,16 +423,14 @@ export default function Home() {
               newestDevice = device;
             }
           });
-          primaryDevice = newestDevice ?? null;
+          primaryDevice = newestDevice ?? devices[0] ?? null;
         }
 
-        const deviceKey = primaryDevice
-          ? toDeviceKey(primaryDevice?.id ?? primaryDevice?.deviceId ?? primaryDevice?.uniqueId ?? primaryDevice?.traccarId)
-          : null;
+        const deviceKey = primaryDevice ? getDeviceKey(primaryDevice) : null;
         const position = deviceKey ? positionByDevice.get(String(deviceKey)) : null;
         return { vehicle, device: primaryDevice, deviceKey, position };
       }),
-    [positionByDevice, vehicles],
+    [effectiveVehicles, positionByDevice],
   );
 
   const linkedVehicles = useMemo(
@@ -133,7 +456,7 @@ export default function Home() {
     return map;
   }, [linkedVehicles]);
 
-  const tenantFallbackId = tenantId ?? null;
+  const tenantFallbackId = effectiveTenantId ?? null;
 
   const fleetDevices = useMemo(
     () =>
@@ -158,7 +481,7 @@ export default function Home() {
 
   const fleetPositions = useMemo(() => {
     const keys = new Set(linkedVehicles.map((entry) => String(entry.deviceKey)));
-    return positions
+    return effectivePositions
       .map((position) => {
         const key = toDeviceKey(
           position?.deviceId ??
@@ -178,12 +501,12 @@ export default function Home() {
         };
       })
       .filter(Boolean);
-  }, [deviceTenantMap, linkedVehicles, positions, tenantFallbackId]);
+  }, [deviceTenantMap, effectivePositions, linkedVehicles, tenantFallbackId]);
 
   const { summary, table } = useMemo(() => {
-    const { rows, stats } = buildFleetState(fleetDevices, fleetPositions, { tenantId });
+    const { rows, stats } = buildFleetState(fleetDevices, fleetPositions, { tenantId: effectiveTenantId });
     return { summary: stats, table: rows };
-  }, [fleetDevices, fleetPositions, tenantId]);
+  }, [effectiveTenantId, fleetDevices, fleetPositions]);
 
   const decoratedTable = useMemo(
     () =>
@@ -200,12 +523,41 @@ export default function Home() {
 
   const communicationBuckets = useMemo(() => buildOfflineBuckets(decoratedTable), [decoratedTable]);
   const routeMetrics = useMemo(
-    () => buildRouteMetrics(decoratedTable, tasks, vehicleByDeviceId),
-    [decoratedTable, tasks, vehicleByDeviceId],
+    () => buildRouteMetrics(decoratedTable, effectiveTasks, vehicleByDeviceId),
+    [decoratedTable, effectiveTasks, vehicleByDeviceId],
   );
 
-  const alertRows = useMemo(() => pendingAlerts, [pendingAlerts]);
-  const conjugatedAlertRows = useMemo(() => conjugatedAlerts, [conjugatedAlerts]);
+  const showTelemetryWarning = useMemo(
+    () =>
+      canAccessMonitoring &&
+      !effectivePositionsLoading &&
+      Array.isArray(effectiveVehicles) &&
+      effectiveVehicles.length > 0 &&
+      (!Array.isArray(effectivePositions) || effectivePositions.length === 0),
+    [canAccessMonitoring, effectivePositions, effectivePositionsLoading, effectiveVehicles],
+  );
+  const telemetryAlert = useMemo(() => {
+    if (!showTelemetryWarning) return null;
+    const tenantLabel = tenant?.name || "cliente";
+    return {
+      id: `telemetry-missing:${tenantId ?? "all"}`,
+      deviceId: null,
+      vehicleLabel: tenantLabel,
+      vehicleId: tenantId ?? null,
+      plate: null,
+      createdAt: new Date().toISOString(),
+      eventLabel: "Sem telemetria recente",
+      address: "Sem posição disponível",
+      severity: "Info",
+      system: true,
+    };
+  }, [showTelemetryWarning, tenant?.name, tenantId]);
+  const alertRows = useMemo(() => {
+    const base = Array.isArray(effectivePendingAlerts) ? effectivePendingAlerts : [];
+    if (!telemetryAlert || !canAccessAlerts) return base;
+    return [telemetryAlert, ...base];
+  }, [canAccessAlerts, effectivePendingAlerts, telemetryAlert]);
+  const conjugatedAlertRows = useMemo(() => effectiveConjugatedAlerts, [effectiveConjugatedAlerts]);
 
 
   const renderCommunicationSummary = (expanded = false) => (
@@ -244,7 +596,7 @@ export default function Home() {
                   onClick={() => window.open(`/monitoring?filter=${bucket.filterKey}`, "_blank")}
                 >
                   <td className="py-2 pr-4 text-white/80">{bucket.label}</td>
-                  <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "No vehicles" : bucket.vehicles.length}</td>
+                  <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "0" : bucket.vehicles.length}</td>
                 </tr>
               ))}
             </tbody>
@@ -465,31 +817,44 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
+      <PageHeader />
+      {mirrorPartial && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Alguns espelhados nao responderam. Os totais exibidos podem estar incompletos.
+        </div>
+      )}
+      {showTelemetryWarning && (
+        <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+          Sem telemetria recente para {tenant?.name || "este cliente"}. Os veículos podem aparecer como offline.
+        </div>
+      )}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title={t("home.vehiclesMonitored")}
-          value={loadingVehicles ? "…" : summary.total}
+          value={effectiveVehiclesLoading ? "…" : summary.total}
           hint={t("home.syncedAt", {
-            time: telemetryFetchedAt ? new Date(telemetryFetchedAt).toLocaleTimeString(locale) : "—",
+            time: effectiveTelemetryFetchedAt
+              ? new Date(effectiveTelemetryFetchedAt).toLocaleTimeString(locale)
+              : "—",
           })}
           onClick={() => setSelectedCard("monitored")}
         />
         <StatCard
           title={t("home.inRoute")}
-          value={!canAccessMonitoring ? "—" : loadingPositions ? "…" : routeMetrics.totalWithRoute}
+          value={!canAccessMonitoring ? "—" : effectivePositionsLoading ? "…" : routeMetrics.totalWithRoute}
           hint={t("home.onRouteHint", { percent: percentage(routeMetrics.totalWithRoute, summary.total) })}
           onClick={canAccessMonitoring ? () => setSelectedCard("route") : undefined}
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={!canAccessMonitoring ? "—" : pendingAlertsLoading ? "…" : alertRows.length}
+          value={!canAccessMonitoring ? "—" : effectiveAlertsLoading ? "…" : alertRows.length}
           hint="Alertas ativos no monitoramento"
           variant="alert"
           onClick={canAccessMonitoring ? () => setSelectedCard("alert") : undefined}
         />
         <StatCard
           title="Alertas conjugados"
-          value={!canAccessMonitoring ? "—" : conjugatedAlertsLoading ? "…" : conjugatedAlertRows.length}
+          value={!canAccessMonitoring ? "—" : effectiveConjugatedLoading ? "…" : conjugatedAlertRows.length}
           hint="Alertas graves/críticos nas últimas 5 horas"
           variant="alert"
           onClick={canAccessMonitoring ? () => setSelectedCard("critical") : undefined}

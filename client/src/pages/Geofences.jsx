@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Circle as LeafletCircle, CircleMarker, Marker, Polygon, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -26,6 +27,8 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import AppMap from "../components/map/AppMap.jsx";
 import MapToolbar from "../components/map/MapToolbar.jsx";
 import Button from "../ui/Button";
@@ -353,6 +356,7 @@ function GeofencePanel({
 }
 
 export default function Geofences({ variant = "geofences" }) {
+  const navigate = useNavigate();
   const isTargetView = variant === "targets";
   const entityLabel = isTargetView ? "Alvo" : "Cerca";
   const entityLabelPlural = isTargetView ? "Alvos" : "Cercas";
@@ -379,8 +383,14 @@ export default function Geofences({ variant = "geofences" }) {
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
   const { confirmDelete } = useConfirmDialog();
-  const { tenantId, user, tenant } = useTenant();
+  const { tenantId, tenantScope, user, tenant } = useTenant();
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const addressSearch = useAddressSearchState({ mapPreferences });
   const [geofenceFilter, setGeofenceFilter] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
@@ -419,6 +429,7 @@ export default function Geofences({ variant = "geofences" }) {
     updateGeofence,
     deleteGeofence,
   } = useGeofences({ autoRefreshMs: 0 });
+  const accessDenied = Number(fetchError?.status) === 403;
 
   const scopedGeofences = useMemo(() => {
     const filtered = (Array.isArray(remoteGeofences) ? remoteGeofences : []).filter((geo) =>
@@ -731,7 +742,7 @@ export default function Geofences({ variant = "geofences" }) {
     setStatus(`Sincronizando ${entityLabelPluralLower}...`);
     try {
       for (const geo of activeGeofences) {
-        const clientId = tenantId || user?.clientId || null;
+        const clientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
         if (!clientId) {
           throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
         }
@@ -900,6 +911,27 @@ export default function Geofences({ variant = "geofences" }) {
     });
   }, []);
 
+  if (accessDenied) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
+          <h2 className="text-lg font-semibold">Sem acesso a este módulo</h2>
+          <p className="mt-2 text-sm text-white/60">
+            {fetchError?.message || "Você não tem acesso a este conteúdo no cliente atual."}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => navigate(-1)}>
+              Voltar
+            </Button>
+            <Button size="sm" onClick={() => navigate("/home")}>
+              Trocar cliente
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const isBusy = loading || saving;
   const panelGeofences = filteredGeofences;
   const friendlyError = fetchError?.message || null;
@@ -917,8 +949,10 @@ export default function Geofences({ variant = "geofences" }) {
           whenReady={handleMapReady}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution={tileAttribution}
+            url={tileUrl}
+            subdomains={tileSubdomains}
+            maxZoom={tileMaxZoom}
           />
 
           <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
@@ -1009,7 +1043,7 @@ export default function Geofences({ variant = "geofences" }) {
           )}
 
           {isMapReady && searchMarker && (
-            <Marker position={[searchMarker.lat, searchMarker.lng]}>
+            <Marker position={[searchMarker.lat, searchMarker.lng]} icon={leafletDefaultIcon}>
               <Tooltip direction="top" sticky>
                 {searchMarker.label || "Endereço encontrado"}
               </Tooltip>

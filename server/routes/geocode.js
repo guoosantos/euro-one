@@ -1,6 +1,8 @@
 import express from "express";
 import createError from "http-errors";
 
+import { authenticate } from "../middleware/auth.js";
+import { authorizeAnyPermission } from "../middleware/permissions.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { config } from "../config.js";
 import {
@@ -16,6 +18,24 @@ const GEOCODER_BASE_URL = config.geocoder?.baseUrl || DEFAULT_GEOCODER_URL;
 const cache = createTtlCache(10 * 60 * 1000);
 const reverseCache = createTtlCache(30 * 60 * 1000);
 const pending = new Map();
+
+router.use(authenticate);
+router.use(
+  authorizeAnyPermission({
+    permissions: [
+      { menuKey: "primary", pageKey: "monitoring" },
+      { menuKey: "primary", pageKey: "trips" },
+      { menuKey: "fleet", pageKey: "routes" },
+      { menuKey: "fleet", pageKey: "geofences" },
+      { menuKey: "fleet", pageKey: "targets" },
+      { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+      { menuKey: "fleet", pageKey: "services", subKey: "appointments" },
+      { menuKey: "fleet", pageKey: "services", subKey: "technicians" },
+      { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+      { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+    ],
+  }),
+);
 
 function sanitizeTerm(term) {
   if (typeof term !== "string") return "";

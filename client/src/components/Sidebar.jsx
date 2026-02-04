@@ -104,7 +104,6 @@ export default function Sidebar() {
 
   const {
     homeClient,
-    role,
     isMirrorReceiver,
     user,
     tenant,
@@ -112,6 +111,7 @@ export default function Sidebar() {
     hasAdminAccess,
     permissionsReady,
     canAccess,
+    role,
   } = useTenant();
   const { getPermission } = usePermissions();
   const { t } = useTranslation();
@@ -130,7 +130,7 @@ export default function Sidebar() {
   const adminClientsPermission = getPermission({ menuKey: "admin", pageKey: "clients" });
   const adminMirrorsPermission = getPermission({ menuKey: "admin", pageKey: "mirrors" });
   const canManageUsers = [adminUsersPermission, adminClientsPermission, adminMirrorsPermission].some((permission) =>
-    resolveCanManageUsers({ role, permission }),
+    resolveCanManageUsers({ permission }),
   );
   const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
   const labelVisibilityClass = collapsed ? "hidden" : "flex-1 truncate";
@@ -204,7 +204,7 @@ export default function Sidebar() {
       }
       return canAccess(item.permission) ? item : null;
     },
-    [canAccess, canManageUsers, isEuroImportEnabled, role, isMirrorReceiver],
+    [canAccess, canManageUsers, isEuroImportEnabled, isMirrorReceiver, role],
   );
 
   useEffect(() => {

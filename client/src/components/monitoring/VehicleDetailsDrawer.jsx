@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import {
@@ -31,6 +31,33 @@ import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../../lib/mapLayers.js";
 import { filterCommandsBySearch, mergeCommands, resolveCommandSendError } from "../../pages/commands-helpers.js";
+import { useTenant } from "../../lib/tenant-context.jsx";
+
+const resolveTraccarDeviceId = (device) => {
+  const candidates = [
+    device?.traccarId,
+    device?.traccar_id,
+    device?.deviceId,
+    device?.device_id,
+    device?.id,
+  ];
+  const numeric = candidates
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value > 0);
+  return numeric ?? null;
+};
+
+const resolveApiErrorMessage = (error, fallback) => {
+  if (!error) return fallback;
+  if (typeof error === "string") return error;
+  const response = error?.response?.data || {};
+  const message =
+    response?.message ||
+    response?.error?.message ||
+    error?.message ||
+    null;
+  return message || fallback;
+};
 
 export default function VehicleDetailsDrawer({
   vehicle,
@@ -41,6 +68,7 @@ export default function VehicleDetailsDrawer({
   floating = true,
 }) {
   const safeVehicle = vehicle || {};
+  const { tenantId } = useTenant();
   const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
   const defaultTabs = useMemo(
     () => [
@@ -97,6 +125,16 @@ export default function VehicleDetailsDrawer({
 
   const fallbackDevice = safeVehicle?.device ?? {};
   const device = selectedDevice || fallbackDevice;
+  const clientIdForRequests =
+    safeVehicle?.client?.id ||
+    safeVehicle?.clientId ||
+    safeVehicle?.client_id ||
+    safeVehicle?.vehicle?.clientId ||
+    safeVehicle?.vehicle?.client?.id ||
+    device?.clientId ||
+    device?.client?.id ||
+    tenantId ||
+    null;
   const position = device?.position || safeVehicle?.position || null;
   const address = safeVehicle.address || position?.address || position?.formattedAddress || position?.fullAddress;
   const isPending = position?.geocodeStatus === "pending";
@@ -108,9 +146,15 @@ export default function VehicleDetailsDrawer({
   const lastUpdateLabel = latestPosition
     ? new Date(latestPosition).toLocaleString()
     : safeVehicle.lastSeen || "Sem última posição";
-  const vehicleId = safeVehicle?.id ?? safeVehicle?.vehicleId ?? null;
-  const deviceIdForReports =
-    device?.traccarId || device?.id || device?.deviceId || safeVehicle?.principalDeviceId || null;
+  const vehicleId =
+    safeVehicle?.vehicle?.id ??
+    safeVehicle?.id ??
+    safeVehicle?.vehicleId ??
+    safeVehicle?.vehicle_id ??
+    safeVehicle?.device?.vehicleId ??
+    device?.vehicleId ??
+    device?.vehicle?.id ??
+    null;
   const vehicleBrand = safeVehicle?.brand || safeVehicle?.marca || safeVehicle?.make || null;
   const vehicleModel = safeVehicle?.model || safeVehicle?.modelo || null;
   const vehicleYear =
@@ -120,6 +164,10 @@ export default function VehicleDetailsDrawer({
     safeVehicle?.manufacturingYear ||
     null;
   const vehicleSummary = formatVehicleSummary(vehicleBrand, vehicleModel, vehicleYear);
+
+  const [reportDeviceId, setReportDeviceId] = useState(null);
+  const [reportDeviceLoading, setReportDeviceLoading] = useState(false);
+  const [reportDeviceError, setReportDeviceError] = useState(null);
 
   const defaultRange = useMemo(() => buildDateRange(24), []);
   const [tripsRange, setTripsRange] = useState(() => ({
@@ -145,12 +193,37 @@ export default function VehicleDetailsDrawer({
     }),
     [tripsRange.from, tripsRange.to],
   );
-  const { trips, loading: tripsLoading, error: tripsError } = useTrips({
+  const deviceIdForReports = useMemo(() => {
+    return (
+      reportDeviceId ||
+      resolveTraccarDeviceId(device) ||
+      resolveTraccarDeviceId({ id: safeVehicle?.principalDeviceId }) ||
+      resolveTraccarDeviceId({ id: safeVehicle?.deviceId }) ||
+      resolveTraccarDeviceId(devices?.[0]) ||
+      null
+    );
+  }, [
+    device,
+    devices,
+    reportDeviceId,
+    safeVehicle?.deviceId,
+    safeVehicle?.principalDeviceId,
+  ]);
+
+  const {
+    trips,
+    loading: tripsLoading,
+    error: tripsError,
+    fetchedAt: tripsFetchedAt,
+    refresh: refreshTrips,
+  } = useTrips({
     deviceId: deviceIdForReports,
+    vehicleId: vehicleId || undefined,
+    clientId: clientIdForRequests || undefined,
     from: tripsQuery.from,
     to: tripsQuery.to,
     limit: 10,
-    enabled: Boolean(deviceIdForReports),
+    enabled: Boolean(deviceIdForReports || vehicleId),
   });
   const eventsQuery = useMemo(
     () => ({
@@ -205,6 +278,8 @@ export default function VehicleDetailsDrawer({
 
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState(null);
+  const [eventsFetchedAt, setEventsFetchedAt] = useState(null);
   const [eventTypeFilter, setEventTypeFilter] = useState("all");
   const [commands, setCommands] = useState([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
@@ -221,6 +296,8 @@ export default function VehicleDetailsDrawer({
   const [itineraryList, setItineraryList] = useState([]);
   const [itineraryListLoading, setItineraryListLoading] = useState(false);
   const [itineraryActionLoading, setItineraryActionLoading] = useState(null);
+  const [itineraryActionType, setItineraryActionType] = useState(null);
+  const [itineraryActionFeedback, setItineraryActionFeedback] = useState(null);
   const [itineraryQuery, setItineraryQuery] = useState("");
   const [alertStatus, setAlertStatus] = useState("pending");
   const [handlingDrafts, setHandlingDrafts] = useState({});
@@ -231,6 +308,11 @@ export default function VehicleDetailsDrawer({
   const [commandOptions, setCommandOptions] = useState([]);
   const [commandOptionsLoading, setCommandOptionsLoading] = useState(false);
   const [commandOptionsError, setCommandOptionsError] = useState(null);
+  const [commandOptionsNotice, setCommandOptionsNotice] = useState(null);
+  const [commandDevice, setCommandDevice] = useState(null);
+  const [commandDeviceLoading, setCommandDeviceLoading] = useState(false);
+  const [commandDeviceError, setCommandDeviceError] = useState(null);
+  const [commandDeviceChecked, setCommandDeviceChecked] = useState(false);
   const [selectedCommandKey, setSelectedCommandKey] = useState("");
   const [commandParams, setCommandParams] = useState({});
   const [commandSending, setCommandSending] = useState(false);
@@ -244,6 +326,31 @@ export default function VehicleDetailsDrawer({
     () => filteredCommandOptions.find((command) => getCommandKey(command) === selectedCommandKey) || null,
     [filteredCommandOptions, selectedCommandKey],
   );
+
+  const resolvedCommandProtocol = useMemo(() => {
+    const candidates = [
+      device?.protocol,
+      device?.deviceProtocol,
+      device?.attributes?.protocol,
+      device?.attributes?.deviceProtocol,
+      device?.attributes?.device_protocol,
+      position?.protocol,
+      position?.attributes?.protocol,
+      safeVehicle?.attributes?.protocol,
+      safeVehicle?.attributes?.deviceProtocol,
+      safeVehicle?.vehicle?.protocol,
+      commandDevice?.protocol,
+    ];
+    const match = candidates.find((value) => value != null && String(value).trim());
+    return match ? String(match).trim() : "";
+  }, [commandDevice?.protocol, device, position, safeVehicle]);
+
+  const commandDeviceId = useMemo(
+    () => resolveTraccarDeviceId(commandDevice || device),
+    [commandDevice, device],
+  );
+
+  const protocolChecked = Boolean(resolvedCommandProtocol) || commandDeviceChecked;
 
   useEffect(() => {
     setCommandParams({});
@@ -270,42 +377,64 @@ export default function VehicleDetailsDrawer({
     [vehicleAlerts],
   );
 
-  useEffect(() => {
+  const eventsRequestRef = useRef(0);
+  const loadEvents = useCallback(async () => {
+    const requestId = eventsRequestRef.current + 1;
+    eventsRequestRef.current = requestId;
     if (!deviceIdForReports) {
-      setEvents([]);
+      if (eventsRequestRef.current === requestId) {
+        setEvents([]);
+        setEventsError(new Error("Dispositivo inválido para gerar eventos."));
+        setEventsFetchedAt(null);
+        setEventsLoading(false);
+      }
       return;
     }
-    let isActive = true;
     setEventsLoading(true);
+    setEventsError(null);
     const from = eventsQuery.from || reportRange.from;
     const to = eventsQuery.to || reportRange.to;
-    safeApi
-      .get(API_ROUTES.events, {
-        params: { deviceIds: [deviceIdForReports], from, to, limit: 12 },
-      })
-      .then(({ data, error }) => {
-        if (!isActive) return;
-        if (error) {
-          setEvents([]);
-          return;
-        }
-        const list = Array.isArray(data?.events)
-          ? data.events
-          : Array.isArray(data?.data?.events)
+    try {
+      const { data, error } = await safeApi.get(API_ROUTES.events, {
+        params: {
+          deviceIds: [deviceIdForReports],
+          from,
+          to,
+          limit: 12,
+          ...(clientIdForRequests ? { clientId: clientIdForRequests } : {}),
+        },
+      });
+      if (eventsRequestRef.current !== requestId) return;
+      if (error) {
+        console.warn("[VehicleDetailsDrawer] Falha ao carregar eventos", error);
+        setEvents([]);
+        setEventsError(new Error(resolveApiErrorMessage(error, "Erro ao carregar eventos")));
+        setEventsFetchedAt(null);
+        return;
+      }
+      const list = Array.isArray(data?.events)
+        ? data.events
+        : Array.isArray(data?.data?.events)
           ? data.data.events
           : [];
-        setEvents(list.slice(0, 8));
-      })
-      .catch(() => {
-        if (isActive) setEvents([]);
-      })
-      .finally(() => {
-        if (isActive) setEventsLoading(false);
-      });
-    return () => {
-      isActive = false;
-    };
-  }, [deviceIdForReports, eventsQuery.from, eventsQuery.to, reportRange.from, reportRange.to]);
+      setEvents(list.slice(0, 8));
+      setEventsFetchedAt(new Date());
+    } catch (_error) {
+      if (eventsRequestRef.current !== requestId) return;
+      console.warn("[VehicleDetailsDrawer] Falha ao carregar eventos", _error);
+      setEvents([]);
+      setEventsError(new Error(resolveApiErrorMessage(_error, "Erro ao carregar eventos")));
+      setEventsFetchedAt(null);
+    } finally {
+      if (eventsRequestRef.current === requestId) {
+        setEventsLoading(false);
+      }
+    }
+  }, [clientIdForRequests, deviceIdForReports, eventsQuery.from, eventsQuery.to, reportRange.from, reportRange.to]);
+
+  useEffect(() => {
+    void loadEvents();
+  }, [loadEvents]);
 
   useEffect(() => {
     void fetchCommandsHistory();
@@ -378,69 +507,175 @@ export default function VehicleDetailsDrawer({
     void fetchItineraryHistory();
   }, [fetchItineraryHistory]);
 
-  useEffect(() => {
-    if (!safeVehicle?.client?.id && !safeVehicle?.clientId && !safeVehicle?.client_id) {
-      setItineraryList([]);
-      return;
-    }
-    let isActive = true;
+  const fetchItineraryList = useCallback(async () => {
     setItineraryListLoading(true);
+    try {
+      const { data, error } = await safeApi.get(API_ROUTES.itineraries, {
+        params: clientIdForRequests ? { clientId: clientIdForRequests } : undefined,
+      });
+      if (error) {
+        setItineraryList([]);
+        return;
+      }
+      const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+      setItineraryList(list);
+    } catch (_error) {
+      setItineraryList([]);
+    } finally {
+      setItineraryListLoading(false);
+    }
+  }, [clientIdForRequests]);
+
+  useEffect(() => {
+    void fetchItineraryList();
+  }, [fetchItineraryList]);
+
+  useEffect(() => {
+    setItineraryActionFeedback(null);
+  }, [vehicleId]);
+
+  useEffect(() => {
+    setReportDeviceId(null);
+    setReportDeviceError(null);
+  }, [vehicleId]);
+
+  useEffect(() => {
+    if (deviceIdForReports || reportDeviceLoading) return;
+    if (!vehicleId) return;
+    let isActive = true;
+    setReportDeviceLoading(true);
+    setReportDeviceError(null);
     safeApi
-      .get(API_ROUTES.itineraries, {
-        params: {
-          clientId: safeVehicle?.client?.id || safeVehicle?.clientId || safeVehicle?.client_id || undefined,
-        },
+      .get(API_ROUTES.core.vehicleTraccarDevice(vehicleId), {
+        params: clientIdForRequests ? { clientId: clientIdForRequests } : undefined,
       })
       .then(({ data, error }) => {
         if (!isActive) return;
-        if (error) {
-          setItineraryList([]);
-          return;
+        if (error) throw error;
+        if (data?.ok === false || data?.error) {
+          throw new Error(data?.message || "Erro ao buscar device no Traccar");
         }
-        const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-        setItineraryList(list);
+        const resolvedId = resolveTraccarDeviceId(data?.device || data);
+        if (!resolvedId) {
+          throw new Error("Dispositivo sem traccarId");
+        }
+        setReportDeviceId(resolvedId);
       })
-      .catch(() => {
-        if (isActive) setItineraryList([]);
+      .catch((error) => {
+        if (!isActive) return;
+        setReportDeviceId(null);
+        setReportDeviceError(error instanceof Error ? error : new Error("Erro ao buscar device no Traccar"));
       })
       .finally(() => {
-        if (isActive) setItineraryListLoading(false);
+        if (isActive) setReportDeviceLoading(false);
       });
     return () => {
       isActive = false;
     };
-  }, [safeVehicle?.client?.id, safeVehicle?.clientId, safeVehicle?.client_id]);
+  }, [clientIdForRequests, deviceIdForReports, reportDeviceLoading, vehicleId]);
+
+  useEffect(() => {
+    setCommandDevice(null);
+    setCommandDeviceError(null);
+    setCommandDeviceChecked(false);
+  }, [vehicleId]);
 
   useEffect(() => {
     const shouldLoadCommands = commandModalOpen || activeTab === "commands";
     if (!shouldLoadCommands) return;
-    if (!device?.protocol) {
-      setCommandOptions([]);
-      setCommandOptionsError(new Error("Dispositivo sem protocolo configurado."));
+    if (resolvedCommandProtocol) {
+      setCommandDeviceChecked(true);
+      return;
+    }
+    if (commandDeviceChecked || commandDeviceLoading) return;
+    if (!vehicleId) {
+      setCommandDeviceChecked(true);
       return;
     }
     let isActive = true;
+    setCommandDeviceLoading(true);
+    setCommandDeviceError(null);
+    safeApi
+      .get(API_ROUTES.core.vehicleTraccarDevice(vehicleId), {
+        params: clientIdForRequests ? { clientId: clientIdForRequests } : undefined,
+      })
+      .then(({ data, error }) => {
+        if (!isActive) return;
+        if (error) {
+          throw error;
+        }
+        if (data?.ok === false || data?.error) {
+          throw new Error(data?.message || "Erro ao buscar device no Traccar");
+        }
+        const resolved = data?.device || null;
+        setCommandDevice(resolved);
+        setCommandDeviceChecked(true);
+      })
+      .catch((error) => {
+        if (!isActive) return;
+        setCommandDevice(null);
+        setCommandDeviceError(error instanceof Error ? error : new Error("Erro ao buscar device no Traccar"));
+        setCommandDeviceChecked(true);
+      })
+      .finally(() => {
+        if (isActive) setCommandDeviceLoading(false);
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [
+    activeTab,
+    clientIdForRequests,
+    commandDeviceChecked,
+    commandDeviceLoading,
+    commandModalOpen,
+    resolvedCommandProtocol,
+    vehicleId,
+  ]);
+
+  useEffect(() => {
+    const shouldLoadCommands = commandModalOpen || activeTab === "commands";
+    if (!shouldLoadCommands) return;
+    let isActive = true;
+    const deviceProtocol = resolvedCommandProtocol ? String(resolvedCommandProtocol).trim() : "";
+    const hasProtocol = Boolean(deviceProtocol);
+    const deviceTraccarId = commandDeviceId;
     const load = async () => {
       setCommandOptionsLoading(true);
       setCommandOptionsError(null);
+      setCommandOptionsNotice(null);
       try {
         const [protocolResponse, customResponse] = await Promise.all([
-          safeApi.get(API_ROUTES.protocolCommands(device.protocol)),
+          hasProtocol ? safeApi.get(API_ROUTES.protocolCommands(deviceProtocol)) : Promise.resolve({ data: { commands: [] } }),
           safeApi.get(API_ROUTES.commandsCustom, {
             params: {
-              deviceId: device?.traccarId || device?.id || undefined,
-              protocol: device?.protocol || undefined,
-              clientId: safeVehicle?.client?.id || safeVehicle?.clientId || undefined,
+              ...(deviceTraccarId ? { deviceId: deviceTraccarId } : {}),
+              protocol: hasProtocol ? deviceProtocol : undefined,
+              clientId: clientIdForRequests || undefined,
             },
           }),
         ]);
         if (protocolResponse?.error) throw protocolResponse.error;
         if (customResponse?.error) throw customResponse.error;
+        if (customResponse?.data?.error?.message) {
+          throw new Error(customResponse.data.error.message);
+        }
         if (!isActive) return;
         const protocolCommands = Array.isArray(protocolResponse?.data?.commands) ? protocolResponse.data.commands : [];
         const customCommands = Array.isArray(customResponse?.data?.data) ? customResponse.data.data : [];
-        const merged = mergeCommands(protocolCommands, customCommands, { deviceProtocol: device.protocol });
+        const merged = mergeCommands(protocolCommands, customCommands, { deviceProtocol: hasProtocol ? deviceProtocol : null });
         setCommandOptions(merged);
+        if (!hasProtocol && merged.length === 0) {
+          if (!protocolChecked) {
+            setCommandOptionsNotice("Identificando protocolo do dispositivo...");
+          } else {
+            setCommandOptionsNotice(
+              commandDeviceError
+                ? "Não foi possível identificar o protocolo do dispositivo."
+                : "Dispositivo sem protocolo configurado. Configure o protocolo para liberar comandos padrão.",
+            );
+          }
+        }
       } catch (error) {
         if (!isActive) return;
         setCommandOptions([]);
@@ -455,12 +690,12 @@ export default function VehicleDetailsDrawer({
     };
   }, [
     activeTab,
+    clientIdForRequests,
+    commandDeviceError,
+    commandDeviceId,
     commandModalOpen,
-    device?.protocol,
-    device?.traccarId,
-    device?.id,
-    safeVehicle?.client?.id,
-    safeVehicle?.clientId,
+    protocolChecked,
+    resolvedCommandProtocol,
   ]);
 
   const itinerarySummary = useMemo(() => {
@@ -596,12 +831,12 @@ export default function VehicleDetailsDrawer({
       setCommandSendError("Veículo inválido para envio de comando.");
       return;
     }
-    const traccarId = Number(device?.traccarId ?? device?.id);
-    if (!Number.isFinite(traccarId)) {
+    const traccarId = resolveTraccarDeviceId(commandDevice || device);
+    if (!traccarId) {
       setCommandSendError("Equipamento sem Traccar ID válido.");
       return;
     }
-    if (selectedCommand.kind !== "custom" && !device?.protocol) {
+    if (selectedCommand.kind !== "custom" && !resolvedCommandProtocol) {
       setCommandSendError("Dispositivo sem protocolo definido.");
       return;
     }
@@ -616,7 +851,7 @@ export default function VehicleDetailsDrawer({
       const payloadBase = {
         vehicleId,
         deviceId: traccarId,
-        ...(safeVehicle?.client?.id ? { clientId: safeVehicle.client.id } : {}),
+        ...(clientIdForRequests ? { clientId: clientIdForRequests } : {}),
       };
       let response = null;
       if (selectedCommand.kind === "custom") {
@@ -627,7 +862,7 @@ export default function VehicleDetailsDrawer({
       } else {
         response = await safeApi.post(API_ROUTES.commandsSend, {
           ...payloadBase,
-          protocol: device.protocol,
+          protocol: resolvedCommandProtocol,
           commandKey,
           commandName: selectedCommand.name || commandKey,
           params: commandParams || {},
@@ -648,55 +883,94 @@ export default function VehicleDetailsDrawer({
     }
   }, [
     commandParams,
-    device?.id,
-    device?.protocol,
-    device?.traccarId,
+    commandDevice,
+    resolvedCommandProtocol,
+    device,
+    clientIdForRequests,
     fetchCommandsHistory,
-    safeVehicle?.client?.id,
     selectedCommand,
     vehicleId,
   ]);
 
   const handleEmbarkItinerary = useCallback(
-    async (itineraryId) => {
-      if (!vehicleId || !itineraryId) return;
+    async (itineraryId, actionType = "embark") => {
+      if (!vehicleId || !itineraryId) {
+        setItineraryActionFeedback({
+          type: "error",
+          message: "Veículo inválido para embarcar itinerário.",
+        });
+        return;
+      }
       setItineraryActionLoading(itineraryId);
+      setItineraryActionType(actionType);
+      setItineraryActionFeedback(null);
       try {
         const response = await safeApi.post(`${API_ROUTES.itineraries}/${itineraryId}/embark`, {
           vehicleIds: [vehicleId],
-          clientId: safeVehicle?.client?.id || safeVehicle?.clientId || undefined,
+          clientId: clientIdForRequests || undefined,
         });
         if (response?.error) throw response.error;
+        setItineraryActionFeedback({
+          type: "success",
+          message: actionType === "update" ? "Atualização do itinerário solicitada." : "Embarque solicitado com sucesso.",
+        });
       } catch (error) {
-        console.warn("Falha ao embarcar itinerário", error);
+        setItineraryActionFeedback({
+          type: "error",
+          message: resolveApiErrorMessage(
+            error,
+            actionType === "update"
+              ? "Não foi possível atualizar o itinerário. Tente novamente."
+              : "Não foi possível embarcar. Verifique permissões ou tente novamente.",
+          ),
+        });
       } finally {
         setItineraryActionLoading(null);
+        setItineraryActionType(null);
         await fetchItineraryStatus();
         await fetchItineraryHistory();
+        await fetchItineraryList();
       }
     },
-    [fetchItineraryHistory, fetchItineraryStatus, safeVehicle?.client?.id, safeVehicle?.clientId, vehicleId],
+    [clientIdForRequests, fetchItineraryHistory, fetchItineraryList, fetchItineraryStatus, vehicleId],
   );
 
   const handleDisembarkItinerary = useCallback(
     async (itineraryId) => {
-      if (!vehicleId || !itineraryId) return;
+      if (!vehicleId || !itineraryId) {
+        setItineraryActionFeedback({
+          type: "error",
+          message: "Veículo inválido para desembarcar itinerário.",
+        });
+        return;
+      }
       setItineraryActionLoading(itineraryId);
+      setItineraryActionType("disembark");
+      setItineraryActionFeedback(null);
       try {
         const response = await safeApi.post(API_ROUTES.itineraryDisembark(itineraryId), {
           vehicleIds: [vehicleId],
-          clientId: safeVehicle?.client?.id || safeVehicle?.clientId || undefined,
+          clientId: clientIdForRequests || undefined,
         });
         if (response?.error) throw response.error;
+        setItineraryActionFeedback({
+          type: "success",
+          message: "Desembarque solicitado com sucesso.",
+        });
       } catch (error) {
-        console.warn("Falha ao desembarcar itinerário", error);
+        setItineraryActionFeedback({
+          type: "error",
+          message: resolveApiErrorMessage(error, "Não foi possível desembarcar. Verifique permissões ou tente novamente."),
+        });
       } finally {
         setItineraryActionLoading(null);
+        setItineraryActionType(null);
         await fetchItineraryStatus();
         await fetchItineraryHistory();
+        await fetchItineraryList();
       }
     },
-    [fetchItineraryHistory, fetchItineraryStatus, safeVehicle?.client?.id, safeVehicle?.clientId, vehicleId],
+    [clientIdForRequests, fetchItineraryHistory, fetchItineraryList, fetchItineraryStatus, vehicleId],
   );
 
   const sensorCards = useMemo(() => {
@@ -792,16 +1066,26 @@ export default function VehicleDetailsDrawer({
         <Section title="Trajetos / Replay">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Replay compacto dos últimos trajetos do veículo.</p>
-            <Link
-              to={`/trips?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
-                tripsQuery.from || reportRange.from,
-              )}&to=${encodeURIComponent(tripsQuery.to || reportRange.to)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
-            >
-              Abrir em Trajetos
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => refreshTrips?.()}
+                disabled={tripsLoading || !(deviceIdForReports || vehicleId)}
+                className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition hover:border-white/30 disabled:cursor-not-allowed disabled:text-white/30"
+              >
+                {tripsLoading ? "Gerando..." : "Gerar"}
+              </button>
+              <Link
+                to={`/trips?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
+                  tripsQuery.from || reportRange.from,
+                )}&to=${encodeURIComponent(tripsQuery.to || reportRange.to)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
+              >
+                Abrir em Trajetos
+              </Link>
+            </div>
           </div>
 
           <div className="mt-3 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 lg:grid-cols-[1.4fr_repeat(2,1fr)]">
@@ -829,8 +1113,12 @@ export default function VehicleDetailsDrawer({
             </label>
           </div>
 
+          {reportDeviceLoading && <p className="text-xs text-white/50">Identificando dispositivo no Traccar...</p>}
+          {reportDeviceError && <p className="text-xs text-red-300">{reportDeviceError.message}</p>}
           {tripsLoading && <p className="text-xs text-white/60">Carregando trajetos...</p>}
-          {tripsError && <p className="text-xs text-red-300">Erro ao carregar trajetos.</p>}
+          {tripsError && (
+            <p className="text-xs text-red-300">{tripsError.message || "Erro ao carregar trajetos."}</p>
+          )}
           <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
             <table className="min-w-full text-xs text-white/70">
               <thead className="bg-white/5 text-[10px] uppercase tracking-[0.12em] text-white/50">
@@ -845,7 +1133,7 @@ export default function VehicleDetailsDrawer({
                 </tr>
               </thead>
               <tbody>
-                {!tripsLoading && trips.length === 0 && (
+                {!tripsLoading && !tripsError && tripsFetchedAt && trips.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-3 py-4 text-center text-white/50">
                       Nenhum trajeto encontrado no período. Ajuste as datas e tente novamente.
@@ -873,8 +1161,8 @@ export default function VehicleDetailsDrawer({
                           ? `${Number(trip.averageSpeed ?? trip.avgSpeed ?? trip.speed).toFixed(0)} km/h`
                           : "—"}
                       </td>
-                      <td className="px-3 py-2 text-white/60">{formatDisplayValue(trip.startAddress || trip.startLocation)}</td>
-                      <td className="px-3 py-2 text-white/60">{formatDisplayValue(trip.endAddress || trip.endLocation)}</td>
+                      <td className="px-3 py-2 text-white/50">{formatDisplayValue(trip.startAddress || trip.startLocation)}</td>
+                      <td className="px-3 py-2 text-white/50">{formatDisplayValue(trip.endAddress || trip.endLocation)}</td>
                     </tr>
                   );
                 })}
@@ -905,17 +1193,17 @@ export default function VehicleDetailsDrawer({
                   className={`rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] ${
                     tripFollow
                       ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
-                      : "border-white/10 bg-white/10 text-white/60"
+                      : "border-white/10 bg-white/10 text-white/70"
                   }`}
                 >
                   {tripFollow ? "Seguindo veículo" : "Seguir veículo"}
                 </button>
-                <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-2 py-2 text-[11px] text-white/60">
+                <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-2 py-2 text-[11px] text-white/70">
                   <span>Velocidade</span>
                   <select
                     value={tripSpeed}
                     onChange={(event) => setTripSpeed(Number(event.target.value))}
-                    className="rounded-md border border-white/10 bg-[#0f141c] px-2 py-1 text-[11px] text-white"
+                    className="rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white"
                   >
                     {[1, 4, 8, 16].map((value) => (
                       <option key={value} value={value}>
@@ -1075,17 +1363,29 @@ export default function VehicleDetailsDrawer({
         <Section title="Eventos">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Eventos recentes vinculados ao veículo.</p>
-            <Link
-              to={`/events?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
-                eventsQuery.from || reportRange.from,
-              )}&to=${encodeURIComponent(eventsQuery.to || reportRange.to)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
-            >
-              Abrir em Eventos
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => loadEvents?.()}
+                disabled={eventsLoading || !deviceIdForReports}
+                className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition hover:border-white/30 disabled:cursor-not-allowed disabled:text-white/30"
+              >
+                {eventsLoading ? "Gerando..." : "Gerar"}
+              </button>
+              <Link
+                to={`/events?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
+                  eventsQuery.from || reportRange.from,
+                )}&to=${encodeURIComponent(eventsQuery.to || reportRange.to)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
+              >
+                Abrir em Eventos
+              </Link>
+            </div>
           </div>
+          {reportDeviceLoading && <p className="text-xs text-white/50">Identificando dispositivo no Traccar...</p>}
+          {reportDeviceError && <p className="text-xs text-red-300">{reportDeviceError.message}</p>}
           <div className="mt-3 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 sm:grid-cols-3">
             <label className="space-y-1 text-[11px] text-white/60">
               <span>De</span>
@@ -1123,6 +1423,7 @@ export default function VehicleDetailsDrawer({
           </div>
 
           {eventsLoading && <p className="text-xs text-white/60">Carregando eventos...</p>}
+          {eventsError && <p className="text-xs text-red-300">{eventsError.message}</p>}
           <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
             <table className="min-w-full text-xs text-white/70">
               <thead className="bg-white/5 text-[10px] uppercase tracking-[0.12em] text-white/50">
@@ -1135,7 +1436,7 @@ export default function VehicleDetailsDrawer({
                 </tr>
               </thead>
               <tbody>
-                {!eventsLoading && filteredEvents.length === 0 && (
+                {!eventsLoading && !eventsError && eventsFetchedAt && filteredEvents.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-3 py-4 text-center text-white/50">
                       Nenhum evento no período selecionado. Ajuste o filtro para visualizar outros eventos.
@@ -1159,28 +1460,6 @@ export default function VehicleDetailsDrawer({
               </tbody>
             </table>
           </div>
-          <CommandSendModal
-            isOpen={commandModalOpen}
-            onClose={() => setCommandModalOpen(false)}
-            commands={filteredCommandOptions}
-            loading={commandOptionsLoading}
-            error={commandOptionsError}
-            search={commandSearch}
-            onSearchChange={setCommandSearch}
-            selectedKey={selectedCommandKey}
-            onSelectCommand={setSelectedCommandKey}
-            selectedCommand={selectedCommand}
-            params={commandParams}
-            onParamChange={(key, value) =>
-              setCommandParams((current) => ({
-                ...current,
-                [key]: value,
-              }))
-            }
-            onSubmit={handleSendCommand}
-            sending={commandSending}
-            sendError={commandSendError}
-          />
         </Section>
       );
     }
@@ -1272,6 +1551,9 @@ export default function VehicleDetailsDrawer({
             {!commandOptionsLoading && commandOptionsError && (
               <p className="mt-2 text-xs text-red-200/80">{commandOptionsError.message}</p>
             )}
+            {!commandOptionsLoading && !commandOptionsError && commandOptionsNotice && (
+              <p className="mt-2 text-xs text-amber-200/80">{commandOptionsNotice}</p>
+            )}
             {!commandOptionsLoading && !commandOptionsError && filteredCommandOptions.length === 0 && (
               <p className="mt-2 text-xs text-white/50">Nenhum comando disponível para este equipamento.</p>
             )}
@@ -1358,6 +1640,15 @@ export default function VehicleDetailsDrawer({
               />
             </label>
           </div>
+          {itineraryActionFeedback && (
+            <p
+              className={`mt-2 text-xs ${
+                itineraryActionFeedback.type === "error" ? "text-red-200/80" : "text-emerald-200/80"
+              }`}
+            >
+              {itineraryActionFeedback.message}
+            </p>
+          )}
           {itineraryLoading && <p className="text-xs text-white/60">Carregando itinerário...</p>}
           {itineraryStatus && (
             <div className="mt-2 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 sm:grid-cols-2">
@@ -1391,7 +1682,12 @@ export default function VehicleDetailsDrawer({
                   "—";
                 const isPending = statusLabel === "PENDENTE";
                 const isConcluded = statusLabel === "CONCLUÍDO";
-                const isLoading = itineraryActionLoading === itinerary.id;
+                const isLoading =
+                  String(itineraryActionLoading ?? "") === String(itinerary.id ?? "");
+                const actionType = isLoading ? itineraryActionType : null;
+                const updateLabel = isLoading && actionType === "update" ? "Atualizando..." : "Atualizar";
+                const disembarkLabel = isLoading && actionType === "disembark" ? "Desembarcando..." : "Desembarcar";
+                const embarkLabel = isLoading && actionType === "embark" ? "Embarcando..." : "Embarcar";
                 return (
                   <div key={itinerary.id} className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1416,10 +1712,10 @@ export default function VehicleDetailsDrawer({
                             <button
                               type="button"
                               disabled={isLoading}
-                              onClick={() => handleEmbarkItinerary(itinerary.id)}
+                              onClick={() => handleEmbarkItinerary(itinerary.id, "update")}
                               className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70 hover:border-white/30"
                             >
-                              Atualizar
+                              {updateLabel}
                             </button>
                             <button
                               type="button"
@@ -1427,7 +1723,7 @@ export default function VehicleDetailsDrawer({
                               onClick={() => handleDisembarkItinerary(itinerary.id)}
                               className="rounded-md border border-red-400/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-red-200 hover:border-red-300/70"
                             >
-                              Desembarcar
+                              {disembarkLabel}
                             </button>
                           </>
                         ) : (
@@ -1437,7 +1733,7 @@ export default function VehicleDetailsDrawer({
                             onClick={() => handleEmbarkItinerary(itinerary.id)}
                             className="rounded-md border border-primary/60 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white hover:border-primary/80"
                           >
-                            Embarcar
+                            {embarkLabel}
                           </button>
                         )}
                       </div>
@@ -1662,12 +1958,13 @@ export default function VehicleDetailsDrawer({
         )}
       </div>
 
-      <div className="flex items-center gap-2 overflow-x-auto border-b border-white/5 px-5 py-3 text-[11px] uppercase tracking-[0.1em] text-white/60">
+      <div className="relative z-10 flex items-center gap-2 overflow-x-auto border-b border-white/5 px-5 py-3 text-[11px] uppercase tracking-[0.1em] text-white/60 pointer-events-auto">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
+            onPointerDown={() => setActiveTab(tab.id)}
             className={`rounded-md px-3 py-2 transition ${
               activeTab === tab.id ? "bg-primary/20 text-white border border-primary/40" : "border border-transparent hover:border-white/20"
             }`}
@@ -1678,6 +1975,28 @@ export default function VehicleDetailsDrawer({
       </div>
 
       <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-5 text-sm text-white/80 scroll-smooth">{renderContent()}</div>
+      <CommandSendModal
+        isOpen={commandModalOpen}
+        onClose={() => setCommandModalOpen(false)}
+        commands={filteredCommandOptions}
+        loading={commandOptionsLoading}
+        error={commandOptionsError}
+        search={commandSearch}
+        onSearchChange={setCommandSearch}
+        selectedKey={selectedCommandKey}
+        onSelectCommand={setSelectedCommandKey}
+        selectedCommand={selectedCommand}
+        params={commandParams}
+        onParamChange={(key, value) =>
+          setCommandParams((current) => ({
+            ...current,
+            [key]: value,
+          }))
+        }
+        onSubmit={handleSendCommand}
+        sending={commandSending}
+        sendError={commandSendError}
+      />
     </div>
   );
 }
@@ -1730,7 +2049,7 @@ function SensorCard({ sensor }) {
         </div>
       </div>
       {sensor.updatedAt ? (
-        <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/40">
+        <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/50">
           Última atualização • {sensor.updatedAt}
         </p>
       ) : null}
@@ -1919,6 +2238,16 @@ function CommandSendModal({
 }) {
   if (!isOpen) return null;
   const hasCommands = Array.isArray(commands) && commands.length > 0;
+  const selectRef = useRef(null);
+  const confirmRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const target = selectedKey ? confirmRef.current : selectRef.current;
+    if (target && typeof target.focus === "function") {
+      target.focus();
+    }
+  }, [isOpen, selectedKey]);
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 px-4 py-6">
       <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-[#0f141c] p-5 text-white shadow-2xl">
@@ -1950,6 +2279,7 @@ function CommandSendModal({
           <label className="space-y-1 text-[11px] text-white/60">
             <span>Comando</span>
             <select
+              ref={selectRef}
               value={selectedKey || ""}
               onChange={(event) => onSelectCommand(event.target.value)}
               className="w-full rounded-md border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
@@ -2029,6 +2359,7 @@ function CommandSendModal({
             type="button"
             onClick={onSubmit}
             disabled={sending || !selectedKey}
+            ref={confirmRef}
             className={`rounded-lg border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] ${
               sending || !selectedKey
                 ? "border-white/10 bg-white/5 text-white/40"

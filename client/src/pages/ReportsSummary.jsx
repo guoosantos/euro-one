@@ -85,11 +85,7 @@ export default function ReportsSummary() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Resumo de utilização"
-        subtitle="Métricas agregadas de velocidade, distância e tempo em movimento."
-      />
+      <PageHeader />
       <section className="card space-y-4">
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
           <VehicleSelector className="text-sm md:col-span-2" />

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTenant } from "../tenant-context.jsx";
 
 const STORAGE_KEY = "userPrefs:monitoring";
 
@@ -72,15 +73,20 @@ function readStoredPreferences() {
 }
 
 export default function useUserPreferences() {
+  const { isAuthenticated, contextSwitching, contextSwitchKey, contextAbortSignal, user } = useTenant();
   const [preferences, setPreferences] = useState(() => readStoredPreferences());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const isMountedRef = useRef(true);
+  const forbiddenRef = useRef(false);
 
   useEffect(() => () => {
     isMountedRef.current = false;
   }, []);
+  useEffect(() => {
+    forbiddenRef.current = false;
+  }, [user?.id]);
 
   const persistLocally = useCallback((next) => {
     const storage = getLocalStorage();
@@ -103,6 +109,9 @@ export default function useUserPreferences() {
   }, []);
 
   const refresh = useCallback(async () => {
+    if (!isAuthenticated || contextSwitching || forbiddenRef.current) {
+      return readStoredPreferences();
+    }
     setLoading(true);
     setError(null);
 
@@ -112,7 +121,7 @@ export default function useUserPreferences() {
     }
 
     try {
-      const response = await api.get(API_ROUTES.userPreferences);
+      const response = await api.get(API_ROUTES.userPreferences, { signal: contextAbortSignal });
       const remotePreferences = normalisePreferences(response?.data?.preferences);
 
       if (isMountedRef.current) {
@@ -122,6 +131,10 @@ export default function useUserPreferences() {
 
       return remotePreferences;
     } catch (fetchError) {
+      const status = Number(fetchError?.status || fetchError?.response?.status);
+      if (status === 403) {
+        forbiddenRef.current = true;
+      }
       if (isMountedRef.current) {
         setError(fetchError);
       }
@@ -131,11 +144,12 @@ export default function useUserPreferences() {
         setLoading(false);
       }
     }
-  }, [persistLocally]);
+  }, [contextAbortSignal, contextSwitching, isAuthenticated, persistLocally]);
 
   useEffect(() => {
+    if (!isAuthenticated || contextSwitching) return;
     refresh();
-  }, [refresh]);
+  }, [contextSwitchKey, contextSwitching, isAuthenticated, refresh]);
 
   const savePreferences = useCallback(
     async (updates) => {

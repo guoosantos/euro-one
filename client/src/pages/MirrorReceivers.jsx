@@ -76,7 +76,7 @@ function formatPeriod(startAt, endAt) {
 }
 
 export default function MirrorReceivers() {
-  const { user, tenantId } = useTenant();
+  const { user, tenantId, tenantScope } = useTenant();
   const { getPermission } = usePermissions();
   const mirrorsPermission = getPermission({ menuKey: "admin", pageKey: "mirrors" });
   const [context, setContext] = useState(null);
@@ -108,7 +108,7 @@ export default function MirrorReceivers() {
     endAt: "",
   });
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const { vehicles } = useVehicles();
   const { groups } = useGroups({ params: resolvedClientId ? { clientId: resolvedClientId } : {} });
 
@@ -239,6 +239,7 @@ export default function MirrorReceivers() {
   const isOwnerMode = !isReceiverMode;
   const isReceiverEditing = isReceiverMode && Boolean(activeMirror);
   const showOwnerFilter = context?.mode === "target";
+  const ownersEmpty = isReceiverMode && Array.isArray(context?.owners) && context.owners.length === 0;
 
   const filteredMirrors = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -447,8 +448,6 @@ export default function MirrorReceivers() {
   return (
     <div className="space-y-6 text-white">
       <PageHeader
-        title="Espelhamento"
-        subtitle="Gerencie os espelhamentos ativos entre clientes."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -478,6 +477,11 @@ export default function MirrorReceivers() {
       {error && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error?.response?.data?.message || error.message}
+        </div>
+      )}
+      {ownersEmpty && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Usuário sem cliente de origem vinculado para espelhamento. Contate o administrador para associar um owner.
         </div>
       )}
 

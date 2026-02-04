@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoreApi } from "../coreApi.js";
 import { useTenant } from "../tenant-context.jsx";
 import { resolveMirrorClientParams } from "../mirror-params.js";
+import { usePermissionGate } from "../permissions/permission-gate.js";
 import { getDeviceKey, toDeviceKey } from "./useDevices.helpers.js";
 
 const vehiclesCache = new Map();
@@ -75,6 +76,8 @@ export function formatVehicleLabel(vehicle) {
 
 export function useVehicles({ includeUnlinked = false, accessible = true, enabled = true } = {}) {
   const { tenantId, mirrorContextMode, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
+  const canAccessVehicles = vehiclesPermission.hasAccess;
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const cacheKey = `${tenantId ?? "all"}:${mirrorContextMode ?? "self"}:${mirrorOwnerClientId ?? "none"}:${includeUnlinked ? "1" : "0"}:${accessible ? "1" : "0"}`;
   const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
@@ -82,7 +85,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
   const [error, setError] = useState(null);
 
   const fetchVehicles = useCallback(async ({ force = false } = {}) => {
-    if (!enabled) {
+    if (!enabled || !canAccessVehicles) {
       setLoading(false);
       setError(null);
       setVehicles([]);
@@ -103,7 +106,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
       if (accessible) {
         params.accessible = true;
       }
-      const response = await CoreApi.listVehicles(params);
+      const response = await CoreApi.listVehicles({ params });
       const list = Array.isArray(response) ? response : [];
       setVehicles((prev) => (compareVehicleEntries(prev, list) ? prev : list));
       const cached = vehiclesCache.get(cacheKey) || [];
@@ -141,7 +144,7 @@ export function useVehicles({ includeUnlinked = false, accessible = true, enable
     } finally {
       setLoading(false);
     }
-  }, [accessible, cacheKey, enabled, includeUnlinked, mirrorContextMode, mirrorOwnerClientId, tenantId]);
+  }, [accessible, cacheKey, canAccessVehicles, enabled, includeUnlinked, mirrorContextMode, mirrorOwnerClientId, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});

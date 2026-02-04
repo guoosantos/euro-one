@@ -142,12 +142,10 @@ export default function DeviceImport() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Importar rastreadores"
-        subtitle="Associe dispositivos já existentes no Traccar a um cliente do Euro One."
         right={
           <div className="flex gap-2">
             <Button onClick={handleSync} disabled={syncing || !resolveClientId()} aria-label="Sincronizar com o Traccar">
-              {syncing ? <RefreshCw size={14} className="animate-spin" /> : <DownloadCloud size={14} />} Sincronizar
+              {syncing ? <RefreshCw size={14} /> : <DownloadCloud size={14} />} Sincronizar
             </Button>
             <Button variant="outline" onClick={() => load()} disabled={loading || syncing} aria-label="Atualizar lista">
               <RefreshCw size={14} /> Atualizar

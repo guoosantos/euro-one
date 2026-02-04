@@ -4,6 +4,7 @@ import { afterEach, describe, it } from "node:test";
 
 import { errorHandler } from "../middleware/error-handler.js";
 import crmRoutes, { __resetCrmRouteMocks, __setCrmRouteMocks } from "../routes/crm.js";
+import { requestApp } from "./app-request.js";
 
 const user = { id: "user-1", role: "admin", clientId: "tenant-1" };
 
@@ -64,14 +65,13 @@ function buildApp() {
 }
 
 async function callApp(app, path, options = {}) {
-  const server = app.listen(0);
-  const url = new URL(path, `http://127.0.0.1:${server.address().port}`);
-  const response = await fetch(url, {
-    ...options,
+  const response = await requestApp(app, {
+    url: path,
+    method: options.method,
     headers: { "content-type": "application/json", ...(options.headers || {}) },
+    body: options.body,
   });
   const data = await response.json().catch(() => ({}));
-  server.close();
   return { status: response.status, data };
 }
 

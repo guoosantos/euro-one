@@ -764,7 +764,6 @@ export default function ReportsPositions() {
     <div className="flex h-full min-h-0 flex-col gap-6">
       <form onSubmit={handleGenerate} className="flex flex-col gap-4">
         <PageHeader
-          title="Relatório de posições"
           right={(
             <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
               <button

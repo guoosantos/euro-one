@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
-import { authorizePermission } from "../middleware/permissions.js";
+import { authorizePermission, invalidatePresentationCache } from "../middleware/permissions.js";
 import { createClient, deleteClient, getClientById, listClients, updateClient } from "../models/client.js";
 import { listDevices } from "../models/device.js";
 import { listModels } from "../models/model.js";
@@ -236,6 +236,7 @@ router.put(
       await ensureClientInScope(req.user, id);
     }
     const client = await updateClient(id, req.body || {});
+    invalidatePresentationCache(id);
     return res.json({ client });
   } catch (error) {
     return next(error);
@@ -252,6 +253,7 @@ router.delete(
   try {
     const { id } = req.params;
     deleteClient(id);
+    invalidatePresentationCache(id);
     deleteUsersByClientId(id);
     deleteGroupsByClientId(id);
     return res.status(204).send();

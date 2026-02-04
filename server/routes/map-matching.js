@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { config } from "../config.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 
@@ -256,7 +257,10 @@ async function requestOsrmRoute({ baseUrl, profile = "driving", points = [] }) {
 
 router.use(authenticate);
 
-router.post("/map-matching", async (req, res, next) => {
+router.post(
+  "/map-matching",
+  authorizePermission({ menuKey: "primary", pageKey: "trips" }),
+  async (req, res, next) => {
   try {
     const {
       points: rawPoints = [],
@@ -307,18 +311,32 @@ router.post("/map-matching", async (req, res, next) => {
     const tracepoints = Array(sampled.length).fill(null);
 
     for (const chunk of chunks) {
-      // eslint-disable-next-line no-await-in-loop
-      const response = await requestOsrmMatch({ baseUrl, profile, points: chunk.points });
-      const geometry = response?.matchings?.[0]?.geometry?.coordinates || [];
-      aggregatedGeometry = mergeGeometry(aggregatedGeometry, geometry);
-      const matchedTracepoints = response?.tracepoints || [];
-      matchedTracepoints.forEach((point, index) => {
-        const lat = Number(point?.location?.[1]);
-        const lng = Number(point?.location?.[0]);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const targetIndex = chunk.offset + index;
-        tracepoints[targetIndex] = { lat, lng, originalIndex: sampled[targetIndex]?.originalIndex ?? targetIndex };
-      });
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const response = await requestOsrmMatch({ baseUrl, profile, points: chunk.points });
+        const geometry = response?.matchings?.[0]?.geometry?.coordinates || [];
+        aggregatedGeometry = mergeGeometry(aggregatedGeometry, geometry);
+        const matchedTracepoints = response?.tracepoints || [];
+        matchedTracepoints.forEach((point, index) => {
+          const lat = Number(point?.location?.[1]);
+          const lng = Number(point?.location?.[0]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const targetIndex = chunk.offset + index;
+          tracepoints[targetIndex] = { lat, lng, originalIndex: sampled[targetIndex]?.originalIndex ?? targetIndex };
+        });
+      } catch (error) {
+        console.warn("[map-matching] Falha ao solicitar OSRM /match, usando passthrough.", {
+          message: error?.message || error,
+        });
+        const fallback = {
+          geometry: sampled,
+          tracepoints: sampled,
+          provider: "passthrough",
+          notice: "Falha ao solicitar OSRM. Rota original mantida.",
+        };
+        if (cacheKey) cache.set(cacheKey, fallback);
+        return res.json(fallback);
+      }
     }
 
     const geometry = aggregatedGeometry
@@ -339,9 +357,13 @@ router.post("/map-matching", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/map-route", async (req, res, next) => {
+router.post(
+  "/map-route",
+  authorizePermission({ menuKey: "primary", pageKey: "trips" }),
+  async (req, res, next) => {
   try {
     const {
       points: rawPoints = [],
@@ -374,7 +396,22 @@ router.post("/map-route", async (req, res, next) => {
       return res.json(fallback);
     }
 
-    const response = await requestOsrmRoute({ baseUrl, profile, points: endpoints });
+    let response;
+    try {
+      response = await requestOsrmRoute({ baseUrl, profile, points: endpoints });
+    } catch (error) {
+      console.warn("[map-matching] Falha ao solicitar OSRM /route, usando passthrough.", {
+        message: error?.message || error,
+      });
+      const fallback = {
+        geometry: endpoints,
+        provider: "passthrough",
+        notice: "Falha ao solicitar rota lógica. Mantendo rota original.",
+      };
+      if (cacheKey) routeCache.set(cacheKey, fallback);
+      return res.json(fallback);
+    }
+
     const route = response?.routes?.[0];
     const geometry = (route?.geometry?.coordinates || [])
       .map((pair) => ({ lng: Number(pair?.[0]), lat: Number(pair?.[1]) }))
@@ -392,6 +429,7 @@ router.post("/map-route", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 export default router;

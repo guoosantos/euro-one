@@ -15,8 +15,8 @@ test("resolveEventDescriptor aplica protocolo GT06 e IOTM", () => {
 
 test("resolveTelemetryDescriptor resolve IOs amigáveis e fallback numérico", () => {
   const friendly = resolveTelemetryDescriptor("io49156");
-  assert.equal(friendly?.labelPt, "Nome do script 1");
+  assert.equal(friendly?.labelPt, "Configuração");
 
   const fallback = resolveTelemetryDescriptor("99999");
-  assert.equal(fallback?.labelPt, "Sensor 99999");
+  assert.ok(!fallback);
 });

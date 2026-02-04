@@ -242,7 +242,7 @@ export default function MonitoringTable({
                     tabIndex={0}
                     onMouseDown={(event) => startResize(col.key, event)}
                     onClick={(event) => event.stopPropagation()}
-                    className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                    className="table-resize-handle ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
                     title={t("monitoring.resizeColumn")}
                   />
                 </div>

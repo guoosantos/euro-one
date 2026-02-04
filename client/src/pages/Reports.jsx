@@ -76,11 +76,7 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Relatórios de viagens"
-        subtitle="Selecione o veículo e o período para gerar relatórios detalhados."
-      />
+      <PageHeader />
       <section className="card space-y-4">
         <form onSubmit={handleGenerate} className="grid gap-4 md:grid-cols-4">
           <label className="text-sm md:col-span-2">

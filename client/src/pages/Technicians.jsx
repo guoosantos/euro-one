@@ -151,7 +151,7 @@ function buildEquipmentLabels(item) {
 
 export default function Technicians() {
   const navigate = useNavigate();
-  const { tenantId, tenants, hasAdminAccess, user } = useTenant();
+  const { tenantId, tenantScope, tenants, hasAdminAccess, user } = useTenant();
   const techniciansPermission = usePermissionGate({
     menuKey: "fleet",
     pageKey: "services",
@@ -191,8 +191,8 @@ export default function Technicians() {
   const addressSearchState = useAddressSearchState({ initialValue: "" });
 
   const resolvedClientId = hasAdminAccess
-    ? form.clientId || tenantId || tenants[0]?.id || ""
-    : tenantId || user?.clientId || "";
+    ? form.clientId || (tenantScope === "ALL" ? "" : tenantId || tenants[0]?.id || "")
+    : (tenantScope === "ALL" ? "" : tenantId || user?.clientId || "");
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -624,8 +624,6 @@ export default function Technicians() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Técnico"
-        subtitle="Cadastre e gerencie técnicos disponíveis para ordens de serviço."
         actions={
           <button
             type="button"

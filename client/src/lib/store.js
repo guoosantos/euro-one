@@ -17,15 +17,32 @@ function persistState(state) {
   try {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (state?.theme) {
+      window.localStorage.setItem("theme", state.theme);
+    }
   } catch (error) {
     console.warn("Failed to persist UI state", error);
   }
 }
 
+const storedState = loadState();
+const storedTheme =
+  typeof window !== "undefined"
+    ? window.localStorage.getItem("theme")
+    : null;
+const prefersDark =
+  typeof window !== "undefined" &&
+  window.matchMedia &&
+  window.matchMedia("(prefers-color-scheme: dark)").matches;
+const initialTheme =
+  (storedTheme === "dark" || storedTheme === "light" ? storedTheme : null) ??
+  storedState.theme ??
+  (prefersDark ? "dark" : "light");
+
 const initialState = {
   sidebarOpen: false,
   sidebarCollapsed: false,
-  theme: "dark",
+  theme: initialTheme,
   locale: "pt-BR",
   monitoringTopbarVisible: true,
   geofencesTopbarVisible: true,
@@ -33,7 +50,8 @@ const initialState = {
   selectedVehicleId: null,
   selectedTelemetryDeviceId: null,
   overlayCount: 0,
-  ...loadState(),
+  ...storedState,
+  theme: initialTheme,
 };
 
 function persistNextState(nextState) {

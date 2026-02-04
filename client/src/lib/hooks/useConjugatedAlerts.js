@@ -11,7 +11,7 @@ export function useConjugatedAlerts({
   refreshInterval = 30_000,
   enabled = true,
 } = {}) {
-  const { tenantId, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const { tenantId, mirrorContextMode, activeMirror, activeMirrorOwnerClientId, mirrorModeEnabled } = useTenant();
   const alertsPermission = usePermissionGate({
     menuKey: "primary",
     pageKey: "monitoring",
@@ -27,9 +27,15 @@ export function useConjugatedAlerts({
     () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
     [mirrorModeEnabled, mirrorOwnerClientId],
   );
-
+  const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
   const fetchAlerts = useCallback(async () => {
     if (!enabled || !canAccessAlerts) {
+      setLoading(false);
+      setError(null);
+      setData([]);
+      return;
+    }
+    if (shouldWaitForMirror) {
       setLoading(false);
       setError(null);
       setData([]);
@@ -62,11 +68,20 @@ export function useConjugatedAlerts({
     } finally {
       setLoading(false);
     }
-  }, [canAccessAlerts, enabled, mirrorContextMode, mirrorHeaders, mirrorOwnerClientId, paramsKey, tenantId]);
+  }, [
+    canAccessAlerts,
+    enabled,
+    mirrorContextMode,
+    mirrorOwnerClientId,
+    mirrorHeaders,
+    paramsKey,
+    shouldWaitForMirror,
+    tenantId,
+  ]);
 
   useEffect(() => {
     let timer;
-    if (!enabled || !canAccessAlerts) {
+    if (!enabled || !canAccessAlerts || shouldWaitForMirror) {
       setLoading(false);
       return undefined;
     }

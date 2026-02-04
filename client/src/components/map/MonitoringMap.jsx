@@ -11,6 +11,7 @@ import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import MapZoomControls from "./MapZoomControls.jsx";
 import AppMap from "./AppMap.jsx";
 import { formatAddress } from "../../lib/format-address.js";
+import { DEFAULT_MAP_LAYER } from "../../lib/mapLayers.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
@@ -22,8 +23,8 @@ function getAddressPinIcon() {
   addressPinIconCache.current = L.divIcon({
     className: "address-pin",
     html: `
-      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:20px;height:20px;">
-        <div style="width:14px;height:14px;border-radius:9999px;background:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,0.8);border:2px solid white;"></div>
+      <div class="address-pin__wrap">
+        <div class="address-pin__dot"></div>
       </div>
     `,
     iconSize: [20, 20],
@@ -361,7 +362,12 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   invalidateKey = 0,
   mapPreferences = null,
 }, _ref) {
-  const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const fallbackLayer = DEFAULT_MAP_LAYER;
+  const tileUrl =
+    mapLayer?.url ||
+    fallbackLayer?.url ||
+    import.meta.env.VITE_MAP_TILE_URL ||
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const userActionRef = useRef(false);
@@ -372,7 +378,11 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const pendingResizeRef = useRef({ rafIds: [], timeoutIds: [] });
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
   const isDev = Boolean(import.meta?.env?.DEV);
-  const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
+  const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom)
+    ? Number(mapLayer.maxZoom)
+    : Number.isFinite(fallbackLayer?.maxZoom)
+      ? Number(fallbackLayer.maxZoom)
+      : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
     [mapPreferences?.maxZoom, providerMaxZoom],
@@ -485,7 +495,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     markerRefs,
   });
 
-  const tileSubdomains = mapLayer?.subdomains ?? "abc";
+  const tileSubdomains = mapLayer?.subdomains ?? fallbackLayer?.subdomains ?? "abc";
 
   const handleMapReady = useCallback(
     (event) => {
@@ -515,7 +525,11 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
             <TileLayer
               key={mapLayer?.key || tileUrl}
               url={tileUrl}
-              attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+              attribution={
+                mapLayer?.attribution ||
+                fallbackLayer?.attribution ||
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              }
               maxZoom={effectiveMaxZoom}
               subdomains={tileSubdomains}
             />

@@ -2049,7 +2049,7 @@ async function resolveAccessibleDeviceContext(req) {
   return { clientId, vehicles, devices: filteredDevices, access, mirrorContext: tenant.mirrorContext ?? null };
 }
 
-async function resolveDeviceIdsToQuery(req) {
+async function resolveDeviceIdsToQuery(req, { allowEmpty = false } = {}) {
   const { clientId, devices, vehicles, mirrorContext } = await resolveAccessibleDeviceContext(req);
   const allowedDeviceIds = devices
     .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
@@ -2064,11 +2064,25 @@ async function resolveDeviceIdsToQuery(req) {
     return { clientId, deviceIdsToQuery: [], devices, vehicles, mirrorContext };
   }
 
-  const deviceIdsToQuery = filteredDeviceIds.length
-    ? filteredDeviceIds.filter((id) => allowedDeviceIds.includes(id))
+  const deviceIdMap = new Map();
+  devices.forEach((device) => {
+    if (device?.traccarId == null) return;
+    const traccarId = String(device.traccarId);
+    [device?.id, device?.deviceId, device?.device_id].forEach((candidate) => {
+      if (candidate == null) return;
+      deviceIdMap.set(String(candidate), traccarId);
+    });
+  });
+
+  const resolvedDeviceIds = filteredDeviceIds.map((value) => deviceIdMap.get(value) || value);
+  const deviceIdsToQuery = resolvedDeviceIds.length
+    ? resolvedDeviceIds.filter((id) => allowedDeviceIds.includes(id))
     : allowedDeviceIds;
 
-  if (filteredDeviceIds.length && deviceIdsToQuery.length === 0) {
+  if (resolvedDeviceIds.length && deviceIdsToQuery.length === 0) {
+    if (allowEmpty) {
+      return { clientId, deviceIdsToQuery: [], devices, vehicles, mirrorContext };
+    }
     throw createError(404, "Dispositivo não encontrado para este cliente.");
   }
 
@@ -2433,7 +2447,7 @@ async function handleEventsReport(req, res, next) {
   }
 
   try {
-    const { clientId, deviceIdsToQuery, devices, vehicles } = await resolveDeviceIdsToQuery(req);
+    const { clientId, deviceIdsToQuery, devices, vehicles } = await resolveDeviceIdsToQuery(req, { allowEmpty: true });
     const now = new Date();
     const from = parseDateOrThrow(
       req.query?.from ?? new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
@@ -2443,6 +2457,15 @@ async function handleEventsReport(req, res, next) {
     const page = Math.max(1, Number(req.query?.page) || 1);
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
     const pageSize = Number.isFinite(limit) && limit > 0 ? limit : 50;
+
+    if (!deviceIdsToQuery.length) {
+      return res.status(200).json({
+        data: { clientId, deviceIds: [], from, to, events: [] },
+        events: [],
+        meta: { page, pageSize, totalItems: 0, totalPages: 1 },
+        error: null,
+      });
+    }
 
     let metadata = [];
     try {
@@ -3851,7 +3874,7 @@ router.get(
 
 router.get(
   "/commands/custom",
-  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create" }),
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
   async (req, res, next) => {
   try {
     let clientId = null;

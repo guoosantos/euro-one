@@ -16,14 +16,20 @@ const vehicleFixture = {
   attributes: { vehicleAttributes: [] },
 };
 
-mock.module("../src/lib/tenant-context.jsx", {
+const mockModule = mock.module ?? ((specifier, exports) => {
+  const registry = globalThis.__mockModules || (globalThis.__mockModules = new Map());
+  const resolved = new URL(specifier, import.meta.url).href;
+  registry.set(resolved, exports);
+});
+
+mockModule("../src/lib/tenant-context.jsx", {
   useTenant: () => ({
     tenantId: "client-1",
     user: { role: "admin", clientId: "client-1", activeMirrorOwnerClientId: null },
   }),
 });
 
-mock.module("../src/lib/hooks/useTraccarDevices.js", {
+mockModule("../src/lib/hooks/useTraccarDevices.js", {
   useTraccarDevices: () => ({
     getDevicePosition: () => null,
     getDeviceStatus: () => "offline",
@@ -32,7 +38,7 @@ mock.module("../src/lib/hooks/useTraccarDevices.js", {
   }),
 });
 
-mock.module("../src/lib/coreApi.js", {
+mockModule("../src/lib/coreApi.js", {
   CoreApi: {
     listVehicles: async () => [vehicleFixture],
     listDevices: async () => [],
@@ -48,21 +54,21 @@ mock.module("../src/lib/coreApi.js", {
   },
 });
 
-mock.module("../src/lib/safe-api.js", {
+mockModule("../src/lib/safe-api.js", {
   default: {
     get: async () => ({ data: {} }),
   },
 });
 
-mock.module("../src/components/ui/ConfirmDialogProvider.jsx", {
+mockModule("../src/components/ui/ConfirmDialogProvider.jsx", {
   useConfirmDialog: () => ({ confirmDelete: async () => true }),
 });
 
-mock.module("../src/lib/hooks/useAdminGeneralAccess.js", {
+mockModule("../src/lib/hooks/useAdminGeneralAccess.js", {
   default: () => ({ isAdminGeneral: true }),
 });
 
-mock.module("../src/lib/hooks/usePageToast.js", {
+mockModule("../src/lib/hooks/usePageToast.js", {
   usePageToast: () => ({ toast: null, showToast: () => {} }),
   default: () => ({ toast: null, showToast: () => {} }),
 });
@@ -76,6 +82,49 @@ test("VehicleDetailsPage permite abrir e salvar edição sem quebrar", async () 
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
   globalThis.navigator = dom.window.navigator;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = new URL(String(url), "http://localhost");
+    const path = target.pathname;
+    const method = String(init.method || "GET").toUpperCase();
+
+    const json = (payload, status = 200) =>
+      new Response(JSON.stringify(payload), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    if (path.endsWith("/api/core/vehicles") && method === "GET") {
+      return json({ vehicles: [vehicleFixture] });
+    }
+    if (path.includes("/api/core/vehicles/") && method !== "GET") {
+      return json({ ok: true });
+    }
+    if (path.endsWith("/api/core/devices")) {
+      return json({ devices: [] });
+    }
+    if (path.endsWith("/api/core/chips")) {
+      return json({ chips: [] });
+    }
+    if (path.endsWith("/api/core/vehicle-attributes")) {
+      return json({ data: [] });
+    }
+    if (path.endsWith("/api/clients")) {
+      return json({ clients: [] });
+    }
+    return json({});
+  };
+  globalThis.__tenantOverride = {
+    tenantId: "client-1",
+    user: { role: "admin", clientId: "client-1", activeMirrorOwnerClientId: null },
+    role: "admin",
+    tenants: [],
+    permissionContext: { permissions: null, isFull: true, permissionGroupId: null },
+    permissionLoading: false,
+    isGlobalAdmin: true,
+    setTenantId: () => {},
+  };
 
   const container = document.getElementById("root");
   const root = createRoot(container);
@@ -98,8 +147,20 @@ test("VehicleDetailsPage permite abrir e salvar edição sem quebrar", async () 
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  const editButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent?.trim() === "Editar",
+  const waitFor = async (predicate, { timeout = 250, interval = 25 } = {}) => {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const result = predicate();
+      if (result) return result;
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+    return null;
+  };
+
+  const editButton = await waitFor(() =>
+    Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Editar",
+    ),
   );
   assert.ok(editButton, "Botão de edição deve estar disponível");
 
@@ -115,4 +176,11 @@ test("VehicleDetailsPage permite abrir e salvar edição sem quebrar", async () 
   });
 
   root.unmount();
+  dom.window.close();
+  delete globalThis.window;
+  delete globalThis.document;
+  delete globalThis.navigator;
+  delete globalThis.__tenantOverride;
+  delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  globalThis.fetch = originalFetch;
 });

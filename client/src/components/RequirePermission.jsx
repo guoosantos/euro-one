@@ -5,16 +5,78 @@ import Loading from "./Loading.jsx";
 
 export default function RequirePermission({ permission, children }) {
   if (!permission) return children;
-  const { tenant, user, permissionContext, permissionsReady, isGlobalAdmin } = useTenant();
+  const {
+    tenant,
+    user,
+    permissionContext,
+    permissionError,
+    permissionLoading,
+    permissionsReady,
+    isGlobalAdmin,
+    isReadOnly,
+    logout,
+    retryPermissions,
+  } = useTenant();
   const access = resolvePermissionDecision(permission, {
     user,
     tenant,
     permissionContext,
     permissionsReady,
     isGlobalAdmin,
+    readOnly: isReadOnly,
   });
+  const handleReload = () => {
+    window.location.reload();
+  };
+
+  const handleRetry = () => {
+    retryPermissions?.("manual");
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout?.();
+    } finally {
+      window.location.assign("/login");
+    }
+  };
   if (!access.ready) {
-    return <Loading message="Carregando permissões..." />;
+    if (!permissionError || permissionLoading) {
+      return <Loading message="Carregando permissões..." />;
+    }
+    return (
+      <div className="flex min-h-[320px] items-center justify-center px-6 text-center text-white/80">
+        <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">
+          <div className="text-lg font-semibold text-white">Permissões não carregaram</div>
+          <p className="text-sm text-white/70">
+            Não foi possível carregar as permissões da sessão. Tente recarregar a página ou refazer o login.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/90 hover:border-white/40"
+            >
+              Tentar novamente
+            </button>
+            <button
+              type="button"
+              onClick={handleReload}
+              className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/90 hover:border-white/40"
+            >
+              Recarregar
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-lg border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/80 hover:border-white/40"
+            >
+              Sair
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
   if (!access.allowedByTenant) {
     return (

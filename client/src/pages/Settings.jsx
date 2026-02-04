@@ -7,11 +7,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de configurações"
-        title="Configurações"
-        subtitle="Ajuste preferências de telemetria e personalização da interface."
-      />
+      <PageHeader />
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card space-y-4 p-6">
           <header>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 
 import api from "../../lib/api.js";
+import PageHeader from "../../components/ui/PageHeader.jsx";
 
 export default function ServiceOrderImport() {
   const [file, setFile] = useState(null);
@@ -48,17 +49,13 @@ export default function ServiceOrderImport() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-lg font-semibold text-white">Importar base (XLSX)</div>
-          <p className="text-sm text-white/60">
-            Use o XLSX consolidado para popular veículos, equipamentos e OS.
-          </p>
-        </div>
-        <button type="button" onClick={runImport} disabled={loading} className="btn btn-primary">
-          {loading ? "Processando..." : mode === "dry-run" ? "Prévia (dry-run)" : "Importar (apply)"}
-        </button>
-      </div>
+      <PageHeader
+        actions={
+          <button type="button" onClick={runImport} disabled={loading} className="btn btn-primary">
+            {loading ? "Processando..." : mode === "dry-run" ? "Prévia (dry-run)" : "Importar (apply)"}
+          </button>
+        }
+      />
 
       <div className="card grid gap-4 md:grid-cols-2">
         <label>

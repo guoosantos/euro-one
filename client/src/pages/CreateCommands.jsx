@@ -6,6 +6,7 @@ import Select from "../ui/Select.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const EMPTY_FORM = {
   name: "",
@@ -216,14 +217,8 @@ export default function CreateCommands({ readOnly = false }) {
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
+      <PageHeader />
       <section className="card flex min-h-0 flex-1 flex-col gap-4 p-6">
-        <header className="space-y-1">
-          <p className="text-xs uppercase tracking-[0.2em] text-white/50">Comandos personalizados</p>
-          <p className="text-sm text-white/70">
-            Cadastre comandos RAW para aparecerem na central de comandos conforme o protocolo selecionado.
-          </p>
-        </header>
-
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.55fr)]">
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">

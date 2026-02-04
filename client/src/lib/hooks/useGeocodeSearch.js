@@ -261,8 +261,7 @@ export default function useGeocodeSearch(mapPreferences, options = {}) {
   }, [buildGeocoderUrl, geocoderBaseUrl, normaliseList]);
 
   const apiEnabled = useMemo(() => {
-    if (options?.useApi === false) return false;
-    if (options?.useApi === true) return true;
+    if (options?.useApi !== true) return false;
     const envFlag = String(import.meta?.env?.VITE_GEOCODER_USE_API || "").toLowerCase() === "true";
     return Boolean(envFlag && isAuthenticated && permissionsReady);
   }, [isAuthenticated, permissionsReady, options?.useApi]);

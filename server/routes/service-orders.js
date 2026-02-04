@@ -241,11 +241,12 @@ async function findServiceOrderById({ id, clientId, include }) {
   if (serviceOrderRouteMocks.findServiceOrderById) {
     return serviceOrderRouteMocks.findServiceOrderById({ id, clientId, include });
   }
+  const where = {
+    id: String(id),
+    ...(clientId ? { clientId } : {}),
+  };
   return prisma.serviceOrder.findFirst({
-    where: {
-      id: String(id),
-      clientId,
-    },
+    where,
     include,
   });
 }
@@ -396,7 +397,8 @@ router.get(
   async (req, res, next) => {
   try {
     ensurePrisma();
-    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    const isAdmin = req.user?.role === "admin";
+    const clientId = resolveClientId(req, req.query?.clientId, { required: !isAdmin });
     const item = await findServiceOrderById({
       id: req.params.id,
       clientId,
@@ -427,7 +429,8 @@ router.get(
   async (req, res, next) => {
   try {
     ensurePrisma();
-    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    const isAdmin = req.user?.role === "admin";
+    const clientId = resolveClientId(req, req.query?.clientId, { required: !isAdmin });
     const item = await findServiceOrderById({
       id: req.params.id,
       clientId,
@@ -833,17 +836,22 @@ router.patch(
   async (req, res, next) => {
   try {
     ensurePrisma();
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const isAdmin = req.user?.role === "admin";
+    let clientId = resolveClientId(req, req.body?.clientId, { required: !isAdmin });
     const body = req.body || {};
     const id = String(req.params.id);
 
     const existing = await prisma.serviceOrder.findFirst({
-      where: { id, clientId },
+      where: { id, ...(clientId ? { clientId } : {}) },
       select: { id: true, status: true },
     });
 
     if (!existing) {
       throw createError(404, "OS não encontrada");
+    }
+    if (!clientId) {
+      const found = await prisma.serviceOrder.findFirst({ where: { id }, select: { clientId: true } });
+      clientId = found?.clientId || null;
     }
 
     const resolvedVehicleId = body.vehiclePlate

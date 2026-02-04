@@ -1,11 +1,12 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useContext, useMemo, useRef } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
-import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 function normaliseTelemetry(payload) {
   if (Array.isArray(payload)) return payload;
@@ -28,28 +29,43 @@ const TelemetryContext = createContext({
 const ENABLE_WEBSOCKET = false;
 
 export function TelemetryProvider({ children, interval = 60_000 }) {
-  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const {
+    tenantId,
+    isAuthenticated,
+    initialising,
+    loading: tenantLoading,
+    mirrorContextMode,
+    activeMirror,
+    activeMirrorOwnerClientId,
+    contextSwitching,
+    contextSwitchKey,
+    contextAbortSignal,
+  } = useTenant();
+  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
+  const canAccessMonitoring = monitoringPermission.hasAccess;
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
-  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const autoRefresh = useAutoRefresh({
+    enabled: isAuthenticated && !initialising && !tenantLoading && !contextSwitching,
+    intervalMs: interval,
+    pauseWhenOverlayOpen: true,
+  });
+  const lastTelemetryRef = useRef({ telemetry: [], warnings: [] });
 
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const params = useMemo(
     () => resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId }),
     [mirrorContextMode, mirrorOwnerClientId, tenantId],
   );
-  const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
-  );
-
   const { data, loading, error, lastUpdated, refresh } = usePolling(
     async () => {
-      if (!isAuthenticated) return { telemetry: [], warnings: [] };
-
+      if (!isAuthenticated || !canAccessMonitoring) return { telemetry: [], warnings: [] };
       const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.core.telemetry, {
         params,
-        headers: mirrorHeaders,
+        signal: contextAbortSignal,
       });
+      if (requestError?.name === "AbortError" || requestError?.code === "ERR_CANCELED") {
+        return lastTelemetryRef.current;
+      }
       if (requestError) throw requestError;
 
       const normalisedTelemetry = normaliseTelemetry(payload);
@@ -59,13 +75,30 @@ export function TelemetryProvider({ children, interval = 60_000 }) {
           ? payload.warnings
           : [];
 
-      return { telemetry: normalisedTelemetry, warnings: resolvedWarnings };
+      const result = { telemetry: normalisedTelemetry, warnings: resolvedWarnings };
+      lastTelemetryRef.current = result;
+      return result;
     },
     {
-      enabled: isAuthenticated,
+      enabled:
+        isAuthenticated &&
+        canAccessMonitoring &&
+        !initialising &&
+        !tenantLoading &&
+        !accessLoading &&
+        !contextSwitching,
       intervalMs: autoRefresh.intervalMs,
       paused: autoRefresh.paused,
-      dependencies: [mirrorContextMode, mirrorHeaders, tenantId, isAuthenticated],
+      dependencies: [
+        mirrorContextMode,
+        tenantId,
+        isAuthenticated,
+        canAccessMonitoring,
+        initialising,
+        tenantLoading,
+        accessLoading,
+        contextSwitchKey,
+      ],
       resetOnChange: true,
     },
   );

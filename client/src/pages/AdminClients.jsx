@@ -127,7 +127,6 @@ export default function AdminClients() {
   return (
     <div className="space-y-6">
       <PageHeader
-        overline="Central de clientes"
         title="Clientes"
         subtitle="Crie locatários (usuários manager no Traccar) e defina limites de dispositivos."
         actions={

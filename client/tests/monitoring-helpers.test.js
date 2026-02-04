@@ -8,6 +8,7 @@ import {
   getLastUpdate,
   isLinkedToVehicle,
   isOnline,
+  matchesAnyTenant,
   minutesSince,
   pickCoordinate,
   pickSpeed,
@@ -72,4 +73,12 @@ test("isLinkedToVehicle ignora veículo sintético criado apenas por id", () => 
 test("isLinkedToVehicle considera vínculo real via device.vehicleId", () => {
   const entry = { device: { id: "d1", vehicleId: "v1" }, source: {}, vehicle: null };
   assert.equal(isLinkedToVehicle(entry), true);
+});
+
+test("matchesAnyTenant aceita tenants alternativos do espelhamento", () => {
+  const entry = { device: { clientId: "owner-1" }, source: {}, vehicle: null };
+  assert.equal(matchesAnyTenant(entry, ["target-1"]), false);
+  assert.equal(matchesAnyTenant(entry, ["owner-1"]), true);
+  assert.equal(matchesAnyTenant(entry, ["target-1", "owner-1"]), true);
+  assert.equal(matchesAnyTenant(entry, []), true);
 });

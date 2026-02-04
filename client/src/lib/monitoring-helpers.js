@@ -1,3 +1,5 @@
+import { matchesTenant } from "./tenancy.js";
+
 export function toKey(value) {
   if (value === null || value === undefined) return null;
   try {
@@ -43,6 +45,16 @@ export function isLinkedToVehicle({ device, source, vehicle } = {}) {
       : null;
 
   return Boolean(fromDevice ?? fromSource ?? fromNestedDevice ?? fromVehicle);
+}
+
+export function matchesAnyTenant(entry, tenantIds) {
+  if (!Array.isArray(tenantIds) || tenantIds.length === 0) return true;
+  return tenantIds.some(
+    (tenantId) =>
+      matchesTenant(entry?.device, tenantId) ||
+      matchesTenant(entry?.vehicle, tenantId) ||
+      matchesTenant(entry?.source, tenantId),
+  );
 }
 
 export function pickCoordinate(values) {

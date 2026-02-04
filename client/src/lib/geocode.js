@@ -3,6 +3,7 @@ import { resolveAuthorizationHeader } from "./api.js";
 const ACCEPT_LANGUAGE = "pt-BR";
 const COUNTRY_BIAS = "br";
 const RESULT_LIMIT = 8;
+const GEOCODER_USE_API = String(import.meta?.env?.VITE_GEOCODER_USE_API || "").toLowerCase() === "true";
 
 async function geocodeViaApi(term) {
   const url = `/api/geocode/search?q=${encodeURIComponent(term)}&limit=${RESULT_LIMIT}`;
@@ -40,9 +41,20 @@ async function geocodeViaPublic(term) {
   return response.json().catch(() => []);
 }
 
-export async function geocodeAddress(q) {
+export async function geocodeAddress(q, { useApi = false } = {}) {
   const term = q?.trim();
   if (!term) return null;
+
+  const canUseApi = Boolean(useApi && GEOCODER_USE_API && resolveAuthorizationHeader());
+  if (!canUseApi) {
+    const fallback = await geocodeViaPublic(term);
+    const [first] = fallback || [];
+    if (!first) return null;
+    const lat = Number(first.lat ?? first.latitude);
+    const lng = Number(first.lng ?? first.lon ?? first.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng, address: first.display_name || first.label || term };
+  }
 
   try {
     const data = await geocodeViaApi(term);

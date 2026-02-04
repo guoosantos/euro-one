@@ -6,7 +6,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
 import * as clientMiddleware from "../middleware/client.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
-import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
+import { authorizeAnyPermission, authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import * as clientModel from "../models/client.js";
 import * as modelModel from "../models/model.js";
 import * as deviceModel from "../models/device.js";
@@ -22,7 +22,6 @@ import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, deleteUser, getUserById, updateUser } from "../models/user.js";
-import { listGroups } from "../models/group.js";
 import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
@@ -1249,7 +1248,11 @@ router.post(
   },
 );
 
-router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
+router.get(
+  "/telemetry",
+  authorizePermission({ menuKey: "primary", pageKey: "monitoring" }),
+  resolveClientMiddleware,
+  async (req, res, next) => {
   try {
     const clientId = req.tenant?.clientIdResolved ?? null;
     console.info("[telemetry] request", {
@@ -1728,7 +1731,8 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       error: { message, code: error?.code || TELEMETRY_UNAVAILABLE_PAYLOAD.error.code },
     });
   }
-});
+  },
+);
 
 router.get(
   "/devices",
@@ -1797,7 +1801,9 @@ router.get(
       devices = mergeById(devices, extraDevices);
     }
     const allowedVehicleIds = new Set(vehicles.map((vehicle) => String(vehicle.id)));
-    devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
+    if (req.tenant?.mirrorContext) {
+      devices = devices.filter((device) => device?.vehicleId && allowedVehicleIds.has(String(device.vehicleId)));
+    }
 
     devices.forEach((device) => {
       if (device?.model?.id && !modelMap.has(String(device.model.id))) {
@@ -2775,10 +2781,11 @@ router.post("/vehicle-attributes", deps.requireRole("manager", "admin"), async (
 
 router.get(
   "/vehicles",
-  authorizePermissionOrEmpty({
-    menuKey: "fleet",
-    pageKey: "vehicles",
-    emptyPayload: { vehicles: [], page: 1, pageSize: 0, total: 0, hasMore: false },
+  authorizeAnyPermission({
+    permissions: [
+      { menuKey: "fleet", pageKey: "vehicles" },
+      { menuKey: "primary", pageKey: "monitoring" },
+    ],
   }),
   async (req, res, next) => {
   const startedAt = Date.now();
@@ -2793,25 +2800,6 @@ router.get(
     const isAdmin = req.user?.role === "admin";
     let mirrorOwnerIds = [];
     let mirrorRestricted = false;
-    const userAccess = req.user?.attributes?.userAccess || {};
-    const groupIds = Array.isArray(userAccess.vehicleGroupIds)
-      ? userAccess.vehicleGroupIds
-      : userAccess.vehicleGroupId
-        ? [userAccess.vehicleGroupId]
-        : [];
-    const accessVehicleIds =
-      userAccess.vehicleAccess?.mode === "selected"
-        ? new Set([
-          ...(userAccess.vehicleAccess?.vehicleIds || []).map(String),
-          ...listGroups({ clientId: req.user?.clientId ?? clientId })
-            .filter(
-              (group) =>
-                groupIds.some((id) => String(id) === String(group.id))
-                && group.attributes?.kind === "VEHICLE_GROUP",
-            )
-            .flatMap((group) => (group.attributes?.vehicleIds || []).map(String)),
-        ])
-        : null;
     const access = await getAccessibleVehicles({
       user: req.user,
       clientId,
@@ -2821,9 +2809,6 @@ router.get(
     let vehicles = access.vehicles;
     mirrorOwnerIds = access.mirrorOwnerIds;
     mirrorRestricted = access.isReceiver;
-    if (accessVehicleIds) {
-      vehicles = vehicles.filter((vehicle) => accessVehicleIds.has(String(vehicle.id)));
-    }
     let devices = deps.listDevices({ clientId });
     if (mirrorOwnerIds.length) {
       const extraDevices = mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));

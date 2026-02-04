@@ -85,11 +85,7 @@ export default function ReportsStops() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Relatório de paradas"
-        subtitle="Identifica os locais onde o veículo permaneceu estacionado."
-      />
+      <PageHeader />
       <section className="card space-y-4">
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
           <VehicleSelector className="text-sm md:col-span-2" />

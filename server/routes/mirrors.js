@@ -7,7 +7,9 @@ import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission, MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 import { getClientById, listClients } from "../models/client.js";
 import { createGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
+import { listVehicles } from "../models/vehicle.js";
 import { createMirror, deleteMirror, getMirrorById, listMirrors, updateMirror } from "../models/mirror.js";
+import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
 
 const router = express.Router();
 
@@ -48,6 +50,26 @@ function resolveClientType(client) {
   );
 }
 
+function resolveGroupType(group) {
+  const raw = group?.attributes?.groupType || group?.attributes?.type || "CUSTOM";
+  return String(raw).trim().toUpperCase() === "BY_CLIENT" ? "BY_CLIENT" : "CUSTOM";
+}
+
+function resolveGroupSourceClientId(group) {
+  return group?.attributes?.sourceClientId || group?.attributes?.clientId || null;
+}
+
+function resolveGroupVehicleIds(group) {
+  if (!group || group.attributes?.kind !== "VEHICLE_GROUP") return [];
+  const groupType = resolveGroupType(group);
+  if (groupType === "BY_CLIENT") {
+    const sourceClientId = resolveGroupSourceClientId(group);
+    if (!sourceClientId) return [];
+    return listVehicles({ clientId: sourceClientId }).map((vehicle) => String(vehicle.id));
+  }
+  return Array.isArray(group.attributes?.vehicleIds) ? group.attributes.vehicleIds.map(String) : [];
+}
+
 function isReceiverType(clientType) {
   return RECEIVER_TYPES.has(String(clientType || "").toUpperCase());
 }
@@ -82,7 +104,7 @@ function resolveAllowedVehicleIds(req) {
           && group.attributes?.kind === "VEHICLE_GROUP",
       )
       .forEach((group) => {
-        (group.attributes?.vehicleIds || []).forEach((id) => allowedIds.add(String(id)));
+        resolveGroupVehicleIds(group).forEach((id) => allowedIds.add(String(id)));
       });
   }
   return allowedIds;
@@ -125,9 +147,7 @@ function resolveMirrorVehicleIds(mirror) {
   if (!mirror) return [];
   if (mirror.vehicleGroupId) {
     const group = getGroupById(mirror.vehicleGroupId);
-    if (Array.isArray(group?.attributes?.vehicleIds)) {
-      return group.attributes.vehicleIds.map(String);
-    }
+    return resolveGroupVehicleIds(group);
   }
   return Array.isArray(mirror.vehicleIds) ? mirror.vehicleIds.map(String) : [];
 }
@@ -175,6 +195,21 @@ router.get("/mirrors/context", async (req, res, next) => {
     const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
     const ownerClientId = req.query?.ownerClientId ?? null;
     if (ownerClientId) {
+      if (req.user.role !== "admin") {
+        const allowedMirrorOwners = resolveAllowedMirrorOwnerIds(req.user);
+        const allowedOwnerIds = Array.isArray(allowedMirrorOwners)
+          ? new Set(allowedMirrorOwners.map((id) => String(id)))
+          : null;
+        if (allowedOwnerIds && allowedOwnerIds.size === 0) {
+          throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+        }
+        if (allowedOwnerIds && String(ownerClientId) !== "all" && !allowedOwnerIds.has(String(ownerClientId))) {
+          throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+        }
+      }
+      if (String(ownerClientId) === "all") {
+        return res.json({ activeMirror: null, mirrorModeEnabled });
+      }
       if (!mirrorModeEnabled) {
         return res.json({ activeMirror: null, mirrorModeEnabled });
       }
@@ -240,11 +275,19 @@ router.get("/mirrors/context", async (req, res, next) => {
       const ownerIds = Array.from(new Set(mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean)));
       const directory = await listClients();
       const owners = directory.filter((client) => ownerIds.includes(String(client.id)));
+      const fallbackTarget = currentClient || {
+        id: req.user.clientId,
+        name: req.user.attributes?.companyName || req.user.name || "Cliente",
+        deviceLimit: req.user.attributes?.deviceLimit ?? null,
+        userLimit: req.user.attributes?.userLimit ?? null,
+        attributes: req.user.attributes || {},
+      };
+      const targets = fallbackTarget ? [fallbackTarget] : [];
       return res.json({
         mode: "target",
         clientType,
         owners,
-        targets: [],
+        targets,
         mirrorModeEnabled,
       });
     }
@@ -373,9 +416,7 @@ router.post(
       if (!group || String(group.clientId) !== String(resolvedOwnerId)) {
         throw createError(404, "Grupo de veículos não encontrado");
       }
-      resolvedVehicleIds = Array.isArray(group.attributes?.vehicleIds)
-        ? group.attributes.vehicleIds.map(String)
-        : [];
+      resolvedVehicleIds = resolveGroupVehicleIds(group);
     } else if (resolvedVehicleIds.length) {
       const tempGroup = await ensureTemporaryGroup({
         ownerClientId: resolvedOwnerId,
@@ -462,9 +503,7 @@ router.put(
       if (!group || String(group.clientId) !== String(existing.ownerClientId)) {
         throw createError(404, "Grupo de veículos não encontrado");
       }
-      resolvedVehicleIds = Array.isArray(group.attributes?.vehicleIds)
-        ? group.attributes.vehicleIds.map(String)
-        : [];
+      resolvedVehicleIds = resolveGroupVehicleIds(group);
     } else if (Array.isArray(updates.vehicleIds) && updates.vehicleIds.length) {
       const tempGroup = await ensureTemporaryGroup({
         ownerClientId: existing.ownerClientId,

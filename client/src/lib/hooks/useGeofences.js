@@ -127,12 +127,24 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     async function fetchGeofences() {
       setLoading(true);
       setError(null);
-      const { data, error: requestError, aborted, status } = await safeApi.get(API_ROUTES.geofences, {
+      const { data, error: requestError, aborted, status, forbidden } = await safeApi.get(API_ROUTES.geofences, {
         params: tenantId ? { clientId: tenantId } : undefined,
       });
       if (aborted || cancelled) return;
 
       let shouldPause = false;
+
+      if (forbidden || status === 403) {
+        const friendly = new Error("Sem acesso às cercas deste cliente.");
+        friendly.status = 403;
+        friendly.permanent = true;
+        setError(friendly);
+        setGeofences([]);
+        setLoading(false);
+        setAutoRefreshPaused(true);
+        hasNotifiedError.current = true;
+        return;
+      }
 
       if (requestError) {
         const friendly = new Error(
@@ -149,7 +161,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
         if ((status && status >= 500) || friendly.permanent) {
           shouldPause = true;
           setAutoRefreshPaused(true);
-          if (!hasNotifiedError.current && typeof window !== "undefined") {
+          if (!hasNotifiedError.current && typeof window !== "undefined" && status !== 403) {
             window.alert(friendly.message);
           }
           hasNotifiedError.current = true;

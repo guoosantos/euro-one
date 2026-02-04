@@ -3424,7 +3424,7 @@ export default function Trips() {
 
   return (
     <div
-      className="flex min-h-0 flex-col overflow-hidden bg-[#0B0F16] text-white/90"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0B0F16] text-white/90"
       style={{ "--trips-header-h": "124px", "--trips-replay-offset": "72px" }}
     >
       <header className="shrink-0 border-b border-white/10 bg-white/5 px-3 py-2 sm:px-4 lg:px-4 2xl:px-6 backdrop-blur">
@@ -3509,8 +3509,8 @@ export default function Trips() {
         {vehiclesError && <p className="mt-2 text-xs text-red-300">{vehiclesError.message}</p>}
       </header>
 
-      <main className="relative isolate grid flex-1 min-h-0 h-[calc(100vh-var(--e-header-h)-var(--trips-header-h))] grid-cols-[clamp(380px,32vw,520px)_minmax(0,1fr)] gap-[14px] px-3 py-4 sm:px-4 lg:px-4 2xl:px-6 max-[1100px]:grid-cols-1 max-[1100px]:h-auto">
-        <aside className="relative isolate z-10 flex min-h-0 w-[clamp(380px,32vw,520px)] min-w-0 shrink-0 flex-col gap-2 overflow-x-hidden border-r border-white/10 bg-[#0B0F16]">
+      <main className="relative isolate grid flex-1 min-h-0 overflow-hidden grid-cols-[clamp(380px,32vw,520px)_minmax(0,1fr)] gap-[14px] px-3 py-4 sm:px-4 lg:px-4 2xl:px-6 max-[1100px]:grid-cols-1">
+        <aside className="relative isolate z-10 flex min-h-0 w-[clamp(380px,32vw,520px)] min-w-0 shrink-0 flex-col gap-2 overflow-x-hidden border-r border-white/10 bg-[#0B0F16] max-[1100px]:w-full">
           <div className="flex flex-wrap items-center gap-3 border-b border-white/10 pb-2">
             <div className="shrink-0 whitespace-nowrap text-sm font-semibold text-white">
               Viagens encontradas <span className="text-white/50">({filteredTrips.length})</span>
@@ -3688,7 +3688,7 @@ export default function Trips() {
           </div>
         </aside>
 
-        <section className="relative z-0 flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto">
+        <section className="relative z-0 flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-2 min-[1200px]:flex-nowrap">
             <div className="flex items-center gap-3">
               <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold tracking-[0.12em]" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
@@ -3733,7 +3733,7 @@ export default function Trips() {
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3 h-[calc(100vh-var(--e-header-h)-var(--trips-header-h)-var(--trips-replay-offset))] max-[1100px]:h-auto">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
             {activeTab === "replay" ? (
               <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 pb-2 text-xs min-[1200px]:flex-nowrap">
                 <button
@@ -3917,7 +3917,7 @@ export default function Trips() {
                   </div>
                 </div>
 
-                <div className="flex flex-1 min-h-0 max-h-[calc(100vh-var(--e-header-h,0px)-var(--trips-header-h,0px)-var(--trips-replay-offset,0px))] flex-col overflow-hidden rounded-[16px] border border-white/10 bg-white/[0.02] max-[1100px]:max-h-none">
+                <div className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden rounded-[16px] border border-white/10 bg-white/[0.02]">
                   <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-2 text-xs">
                     <div className="flex items-center gap-3 text-white/70">
                       <span className="font-semibold text-white">
@@ -3947,7 +3947,7 @@ export default function Trips() {
                     </div>
                   </div>
 
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 text-xs text-white/70">
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 text-xs text-white/70">
                     {drawerTab === "events" ? (
                       <div className="flex min-h-0 flex-1 flex-col gap-3">
                         <div className="shrink-0 space-y-3">
@@ -3973,18 +3973,18 @@ export default function Trips() {
                               </button>
                             </div>
                           </div>
-                          <div className="flex h-8 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                          <div className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
                             <span className="text-white/40">🔎</span>
                             <input
                               value={eventSearch}
                               onChange={(event) => setEventSearch(event.target.value)}
                               placeholder="Filtrar eventos..."
-                              className="w-56 bg-transparent text-[11px] text-white outline-none"
+                              className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
                             />
                           </div>
                         </div>
-                        <div className="min-h-0 flex-1 overflow-auto pr-1">
-                          <div className="space-y-2">
+                        <div className="min-h-0 min-w-0 flex-1 overflow-auto pr-1">
+                          <div className="min-w-0 space-y-2">
                           {tripEventsLoading ? (
                             <div className="rounded-[12px] border border-white/10 bg-white/5 p-3 text-[11px] text-white/60">
                               Carregando eventos do trajeto...
@@ -4074,7 +4074,7 @@ export default function Trips() {
                                   value={auditSearch}
                                   onChange={(event) => setAuditSearch(event.target.value)}
                                   placeholder="Filtrar eventos..."
-                                  className="w-56 bg-transparent text-[11px] text-white outline-none"
+                                  className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
                                 />
                               </div>
                               <div className="relative">
@@ -4161,7 +4161,7 @@ export default function Trips() {
                           <span>{statusText}</span>
                         </div>
 
-                        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
                           <TimelineTable
                             entries={limitedAuditEntries}
                             activeIndex={activeIndex}
@@ -4185,18 +4185,18 @@ export default function Trips() {
                         <div className="shrink-0">
                           <div className="flex items-center justify-between gap-2">
                             <div className="text-sm font-semibold text-white">Posições</div>
-                            <div className="flex h-8 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                            <div className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
                               <span className="text-white/40">🔎</span>
                               <input
                                 value={positionsSearch}
                                 onChange={(event) => setPositionsSearch(event.target.value)}
                                 placeholder="Filtrar posições..."
-                                className="w-56 bg-transparent text-[11px] text-white outline-none"
+                                className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
                               />
                             </div>
                           </div>
                         </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
                           {limitedPositions.length ? (
                             <table className="min-w-full text-[11px] text-white/80">
                               <thead className="sticky top-0 bg-slate-900/80 backdrop-blur">
@@ -4259,13 +4259,13 @@ export default function Trips() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-sm font-semibold text-white">Linha do tempo</div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex h-8 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                    <div className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
                       <span className="text-white/40">🔎</span>
                       <input
                         value={auditSearch}
                         onChange={(event) => setAuditSearch(event.target.value)}
                         placeholder="Filtrar eventos..."
-                        className="w-56 bg-transparent text-[11px] text-white outline-none"
+                        className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
                       />
                     </div>
                     <div className="relative">

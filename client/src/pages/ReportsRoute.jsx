@@ -392,11 +392,7 @@ export default function ReportsRoute() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Relatório de rota"
-        subtitle="Extrai todos os pontos percorridos no intervalo informado."
-      />
+      <PageHeader />
       <div className="flex flex-col gap-2">
         {(loading || fetching || loadingPreferences) && <Loading message="Carregando rotas..." />}
         {error && <ErrorMessage error={error} fallback="Não foi possível carregar o relatório de rota." />}

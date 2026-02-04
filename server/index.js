@@ -7,7 +7,10 @@ import { promisify } from "node:util";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
-import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-override-resolver.js";
+import {
+  getGeozoneGroupOverrideConfig,
+  getGeozoneGroupOverrideConfigByRole,
+} from "./services/xdm/xdm-override-resolver.js";
 import { resolveItinerarySignatureOverrideConfig } from "./services/xdm/xdm-itinerary-signature.js";
 
 /**
@@ -171,17 +174,39 @@ async function bootstrapServer() {
     secretLen: process.env.XDM_CLIENT_SECRET ? String(process.env.XDM_CLIENT_SECRET).length : 0,
   });
 
-  const overrideConfig = getGeozoneGroupOverrideConfig();
-  const overrideLogPayload = {
-    overrideId: overrideConfig.overrideId,
-    overrideIdValid: overrideConfig.isValid,
-    overrideSource: overrideConfig.source,
-    overrideRaw: overrideConfig.rawValue,
-  };
-  if (overrideConfig.isValid) {
-    console.info("[startup] XDM override config", overrideLogPayload);
+  const roleKeys = ["itinerary", "targets", "entry"];
+  const roleConfigs = roleKeys.map((role) => ({ role, config: getGeozoneGroupOverrideConfigByRole(role) }));
+  const hasRoleOverrides = roleConfigs.some(
+    ({ config }) => config.overrideIdSource || config.overrideKeySource || config.source === "env",
+  );
+  if (hasRoleOverrides) {
+    roleConfigs.forEach(({ role, config }) => {
+      const roleLogPayload = {
+        role,
+        overrideId: config.overrideId,
+        overrideIdValid: config.isValid,
+        overrideSource: config.source,
+        overrideRaw: config.rawValue,
+      };
+      if (config.isValid) {
+        console.info("[startup] XDM override config", roleLogPayload);
+      } else if (config.overrideIdSource || config.overrideKeySource || config.rawValue) {
+        console.warn("[startup] XDM override config inválido", roleLogPayload);
+      }
+    });
   } else {
-    console.warn("[startup] XDM override config inválido", overrideLogPayload);
+    const overrideConfig = getGeozoneGroupOverrideConfig();
+    const overrideLogPayload = {
+      overrideId: overrideConfig.overrideId,
+      overrideIdValid: overrideConfig.isValid,
+      overrideSource: overrideConfig.source,
+      overrideRaw: overrideConfig.rawValue,
+    };
+    if (overrideConfig.isValid) {
+      console.info("[startup] XDM override config", overrideLogPayload);
+    } else {
+      console.warn("[startup] XDM override config inválido", overrideLogPayload);
+    }
   }
 
   const signatureConfig = resolveItinerarySignatureOverrideConfig();
@@ -191,7 +216,9 @@ async function bootstrapServer() {
     overrideIdValid: signatureConfig.isValid,
     overrideRaw: signatureConfig.rawValue,
   };
-  if (signatureConfig.isValid) {
+  if (!signatureConfig.isConfigured) {
+    console.info("[startup] XDM itinerary signature override não configurado");
+  } else if (signatureConfig.isValid) {
     console.info("[startup] XDM itinerary signature override config", signatureLogPayload);
   } else {
     console.warn("[startup] XDM itinerary signature override config inválido", signatureLogPayload);
@@ -361,7 +388,7 @@ async function bootstrapServer() {
     const deviceModule = await importWithLog("./models/device.js");
 
     if (config?.osrm && !config.osrm.baseUrl) {
-      console.warn("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
+      console.info("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
     }
 
     if (traccarModule?.describeTraccarMode && traccarDbModule?.isTraccarDbConfigured) {

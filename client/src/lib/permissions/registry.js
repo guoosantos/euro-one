@@ -63,6 +63,7 @@ export const PERMISSION_REGISTRY = [
           { subKey: "list", label: "Comandos" },
           { subKey: "advanced", label: "Avançado" },
           { subKey: "create", label: "Criar comandos" },
+          { subKey: "history-response", label: "Histórico: resposta do comando" },
         ],
       },
       {
@@ -71,6 +72,7 @@ export const PERMISSION_REGISTRY = [
         subpages: [
           { subKey: "report", label: "Relatório" },
           { subKey: "severity", label: "Severidade" },
+          { subKey: "report-active-filter", label: "Filtro Todos/Somente ativos" },
         ],
       },
     ],
@@ -311,7 +313,7 @@ export const MENU_REGISTRY = [
         label: "Clientes",
         icon: Users,
         permission: { menuKey: "admin", pageKey: "clients" },
-        isVisible: ({ canManageUsers }) => canManageUsers,
+        isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
       },
       {
         to: "/users",
@@ -325,14 +327,14 @@ export const MENU_REGISTRY = [
         label: "Espelhamento",
         icon: Users,
         permission: { menuKey: "admin", pageKey: "mirrors" },
-        isVisible: ({ canManageUsers }) => canManageUsers,
+        isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
       },
       {
         to: "/admin/import-euro-xlsx",
         label: "Importar Base (XLSX)",
         icon: UploadCloud,
         permission: { menuKey: "admin", pageKey: "import" },
-        isVisible: ({ isEuroImportEnabled, role }) => role === "admin" && isEuroImportEnabled,
+        isVisible: ({ isEuroImportEnabled }) => isEuroImportEnabled,
       },
     ],
   },

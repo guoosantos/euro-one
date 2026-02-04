@@ -7,6 +7,14 @@
   --pill-focus: rgba(57,189,248,.35);
 }
 
+:root[data-theme='light']{
+  --pill-bg: #F3F6FB;
+  --pill-bd: #E3E8F2;
+  --pill-tx: #0F172A;
+  --pill-ph: #64748B;
+  --pill-focus: rgba(37,160,255,.25);
+}
+
 /* Escopo: apenas blocos "Filtros" (título que já existe nas páginas) */
 .card:has(> .title, > .card-title, > .legend):where(:not(.table)) .filters input,
 .card:has(> .title, > .card-title, > .legend):where(:not(.table)) .filters select,
@@ -29,7 +37,7 @@
 .filters input:focus, .filters select:focus {
   outline:none !important;
   box-shadow:0 0 0 2px var(--pill-focus) !important;
-  border-color:#39bdf8 !important;
+  border-color: var(--primary) !important;
 }
 
 /* Ícone de busca (se usar input com padding-left já funciona) – opcional */

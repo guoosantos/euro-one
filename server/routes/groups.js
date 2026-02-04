@@ -2,7 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
-import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
+import { authorizePermission, authorizePermissionOrEmpty, invalidatePresentationCache } from "../middleware/permissions.js";
 import { getClientById } from "../models/client.js";
 import { createGroup, deleteGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -81,11 +81,8 @@ function ensureGroupWriteRole(req) {
   if (req.mirrorContext) {
     return;
   }
-  const role = req.user.role;
-  if (role === "admin" || role === "manager" || role === "tenant_admin") {
-    return;
-  }
-  throw createError(403, "Permissão insuficiente");
+  // A permissão (users-vehicle-groups) já foi validada pelo authorizePermission.
+  // Não restringir por role para evitar 403 indevido quando a permissão é full.
 }
 
 function normaliseVehicleIds(value) {
@@ -244,6 +241,7 @@ router.post(
     });
 
     invalidateGroupCache();
+    invalidatePresentationCache();
     return res.status(201).json({ group });
   } catch (error) {
     return next(error);
@@ -318,6 +316,7 @@ router.put(
 
     const group = updateGroup(id, updates);
     invalidateGroupCache();
+    invalidatePresentationCache();
     return res.json({ group });
   } catch (error) {
     return next(error);
@@ -351,6 +350,7 @@ router.delete(
     }
     deleteGroup(id);
     invalidateGroupCache();
+    invalidatePresentationCache();
     return res.status(204).send();
   } catch (error) {
     return next(error);

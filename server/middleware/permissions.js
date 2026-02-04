@@ -1,11 +1,19 @@
 import createError from "http-errors";
 
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { withTimeout } from "../utils/async-timeout.js";
+import { getClientById } from "../models/client.js";
+import { createTtlCache } from "../utils/ttl-cache.js";
 import { getGroupById } from "../models/group.js";
 import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
+const PRESENTATION_MENU_KEYS = new Set(["business", "primary", "fleet", "telemetry", "admin"]);
+const PRESENTATION_CACHE_TTL_MS = 10_000;
+const PRISMA_TIMEOUT_MS = Number(process.env.PRISMA_TIMEOUT_MS) || 4000;
+const presentationCache = createTtlCache(PRESENTATION_CACHE_TTL_MS);
+const NO_PRESENTATION = Symbol("no-presentation");
 export const MIRROR_FALLBACK_PERMISSIONS = {
   primary: {
     home: "read",
@@ -44,6 +52,7 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
         list: "read",
         advanced: "read",
         create: "none",
+        "history-response": "read",
       },
     },
     events: {
@@ -52,6 +61,7 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
       subpages: {
         report: "read",
         severity: "none",
+        "report-active-filter": "read",
       },
     },
   },
@@ -151,6 +161,172 @@ function normalizeEntry(value) {
   return { visible: false, access: null };
 }
 
+function isPermissionMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.keys(value).some((key) => PRESENTATION_MENU_KEYS.has(key));
+}
+
+function normalizePresentationCandidate(candidate) {
+  if (!candidate) return null;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    if (candidate.permissions && isPermissionMap(candidate.permissions)) {
+      return candidate.permissions;
+    }
+    if (isPermissionMap(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function extractPresentationPermissions(attributes) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = [
+    attributes.presentationPermissions,
+    attributes.presentation,
+    attributes.apresentacao,
+    attributes.apresentacaoPermissions,
+    attributes.menuPresentation,
+    attributes.menuPermissions,
+    attributes.presentationMenu,
+    attributes.menuConfig,
+    attributes.modules,
+    attributes.modulePermissions,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizePresentationCandidate(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function extractPresentationGroupId(attributes) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = [
+    attributes.presentationPermissionGroupId,
+    attributes.apresentacaoPermissionGroupId,
+    attributes.menuPermissionGroupId,
+    attributes.presentationGroupId,
+  ];
+  for (const candidate of candidates) {
+    if (candidate) return String(candidate);
+  }
+  return null;
+}
+
+function getPresentationCacheKey(clientId) {
+  return `presentation:${String(clientId)}`;
+}
+
+export function invalidatePresentationCache(clientId) {
+  if (!clientId) {
+    presentationCache.clear();
+    return;
+  }
+  presentationCache.delete(getPresentationCacheKey(clientId));
+}
+
+async function resolvePresentationPermissions(req) {
+  const clientId =
+    req?.clientId ??
+    req?.tenant?.clientIdResolved ??
+    req?.mirrorContext?.ownerClientId ??
+    req?.user?.clientId ??
+    null;
+  if (!clientId) return null;
+  const cacheKey = getPresentationCacheKey(clientId);
+  const cached = presentationCache.get(cacheKey);
+  if (cached) {
+    return cached === NO_PRESENTATION ? null : cached;
+  }
+  const client = await getClientById(clientId).catch(() => null);
+  const attributes = client?.attributes || null;
+  let permissions = extractPresentationPermissions(attributes);
+  if (!permissions) {
+    const groupId = extractPresentationGroupId(attributes);
+    if (groupId) {
+      const group = getGroupById(groupId);
+      if (group?.attributes?.kind === "PERMISSION_GROUP") {
+        permissions = group.attributes.permissions || null;
+      }
+    }
+  }
+  presentationCache.set(cacheKey, permissions || NO_PRESENTATION);
+  return permissions || null;
+}
+
+function minAccess(left, right) {
+  const ranks = { none: 0, read: 1, full: 2 };
+  const leftRank = ranks[left] ?? 0;
+  const rightRank = ranks[right] ?? 0;
+  return leftRank <= rightRank ? left : right;
+}
+
+function intersectEntries(leftEntry, rightEntry, parentVisible = true) {
+  const visible = parentVisible && leftEntry.visible && rightEntry.visible;
+  if (!visible) {
+    return { visible: false, access: null };
+  }
+  const access = minAccess(leftEntry.access ?? "none", rightEntry.access ?? "none");
+  return { visible: true, access };
+}
+
+function listSubpageKeys(entry) {
+  if (!entry || typeof entry !== "object") return [];
+  const subpages = entry.subpages;
+  if (!subpages || typeof subpages !== "object") return [];
+  return Object.keys(subpages);
+}
+
+function applyPresentationPermissions(permissions, presentation) {
+  if (!permissions || typeof permissions !== "object") return permissions;
+  if (!presentation || typeof presentation !== "object") return permissions;
+  if (Object.keys(presentation).length === 0) return permissions;
+
+  const merged = {};
+  const menuKeys = Object.keys(permissions);
+  menuKeys.forEach((menuKey) => {
+    const baseMenu = permissions?.[menuKey] || {};
+    const presentationMenu = presentation?.[menuKey] || {};
+    const pageKeys = new Set([
+      ...Object.keys(baseMenu || {}),
+      ...Object.keys(presentationMenu || {}),
+    ]);
+    if (!pageKeys.size) return;
+    const nextMenu = {};
+    pageKeys.forEach((pageKey) => {
+      const basePage = baseMenu?.[pageKey];
+      const presentationPage = presentationMenu?.[pageKey];
+      const baseEntry = normalizeEntry(basePage);
+      const presentationEntry = normalizeEntry(presentationPage);
+      const mergedEntry = intersectEntries(baseEntry, presentationEntry);
+      const subKeys = new Set([
+        ...listSubpageKeys(basePage),
+        ...listSubpageKeys(presentationPage),
+      ]);
+      if (subKeys.size > 0) {
+        const subpages = {};
+        subKeys.forEach((subKey) => {
+          const baseSub = resolvePermissionEntry({ [menuKey]: { [pageKey]: basePage } }, menuKey, pageKey, subKey);
+          const presentationSub = resolvePermissionEntry(
+            { [menuKey]: { [pageKey]: presentationPage } },
+            menuKey,
+            pageKey,
+            subKey,
+          );
+          subpages[subKey] = intersectEntries(baseSub, presentationSub, mergedEntry.visible);
+        });
+        nextMenu[pageKey] = { ...mergedEntry, subpages };
+      } else {
+        nextMenu[pageKey] = mergedEntry;
+      }
+    });
+    merged[menuKey] = nextMenu;
+  });
+
+  return merged;
+}
+
 function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
   if (!permissions || !menuKey || !pageKey) return { visible: false, access: null };
 
@@ -159,6 +335,7 @@ function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
 
   if (subKey) {
     if (pagePermission && typeof pagePermission === "object") {
+      const hasSubpages = Object.prototype.hasOwnProperty.call(pagePermission, "subpages");
       const subpages = pagePermission?.subpages || {};
       const subValue = subpages?.[subKey];
       const baseEntry = normalizeEntry(pagePermission);
@@ -168,6 +345,9 @@ function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
           return { visible: false, access: null };
         }
         return subEntry;
+      }
+      if (hasSubpages) {
+        return { visible: false, access: null };
       }
       return baseEntry.visible ? baseEntry : { visible: false, access: null };
     }
@@ -197,14 +377,74 @@ export async function resolvePermissionContext(req) {
   };
 
   if (req.user.role === "admin") {
-    return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+    const adminPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
+    if (!adminPermissionGroupId) {
+      return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+    }
+    const adminGroup = getGroupById(adminPermissionGroupId);
+    const adminPermissions =
+      adminGroup?.attributes?.kind === "PERMISSION_GROUP"
+        ? adminGroup?.attributes?.permissions || {}
+        : adminGroup?.attributes?.permissions || {};
+    if (!adminGroup || !adminPermissions || Object.keys(adminPermissions).length === 0) {
+      return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+    }
+    return {
+      permissions: applyPresentationPermissions(adminPermissions, await resolvePresentationPermissions(req)),
+      level: null,
+      isFull: false,
+      permissionGroupId: adminPermissionGroupId,
+    };
   }
+
+  const presentationPermissions = await resolvePresentationPermissions(req);
+  const applyPresentation = (permissions) =>
+    applyPresentationPermissions(permissions, presentationPermissions);
 
   const mirrorPermissionGroupId = req.mirrorContext?.permissionGroupId ?? null;
   if (req.mirrorContext) {
     if (!mirrorPermissionGroupId) {
+      // Se o mirror não tem grupo explícito, usamos o grupo do usuário para evitar
+      // "vazar" módulos de outros tenants via fallback genérico.
+      let fallbackPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
+      let fallbackUser = null;
+      if (!fallbackPermissionGroupId && isPrismaAvailable()) {
+        fallbackUser = await withTimeout(
+          prisma.user.findUnique({ where: { id: String(req.user.id) } }),
+          PRISMA_TIMEOUT_MS,
+          { label: "prisma.user.findUnique(mirror-fallback)" },
+        ).catch(() => null);
+        fallbackPermissionGroupId = fallbackUser?.attributes?.permissionGroupId ?? null;
+      }
+      if (!fallbackUser && !fallbackPermissionGroupId && isFallbackEnabled()) {
+        fallbackUser = getFallbackUser();
+        fallbackPermissionGroupId = fallbackUser?.attributes?.permissionGroupId ?? null;
+      }
+
+      if (fallbackPermissionGroupId) {
+        const fallbackGroup = getGroupById(fallbackPermissionGroupId);
+        const fallbackPermissions =
+          fallbackGroup?.attributes?.kind === "PERMISSION_GROUP"
+            ? fallbackGroup?.attributes?.permissions || {}
+            : fallbackGroup?.attributes?.permissions || {};
+        if (fallbackGroup && fallbackPermissions && Object.keys(fallbackPermissions).length > 0) {
+          logMirrorPermissions({ permissionGroupIdUsed: fallbackPermissionGroupId, usedFallback: false });
+          return {
+            permissions: applyPresentation(fallbackPermissions),
+            level: null,
+            isFull: false,
+            permissionGroupId: fallbackPermissionGroupId,
+          };
+        }
+      }
+
       logMirrorPermissions({ permissionGroupIdUsed: null, usedFallback: true });
-      return { permissions: MIRROR_FALLBACK_PERMISSIONS, level: null, isFull: false, permissionGroupId: null };
+      return {
+        permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
+        level: null,
+        isFull: false,
+        permissionGroupId: null,
+      };
     }
 
     const mirrorGroup = getGroupById(mirrorPermissionGroupId);
@@ -213,17 +453,31 @@ export async function resolvePermissionContext(req) {
 
     if (!mirrorGroup || !isPermissionGroup || !permissions || Object.keys(permissions).length === 0) {
       logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: true });
-      return { permissions: MIRROR_FALLBACK_PERMISSIONS, level: null, isFull: false, permissionGroupId: null };
+      return {
+        permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
+        level: null,
+        isFull: false,
+        permissionGroupId: null,
+      };
     }
 
     logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: false });
-    return { permissions, level: null, isFull: false, permissionGroupId: mirrorPermissionGroupId };
+    return {
+      permissions: applyPresentation(permissions),
+      level: null,
+      isFull: false,
+      permissionGroupId: mirrorPermissionGroupId,
+    };
   }
 
   let permissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
   let user = null;
   if (!permissionGroupId && isPrismaAvailable()) {
-    user = await prisma.user.findUnique({ where: { id: String(req.user.id) } }).catch(() => null);
+    user = await withTimeout(
+      prisma.user.findUnique({ where: { id: String(req.user.id) } }),
+      PRISMA_TIMEOUT_MS,
+      { label: "prisma.user.findUnique(permission-group)" },
+    ).catch(() => null);
     permissionGroupId = user?.attributes?.permissionGroupId ?? null;
   }
 
@@ -233,7 +487,12 @@ export async function resolvePermissionContext(req) {
   }
 
   if (!permissionGroupId) {
-    return { permissions: null, level: null, isFull: false, permissionGroupId: null };
+    return {
+      permissions: applyPresentation(null),
+      level: null,
+      isFull: false,
+      permissionGroupId: null,
+    };
   }
 
   const permissionGroup = getGroupById(permissionGroupId);
@@ -242,7 +501,12 @@ export async function resolvePermissionContext(req) {
       ? permissionGroup?.attributes?.permissions || {}
       : permissionGroup?.attributes?.permissions || {};
 
-  return { permissions, level: null, isFull: false, permissionGroupId };
+  return {
+    permissions: applyPresentation(permissions),
+    level: null,
+    isFull: false,
+    permissionGroupId,
+  };
 }
 
 export function authorizePermission({ menuKey, pageKey, subKey, requireFull = false }) {
@@ -269,11 +533,82 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
       }
 
       if (!resolved.visible || resolved.access === "none") {
+        console.warn("[permissions] denied", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          userId: req.user?.id ? String(req.user.id) : null,
+          clientId: req.user?.clientId ? String(req.user.clientId) : null,
+          menuKey,
+          pageKey,
+          subKey: subKey || null,
+          resolved,
+          requireFull,
+          permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
+        });
         return next(createError(403, "Sem permissão para acessar este recurso"));
       }
 
       if (requireFull && resolved.access !== "full") {
+        console.warn("[permissions] denied (requireFull)", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          userId: req.user?.id ? String(req.user.id) : null,
+          clientId: req.user?.clientId ? String(req.user.clientId) : null,
+          menuKey,
+          pageKey,
+          subKey: subKey || null,
+          resolved,
+          requireFull,
+          permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
+        });
         return next(createError(403, "Acesso restrito para esta operação"));
+      }
+
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  };
+}
+
+export function authorizeAnyPermission({ permissions = [], requireFull = false }) {
+  return async (req, _res, next) => {
+    try {
+      if (!Array.isArray(permissions) || permissions.length === 0) {
+        return next();
+      }
+      const context = await resolvePermissionContext(req);
+      const hasAccess = permissions.some((permission) => {
+        if (!permission) return false;
+        const resolved =
+          context.level
+            ? { visible: true, access: context.level }
+            : resolvePermissionEntry(context.permissions, permission.menuKey, permission.pageKey, permission.subKey);
+        const needsFull = permission.requireFull || requireFull;
+        if (!resolved.visible || resolved.access === "none" || resolved.access === null) {
+          return false;
+        }
+        if (needsFull && resolved.access !== "full") {
+          return false;
+        }
+        return true;
+      });
+
+      if (!hasAccess) {
+        console.warn("[permissions] denied (any)", {
+          path: req.originalUrl || req.url,
+          method: req.method,
+          userId: req.user?.id ? String(req.user.id) : null,
+          clientId: req.user?.clientId ? String(req.user.clientId) : null,
+          permissions: permissions.map((permission) => ({
+            menuKey: permission?.menuKey,
+            pageKey: permission?.pageKey,
+            subKey: permission?.subKey,
+            requireFull: Boolean(permission?.requireFull || requireFull),
+          })),
+          permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
+        });
+        return next(createError(403, "Sem permissão para acessar este recurso"));
       }
 
       return next();
@@ -337,6 +672,7 @@ export function authorizePermissionOrEmpty({
 
 export default {
   authorizePermission,
+  authorizeAnyPermission,
   authorizePermissionOrEmpty,
   resolvePermissionContext,
 };

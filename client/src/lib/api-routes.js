@@ -1,5 +1,6 @@
 export const API_ROUTES = {
   session: "session",
+  mePermissions: "me/permissions",
   context: "context",
   permissionsContext: "permissions/context",
   login: "login",
@@ -64,6 +65,7 @@ export const API_ROUTES = {
   },
   clients: "clients",
   users: "users",
+  usersTransferConfig: (userId) => `users/${userId}/transfer-config`,
   mirrors: "mirrors",
   mirrorsContext: "mirrors/context",
   geofenceGroups: "geofence-groups",

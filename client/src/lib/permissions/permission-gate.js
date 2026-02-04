@@ -80,10 +80,11 @@ function toUiLevel(access) {
 
 export function createPermissionResolver({ useTenantHook = useTenant } = {}) {
   return function usePermissionResolver() {
-    const { role, permissionContext, permissionLoading, isGlobalAdmin, permissionsReady } = useTenantHook();
+    const { role, permissionContext, permissionLoading, isGlobalAdmin, permissionsReady, isReadOnly } = useTenantHook();
     const context = permissionContext ?? { permissions: null, isFull: false, permissionGroupId: null };
     const ready = permissionsReady ?? !permissionLoading;
     const loading = !ready;
+    const readOnly = Boolean(isReadOnly);
 
     const getPermission = useCallback(
       ({ menuKey, pageKey, subKey }) => {
@@ -99,25 +100,33 @@ export function createPermissionResolver({ useTenantHook = useTenant } = {}) {
         }
         const adminHasScopedPermissions = Boolean(context.permissionGroupId);
         const allowAdminFull = (isGlobalAdmin || role === "admin") && !adminHasScopedPermissions;
-        if (allowAdminFull || context.isFull) {
+        const finalize = (permission) => {
+          if (!readOnly || !permission.isFull) return permission;
           return {
+            ...permission,
+            level: UI_LEVELS.read,
+            isFull: false,
+          };
+        };
+        if (allowAdminFull || context.isFull) {
+          return finalize({
             level: UI_LEVELS.full,
             hasAccess: true,
             canShow: true,
             canView: true,
             canRead: true,
             isFull: true,
-          };
+          });
         }
         if (!context.permissions) {
-          return {
+          return finalize({
             level: UI_LEVELS.none,
             hasAccess: false,
             canShow: false,
             canView: false,
             canRead: false,
             isFull: false,
-          };
+          });
         }
 
         const entry = resolvePermissionEntry(context.permissions, menuKey, pageKey, subKey);
@@ -130,16 +139,16 @@ export function createPermissionResolver({ useTenantHook = useTenant } = {}) {
           : "none";
         const level = toUiLevel(rawLevel);
         const hasAccess = entry.visible && entry.access !== "none" && entry.access !== null;
-        return {
+        return finalize({
           level,
           hasAccess,
           canShow: entry.visible,
           canView: hasAccess,
           canRead: hasAccess,
           isFull: level === UI_LEVELS.full,
-        };
+        });
       },
-      [context, ready, role, isGlobalAdmin],
+      [context, ready, role, isGlobalAdmin, readOnly],
     );
 
     return useMemo(
@@ -196,12 +205,6 @@ export function usePermissions() {
 }
 
 export function resolveCanManageUsers({ role, permission } = {}) {
-  if (role === "manager" || role === "tenant_admin") {
-    return true;
-  }
-  if (role === "admin") {
-    return Boolean(permission?.canShow);
-  }
   return Boolean(permission?.canShow);
 }
 

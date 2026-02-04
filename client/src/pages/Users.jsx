@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, Pencil, Plus, RefreshCw, Search, X } from "lucide-react";
 
 import api from "../lib/api";
@@ -11,7 +11,7 @@ import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import { useGroups } from "../lib/hooks/useGroups";
 import { formatVehicleLabel } from "../lib/hooks/useVehicles";
 import { PERMISSION_REGISTRY } from "../lib/permissions/registry";
-import { usePermissionGate, usePermissions } from "../lib/permissions/permission-gate";
+import { resolveCanManageUsers, usePermissionGate, usePermissions } from "../lib/permissions/permission-gate";
 import { isAdminGeneralClientName } from "../lib/admin-general";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess";
 import PermissionTreeEditor from "../components/permissions/PermissionTreeEditor";
@@ -44,6 +44,26 @@ const defaultUserForm = {
   },
 };
 
+const VEHICLE_GROUP_TYPES = {
+  BY_CLIENT: "BY_CLIENT",
+  CUSTOM: "CUSTOM",
+};
+
+function resolveGroupType(group) {
+  const raw = group?.attributes?.groupType || group?.attributes?.type || VEHICLE_GROUP_TYPES.CUSTOM;
+  return String(raw).trim().toUpperCase() === VEHICLE_GROUP_TYPES.BY_CLIENT
+    ? VEHICLE_GROUP_TYPES.BY_CLIENT
+    : VEHICLE_GROUP_TYPES.CUSTOM;
+}
+
+function resolveGroupSourceClientId(group) {
+  return group?.attributes?.sourceClientId || group?.attributes?.clientId || null;
+}
+
+function resolveGroupTypeLabel(groupType) {
+  return groupType === VEHICLE_GROUP_TYPES.BY_CLIENT ? "Por cliente" : "Avulso";
+}
+
 const roleLabels = {
   admin: "Administrador",
   tenant_admin: "Administrador do cliente",
@@ -59,6 +79,11 @@ const tabs = [
     id: "vehicle-groups",
     label: "Grupos de veículos",
     permission: { menuKey: "admin", pageKey: "users", subKey: "users-vehicle-groups" },
+  },
+  {
+    id: "transfer-config",
+    label: "Transferir configuração",
+    permission: { menuKey: "admin", pageKey: "users", subKey: "users-list" },
   },
   {
     id: "permission-groups",
@@ -135,7 +160,7 @@ function resolveVehicleGroupIds(userAccess) {
 }
 
 export default function Users() {
-  const { role, tenants, tenantId, tenant, user } = useTenant();
+  const { role, tenants, tenantId, tenant, user, mirrorOwners, isMirrorReceiver, homeClient } = useTenant();
   const [users, setUsers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -147,7 +172,13 @@ export default function Users() {
   const [activeTab, setActiveTab] = useState("users");
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
-  const [groupForm, setGroupForm] = useState({ name: "", description: "", vehicleIds: [] });
+  const [groupForm, setGroupForm] = useState({
+    name: "",
+    description: "",
+    vehicleIds: [],
+    groupType: VEHICLE_GROUP_TYPES.CUSTOM,
+    sourceClientId: "",
+  });
   const [permissionDrawerOpen, setPermissionDrawerOpen] = useState(false);
   const [editingPermissionGroup, setEditingPermissionGroup] = useState(null);
   const [permissionForm, setPermissionForm] = useState({ name: "", description: "", permissions: {} });
@@ -161,18 +192,67 @@ export default function Users() {
   const [groupQuery, setGroupQuery] = useState("");
   const [permissionQuery, setPermissionQuery] = useState("");
   const [vehiclePickId, setVehiclePickId] = useState("");
+  const [transferFromUserId, setTransferFromUserId] = useState("");
+  const [transferToUserId, setTransferToUserId] = useState("");
+  const [transferMode, setTransferMode] = useState("OVERWRITE");
+  const [transferLoading, setTransferLoading] = useState(false);
   const { confirmDelete } = useConfirmDialog();
   const [vehicleGroupPickId, setVehicleGroupPickId] = useState("");
   const [groupVehiclePickId, setGroupVehiclePickId] = useState("");
   const [detailsSearch, setDetailsSearch] = useState("");
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
-
-  const canManageUsers = role === "admin" || role === "manager" || role === "tenant_admin";
+  const selfRequestOptions = useMemo(
+    () => ({
+      skipMirrorClient: true,
+      headers: { "X-Mirror-Mode": "self" },
+    }),
+    [],
+  );
+  const usersPermission = usePermissionGate({ menuKey: "admin", pageKey: "users" }) || {
+    level: "NO_ACCESS",
+    hasAccess: false,
+    canShow: false,
+    canView: false,
+    canRead: false,
+    isFull: false,
+    loading: true,
+  };
+  const canManageUsers = resolveCanManageUsers({ role, permission: usersPermission });
+  const baseUserAccess = useMemo(
+    () => ({
+      ...defaultUserAccess,
+      vehicleAccess: {
+        ...defaultUserAccess.vehicleAccess,
+        mode: isMirrorReceiver ? "selected" : defaultUserAccess.vehicleAccess.mode,
+      },
+    }),
+    [isMirrorReceiver],
+  );
+  const buildDefaultUserForm = useCallback(
+    (clientId) => ({
+      ...defaultUserForm,
+      clientId: clientId || "",
+      attributes: {
+        ...defaultUserForm.attributes,
+        userAccess: baseUserAccess,
+        permissionGroupId: "",
+      },
+    }),
+    [baseUserAccess],
+  );
 
   const managedTenants = useMemo(() => {
     if (role === "admin") {
-      return tenants;
+      let list = Array.isArray(tenants) ? [...tenants] : [];
+      if (homeClient && !list.some((entry) => String(entry.id) === String(homeClient.id))) {
+        if (isAdminGeneralClientName(homeClient.name)) {
+          list = [homeClient, ...list];
+        } else {
+          list = [...list, homeClient];
+        }
+      }
+      return list;
     }
     if (tenant) {
       return [tenant];
@@ -186,7 +266,7 @@ export default function Users() {
       ];
     }
     return tenants;
-  }, [role, tenants, tenant, user]);
+  }, [homeClient, role, tenant, tenants, user]);
 
   const [selectedTenantId, setSelectedTenantId] = useState(
     tenantId || managedTenants[0]?.id || "",
@@ -207,8 +287,32 @@ export default function Users() {
 
   const { groups, reload: reloadGroups, createGroup, updateGroup, deleteGroup } = useGroups({
     params: selectedTenantId ? { clientId: selectedTenantId } : {},
+    requestOptions: selfRequestOptions,
   });
-  const usersPermission = usePermissionGate({ menuKey: "admin", pageKey: "users" });
+  const mirrorClientOptions = useMemo(() => {
+    if (!isMirrorReceiver) return [];
+    const list = Array.isArray(mirrorOwners) ? mirrorOwners : [];
+    return list.map((client) => ({
+      value: String(client.id),
+      label: client.name,
+      description: client.attributes?.segment || client.attributes?.clientType || "",
+      searchText: [client.name, client.attributes?.clientType, client.attributes?.segment].filter(Boolean).join(" "),
+    }));
+  }, [isMirrorReceiver, mirrorOwners]);
+
+  const clientNameById = useMemo(() => {
+    const map = new Map();
+    const push = (client) => {
+      if (!client?.id) return;
+      const label = client.name || client.attributes?.companyName || client.attributes?.clientName || client.id;
+      map.set(String(client.id), label);
+    };
+    (Array.isArray(managedTenants) ? managedTenants : []).forEach(push);
+    (Array.isArray(mirrorOwners) ? mirrorOwners : []).forEach(push);
+    if (homeClient) push(homeClient);
+    if (tenant) push(tenant);
+    return map;
+  }, [homeClient, managedTenants, mirrorOwners, tenant]);
   const { getPermission } = usePermissions();
   const availableTabs = useMemo(
     () => tabs.filter((tab) => getPermission(tab.permission).canShow),
@@ -252,7 +356,7 @@ export default function Users() {
     setError(null);
     try {
       const params = role === "admin" || isManager || isTenantAdmin ? { clientId } : {};
-      const response = await api.get(API_ROUTES.users, { params });
+      const response = await api.get(API_ROUTES.users, { params, ...selfRequestOptions });
       const list = response?.data?.users || response?.data || [];
       setUsers(Array.isArray(list) ? list : []);
     } catch (loadError) {
@@ -350,13 +454,13 @@ export default function Users() {
         delete payload.password;
       }
       if (editingId) {
-        await api.put(`/users/${editingId}`, payload);
+        await api.put(`/users/${editingId}`, payload, selfRequestOptions);
         setMessage("Usuário atualizado");
       } else {
-        await api.post(API_ROUTES.users, payload);
+        await api.post(API_ROUTES.users, payload, selfRequestOptions);
         setMessage("Usuário criado");
       }
-      setForm({ ...defaultUserForm, clientId: selectedTenantId });
+      setForm(buildDefaultUserForm(selectedTenantId));
       setEditingId(null);
       setUserDrawerOpen(false);
       await loadUsers(selectedTenantId);
@@ -385,17 +489,17 @@ export default function Users() {
         clientId: selectedTenantId,
         attributes: {
           userAccess: {
-            vehicleAccess: userAccess.vehicleAccess || defaultUserAccess.vehicleAccess,
+            vehicleAccess: userAccess.vehicleAccess || baseUserAccess.vehicleAccess,
             vehicleGroupIds: resolveVehicleGroupIds(userAccess),
-            schedule: userAccess.schedule || defaultUserAccess.schedule,
-            ipRestriction: userAccess.ipRestriction || defaultUserAccess.ipRestriction,
+            schedule: userAccess.schedule || baseUserAccess.schedule,
+            ipRestriction: userAccess.ipRestriction || baseUserAccess.ipRestriction,
           },
           permissionGroupId: entry.attributes?.permissionGroupId || "",
         },
       });
     } else {
       setEditingId(null);
-      setForm({ ...defaultUserForm, clientId: selectedTenantId });
+      setForm(buildDefaultUserForm(selectedTenantId));
     }
     setUserDrawerOpen(true);
   }
@@ -430,10 +534,13 @@ export default function Users() {
 
   function openGroupDrawer(group = null) {
     setEditingGroup(group);
+    const groupType = resolveGroupType(group);
     setGroupForm({
       name: group?.name || "",
       description: group?.description || "",
-      vehicleIds: group?.attributes?.vehicleIds || [],
+      vehicleIds: groupType === VEHICLE_GROUP_TYPES.CUSTOM ? group?.attributes?.vehicleIds || [] : [],
+      groupType,
+      sourceClientId: groupType === VEHICLE_GROUP_TYPES.BY_CLIENT ? (resolveGroupSourceClientId(group) || "") : "",
     });
     setGroupVehiclePickId("");
     setGroupDrawerOpen(true);
@@ -442,11 +549,25 @@ export default function Users() {
   async function handleGroupSubmit(event) {
     event.preventDefault();
     try {
+      if (!activeTabPermission?.isFull) {
+        setError(new Error("Permissão insuficiente para salvar grupos."));
+        return;
+      }
+      if (groupForm.groupType === VEHICLE_GROUP_TYPES.BY_CLIENT && !groupForm.sourceClientId) {
+        setError(new Error("Selecione um cliente espelhado para este grupo."));
+        return;
+      }
       const payload = {
         name: groupForm.name,
         description: groupForm.description,
         clientId: selectedTenantId,
-        attributes: { kind: "VEHICLE_GROUP", vehicleIds: groupForm.vehicleIds },
+        attributes: {
+          kind: "VEHICLE_GROUP",
+          groupType: groupForm.groupType,
+          sourceClientId:
+            groupForm.groupType === VEHICLE_GROUP_TYPES.BY_CLIENT ? groupForm.sourceClientId || null : null,
+          vehicleIds: groupForm.groupType === VEHICLE_GROUP_TYPES.CUSTOM ? groupForm.vehicleIds : [],
+        },
       };
       if (editingGroup) {
         await updateGroup(editingGroup.id, payload);
@@ -455,7 +576,13 @@ export default function Users() {
       }
       setGroupDrawerOpen(false);
       setEditingGroup(null);
-      setGroupForm({ name: "", description: "", vehicleIds: [] });
+      setGroupForm({
+        name: "",
+        description: "",
+        vehicleIds: [],
+        groupType: VEHICLE_GROUP_TYPES.CUSTOM,
+        sourceClientId: "",
+      });
     } catch (groupError) {
       console.error("Falha ao salvar grupo", groupError);
       setError(groupError);
@@ -496,6 +623,10 @@ export default function Users() {
   async function handlePermissionSubmit(event) {
     event.preventDefault();
     try {
+      if (!activeTabPermission?.isFull) {
+        setError(new Error("Permissão insuficiente para salvar grupos de permissões."));
+        return;
+      }
       const payload = {
         name: permissionForm.name,
         description: permissionForm.description,
@@ -540,6 +671,32 @@ export default function Users() {
     });
   }
 
+  async function handleTransferSubmit(event) {
+    event.preventDefault();
+    if (!transferFromUserId || !transferToUserId) {
+      setError(new Error("Selecione usuário origem e destino."));
+      return;
+    }
+    if (String(transferFromUserId) === String(transferToUserId)) {
+      setError(new Error("Usuário origem e destino devem ser diferentes."));
+      return;
+    }
+    setTransferLoading(true);
+    setError(null);
+    try {
+      await api.post(API_ROUTES.usersTransferConfig(transferToUserId), {
+        fromUserId: transferFromUserId,
+        mode: transferMode,
+      }, selfRequestOptions);
+      showToast("Configuração transferida com sucesso.");
+    } catch (transferError) {
+      console.error("Falha ao transferir configuração", transferError);
+      setError(transferError instanceof Error ? transferError : new Error("Falha ao transferir configuração"));
+    } finally {
+      setTransferLoading(false);
+    }
+  }
+
   async function handleUserDelete(entry) {
     if (!entry?.id) return;
     if (!isAdminGeneral) return;
@@ -550,7 +707,7 @@ export default function Users() {
       confirmLabel: "Excluir",
       onDelete: async () => {
         try {
-          await api.delete(`${API_ROUTES.users}/${entry.id}`);
+          await api.delete(`${API_ROUTES.users}/${entry.id}`, selfRequestOptions);
           setUsers((prev) => prev.filter((item) => String(item.id) !== String(entry.id)));
           if (detailsUserId && String(detailsUserId) === String(entry.id)) {
             setDetailsDrawerOpen(false);
@@ -582,6 +739,28 @@ export default function Users() {
     return map;
   }, [vehicleGroups]);
 
+  const groupVehicleIdsMap = useMemo(() => {
+    const map = new Map();
+    vehicleGroups.forEach((group) => {
+      const type = resolveGroupType(group);
+      let ids = [];
+      if (type === VEHICLE_GROUP_TYPES.BY_CLIENT) {
+        const sourceClientId = resolveGroupSourceClientId(group);
+        if (sourceClientId) {
+          ids = vehicles
+            .filter((vehicle) => String(vehicle.clientId) === String(sourceClientId))
+            .map((vehicle) => String(vehicle.id));
+        }
+      } else {
+        ids = Array.isArray(group?.attributes?.vehicleIds)
+          ? group.attributes.vehicleIds.map((id) => String(id))
+          : [];
+      }
+      map.set(String(group.id), ids);
+    });
+    return map;
+  }, [vehicleGroups, vehicles]);
+
   const vehicleOptions = useMemo(
     () =>
       vehicles.map((vehicle) => ({
@@ -594,12 +773,22 @@ export default function Users() {
 
   const vehicleGroupOptions = useMemo(
     () =>
-      vehicleGroups.map((group) => ({
-        value: group.id,
-        label: group.name,
-        description: `${group.attributes?.vehicleIds?.length || 0} veículos`,
-      })),
-    [vehicleGroups],
+      vehicleGroups.map((group) => {
+        const type = resolveGroupType(group);
+        const vehicleCount = (groupVehicleIdsMap.get(String(group.id)) || []).length;
+        const sourceClientId = resolveGroupSourceClientId(group);
+        const sourceClientLabel = sourceClientId ? clientNameById.get(String(sourceClientId)) || sourceClientId : null;
+        const description =
+          type === VEHICLE_GROUP_TYPES.BY_CLIENT
+            ? `${sourceClientLabel || "Cliente espelhado"} · ${vehicleCount} veículos`
+            : `${vehicleCount} veículos`;
+        return {
+          value: group.id,
+          label: group.name,
+          description,
+        };
+      }),
+    [clientNameById, groupVehicleIdsMap, vehicleGroups],
   );
 
   const selectedVehicleGroupIds = useMemo(
@@ -610,11 +799,11 @@ export default function Users() {
   const selectedGroupVehicleIds = useMemo(() => {
     const ids = new Set();
     selectedVehicleGroupIds.forEach((groupId) => {
-      const group = vehicleGroupMap.get(String(groupId));
-      (group?.attributes?.vehicleIds || []).forEach((id) => ids.add(String(id)));
+      const groupVehicles = groupVehicleIdsMap.get(String(groupId)) || [];
+      groupVehicles.forEach((id) => ids.add(String(id)));
     });
     return Array.from(ids);
-  }, [selectedVehicleGroupIds, vehicleGroupMap]);
+  }, [groupVehicleIdsMap, selectedVehicleGroupIds]);
 
   const selectedVehicleCount = useMemo(() => {
     if (form.attributes.userAccess.vehicleAccess.mode === "all") {
@@ -626,6 +815,16 @@ export default function Users() {
     ]);
     return combined.length;
   }, [form.attributes.userAccess.vehicleAccess, selectedGroupVehicleIds, vehicles]);
+
+  const userSelectOptions = useMemo(
+    () =>
+      users.map((entry) => ({
+        value: String(entry.id),
+        label: entry.name || entry.email || entry.username || String(entry.id),
+        description: entry.email || entry.username || "",
+      })),
+    [users],
+  );
 
   const filteredUsers = useMemo(() => {
     const term = normalizeText(query);
@@ -640,10 +839,16 @@ export default function Users() {
     const term = normalizeText(groupQuery);
     if (!term) return vehicleGroups;
     return vehicleGroups.filter((entry) => {
-      const haystack = [entry.name, entry.description].filter(Boolean).join(" ").toLowerCase();
+      const typeLabel = resolveGroupTypeLabel(resolveGroupType(entry));
+      const sourceClientId = resolveGroupSourceClientId(entry);
+      const sourceClientLabel = sourceClientId ? clientNameById.get(String(sourceClientId)) || sourceClientId : "";
+      const haystack = [entry.name, entry.description, typeLabel, sourceClientLabel]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       return haystack.includes(term);
     });
-  }, [groupQuery, vehicleGroups]);
+  }, [clientNameById, groupQuery, vehicleGroups]);
 
   const filteredPermissionGroups = useMemo(() => {
     const term = normalizeText(permissionQuery);
@@ -662,15 +867,15 @@ export default function Users() {
 
   const detailsVehicles = useMemo(() => {
     if (!detailsUser) return [];
-    const userAccess = detailsUser.attributes?.userAccess || defaultUserAccess;
+    const userAccess = detailsUser.attributes?.userAccess || baseUserAccess;
     if (userAccess.vehicleAccess?.mode === "all") return vehicles;
     const ids = new Set((userAccess.vehicleAccess?.vehicleIds || []).map(String));
     resolveVehicleGroupIds(userAccess).forEach((groupId) => {
-      const group = vehicleGroupMap.get(String(groupId));
-      (group?.attributes?.vehicleIds || []).forEach((vehicleId) => ids.add(String(vehicleId)));
+      const groupVehicles = groupVehicleIdsMap.get(String(groupId)) || [];
+      groupVehicles.forEach((vehicleId) => ids.add(String(vehicleId)));
     });
     return vehicles.filter((vehicle) => ids.has(String(vehicle.id)));
-  }, [detailsUser, vehicles, vehicleGroupMap]);
+  }, [detailsUser, groupVehicleIdsMap, vehicles]);
 
   const filteredDetailsVehicles = useMemo(() => {
     const term = normalizeText(detailsSearch);
@@ -695,9 +900,6 @@ export default function Users() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6 text-white">
       <PageHeader
-        overline="Central de usuários"
-        title="Usuários"
-        subtitle="Cadastre operadores, defina grupos e regras avançadas de acesso."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -821,7 +1023,7 @@ export default function Users() {
                 )}
                 {!loading &&
                   filteredUsers.map((entry) => {
-                    const userAccess = entry.attributes?.userAccess || defaultUserAccess;
+                    const userAccess = entry.attributes?.userAccess || baseUserAccess;
                     const groupIds = resolveVehicleGroupIds(userAccess);
                     const groupVehicleIds = groupIds.flatMap(
                       (groupId) => vehicleGroupMap.get(String(groupId))?.attributes?.vehicleIds || [],
@@ -890,15 +1092,17 @@ export default function Users() {
               </div>
             }
             right={
-              <button
-                type="button"
-                onClick={() => openGroupDrawer()}
-                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Plus className="h-4 w-4" /> Novo grupo
-                </span>
-              </button>
+              activeTabPermission?.isFull ? (
+                <button
+                  type="button"
+                  onClick={() => openGroupDrawer()}
+                  className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Plus className="h-4 w-4" /> Novo grupo
+                  </span>
+                </button>
+              ) : null
             }
           />
 
@@ -907,7 +1111,8 @@ export default function Users() {
               <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
                 <tr>
                   <th className="px-4 py-3 text-left">Nome</th>
-                  <th className="px-4 py-3 text-left">Descrição</th>
+                  <th className="px-4 py-3 text-left">Tipo</th>
+                  <th className="px-4 py-3 text-left">Cliente</th>
                   <th className="px-4 py-3 text-left">Veículos</th>
                   <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
@@ -915,9 +1120,25 @@ export default function Users() {
               <tbody className="divide-y divide-white/10">
                 {filteredVehicleGroups.map((entry) => (
                   <tr key={entry.id} className="hover:bg-white/5">
-                    <td className="px-4 py-3 text-white">{entry.name}</td>
-                    <td className="px-4 py-3 text-white/70">{entry.description || "—"}</td>
-                    <td className="px-4 py-3 text-white/70">{entry.attributes?.vehicleIds?.length || 0}</td>
+                    <td className="px-4 py-3 text-white">
+                      <div className="flex flex-col gap-1">
+                        <span>{entry.name}</span>
+                        {entry.description ? (
+                          <span className="text-xs text-white/50">{entry.description}</span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-white/70">{resolveGroupTypeLabel(resolveGroupType(entry))}</td>
+                    <td className="px-4 py-3 text-white/70">
+                      {(() => {
+                        const sourceClientId = resolveGroupSourceClientId(entry);
+                        if (!sourceClientId) return "—";
+                        return clientNameById.get(String(sourceClientId)) || sourceClientId;
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-white/70">
+                      {(groupVehicleIdsMap.get(String(entry.id)) || []).length}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
                         <button
@@ -940,7 +1161,7 @@ export default function Users() {
                 ))}
                 {!filteredVehicleGroups.length && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-6 text-sm text-white/60">
+                    <td colSpan={5} className="px-4 py-6 text-sm text-white/60">
                       Nenhum grupo de veículos encontrado.
                     </td>
                   </tr>
@@ -948,6 +1169,81 @@ export default function Users() {
               </tbody>
             </DataTable>
           </div>
+        </div>
+      )}
+
+      {activeTabPermission?.canRead && activeTab === "transfer-config" && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            Copie grupos de veículos e preferências do usuário origem para outro usuário.
+            Use “Sobrescrever” para aplicar exatamente a mesma configuração ou “Mesclar” para apenas somar os grupos.
+          </div>
+          <form onSubmit={handleTransferSubmit} className="grid gap-4 md:grid-cols-2">
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Usuário origem</span>
+              <select
+                value={transferFromUserId}
+                onChange={(event) => setTransferFromUserId(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+                required
+              >
+                <option value="">Selecionar usuário</option>
+                {userSelectOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Usuário destino</span>
+              <select
+                value={transferToUserId}
+                onChange={(event) => setTransferToUserId(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+                required
+              >
+                <option value="">Selecionar usuário</option>
+                {userSelectOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Modo</span>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-white/70">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="transferMode"
+                    checked={transferMode === "OVERWRITE"}
+                    onChange={() => setTransferMode("OVERWRITE")}
+                  />
+                  Sobrescrever
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="transferMode"
+                    checked={transferMode === "MERGE"}
+                    onChange={() => setTransferMode("MERGE")}
+                  />
+                  Mesclar
+                </label>
+              </div>
+            </label>
+            <div className="md:col-span-2 flex items-center justify-end gap-3">
+              <button
+                type="submit"
+                disabled={transferLoading}
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {transferLoading ? "Transferindo…" : "Transferir configuração"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -966,15 +1262,17 @@ export default function Users() {
               </div>
             }
             right={
-              <button
-                type="button"
-                onClick={() => openPermissionDrawer()}
-                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Plus className="h-4 w-4" /> Novo grupo
-                </span>
-              </button>
+              activeTabPermission?.isFull ? (
+                <button
+                  type="button"
+                  onClick={() => openPermissionDrawer()}
+                  className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Plus className="h-4 w-4" /> Novo grupo
+                  </span>
+                </button>
+              ) : null
             }
           />
 
@@ -1262,12 +1560,20 @@ export default function Users() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       {selectedVehicleGroupIds.map((id) => {
                         const group = vehicleGroupMap.get(String(id));
+                        const groupType = resolveGroupType(group);
+                        const sourceClientId = resolveGroupSourceClientId(group);
+                        const sourceClientLabel =
+                          sourceClientId ? clientNameById.get(String(sourceClientId)) || sourceClientId : null;
+                        const groupLabel =
+                          groupType === VEHICLE_GROUP_TYPES.BY_CLIENT && sourceClientLabel
+                            ? `${group?.name || `Grupo ${id}`} · ${sourceClientLabel}`
+                            : group?.name || `Grupo ${id}`;
                         return (
                           <span
                             key={id}
                             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/80"
                           >
-                            {group?.name || `Grupo ${id}`}
+                            {groupLabel}
                             <button
                               type="button"
                               onClick={() => handleVehicleGroupRemove(id)}
@@ -1521,7 +1827,16 @@ export default function Users() {
                         key={group.id}
                         className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/80"
                       >
-                        {group.name}
+                        {(() => {
+                          const groupType = resolveGroupType(group);
+                          const sourceClientId = resolveGroupSourceClientId(group);
+                          const sourceClientLabel =
+                            sourceClientId ? clientNameById.get(String(sourceClientId)) || sourceClientId : null;
+                          if (groupType === VEHICLE_GROUP_TYPES.BY_CLIENT && sourceClientLabel) {
+                            return `${group.name} · ${sourceClientLabel}`;
+                          }
+                          return group.name;
+                        })()}
                       </span>
                     ))}
                   </div>
@@ -1587,77 +1902,128 @@ export default function Users() {
               className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
             />
           </label>
-
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-white/50">Veículos</p>
-                <p className="text-xs text-white/60">Adicione veículos específicos ao grupo.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() =>
+          {isMirrorReceiver && (
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Tipo do grupo</span>
+              <select
+                value={groupForm.groupType}
+                onChange={(event) => {
+                  const nextType = event.target.value;
                   setGroupForm((prev) => ({
                     ...prev,
-                    vehicleIds: vehicles.map((vehicle) => vehicle.id),
-                  }))
-                }
-                className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
-              >
-                Adicionar todos
-              </button>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-              <AutocompleteSelect
-                label="Buscar veículo"
-                placeholder="Buscar por placa, nome ou modelo"
-                value={groupVehiclePickId}
-                onChange={(value) => setGroupVehiclePickId(value)}
-                options={vehicleOptions}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!groupVehiclePickId) return;
-                  setGroupForm((prev) => ({
-                    ...prev,
-                    vehicleIds: uniqueList([...prev.vehicleIds, groupVehiclePickId]).map((id) => String(id)),
+                    groupType: nextType,
+                    sourceClientId: nextType === VEHICLE_GROUP_TYPES.BY_CLIENT ? prev.sourceClientId : "",
+                    vehicleIds: nextType === VEHICLE_GROUP_TYPES.CUSTOM ? prev.vehicleIds : [],
                   }));
-                  setGroupVehiclePickId("");
                 }}
-                className="mt-6 rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
               >
-                Adicionar
-              </button>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {groupForm.vehicleIds.map((id) => {
-                const vehicle = vehicleMap.get(String(id));
-                return (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/80"
-                  >
-                    {vehicle ? formatVehicleLabel(vehicle) : `Veículo ${id}`}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setGroupForm((prev) => ({
-                          ...prev,
-                          vehicleIds: prev.vehicleIds.filter((value) => String(value) !== String(id)),
-                        }))
-                      }
-                      className="text-white/60 hover:text-white"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                <option value={VEHICLE_GROUP_TYPES.CUSTOM}>Avulso (seleção manual)</option>
+                {mirrorClientOptions.length > 0 && (
+                  <option value={VEHICLE_GROUP_TYPES.BY_CLIENT}>Por cliente espelhado</option>
+                )}
+              </select>
+            </label>
+          )}
+          {groupForm.groupType === VEHICLE_GROUP_TYPES.BY_CLIENT && (
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Cliente espelhado</span>
+              <select
+                value={groupForm.sourceClientId}
+                onChange={(event) => setGroupForm((prev) => ({ ...prev, sourceClientId: event.target.value }))}
+                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+                required
+              >
+                <option value="">Selecionar cliente</option>
+                {mirrorClientOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {groupForm.sourceClientId && (
+                <p className="mt-2 text-xs text-white/60">
+                  Veículos disponíveis:{" "}
+                  <span className="text-white">
+                    {vehicles.filter((vehicle) => String(vehicle.clientId) === String(groupForm.sourceClientId)).length}
                   </span>
-                );
-              })}
-              {!groupForm.vehicleIds.length && <span className="text-xs text-white/40">Nenhum veículo selecionado.</span>}
+                </p>
+              )}
+            </label>
+          )}
+
+          {groupForm.groupType === VEHICLE_GROUP_TYPES.CUSTOM && (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-white/50">Veículos</p>
+                  <p className="text-xs text-white/60">Adicione veículos específicos ao grupo.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGroupForm((prev) => ({
+                      ...prev,
+                      vehicleIds: vehicles.map((vehicle) => vehicle.id),
+                    }))
+                  }
+                  className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
+                >
+                  Adicionar todos
+                </button>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                <AutocompleteSelect
+                  label="Buscar veículo"
+                  placeholder="Buscar por placa, nome ou modelo"
+                  value={groupVehiclePickId}
+                  onChange={(value) => setGroupVehiclePickId(value)}
+                  options={vehicleOptions}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!groupVehiclePickId) return;
+                    setGroupForm((prev) => ({
+                      ...prev,
+                      vehicleIds: uniqueList([...prev.vehicleIds, groupVehiclePickId]).map((id) => String(id)),
+                    }));
+                    setGroupVehiclePickId("");
+                  }}
+                  className="mt-6 rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                >
+                  Adicionar
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {groupForm.vehicleIds.map((id) => {
+                  const vehicle = vehicleMap.get(String(id));
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/80"
+                    >
+                      {vehicle ? formatVehicleLabel(vehicle) : `Veículo ${id}`}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            vehicleIds: prev.vehicleIds.filter((value) => String(value) !== String(id)),
+                          }))
+                        }
+                        className="text-white/60 hover:text-white"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+                {!groupForm.vehicleIds.length && <span className="text-xs text-white/40">Nenhum veículo selecionado.</span>}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-center justify-end gap-3">
             <button

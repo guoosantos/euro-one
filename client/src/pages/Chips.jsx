@@ -114,7 +114,7 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Chips() {
-  const { tenantId, user } = useTenant();
+  const { tenantId, tenantScope, user } = useTenant();
   const { positions } = useLivePositions();
   const [chips, setChips] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -132,7 +132,7 @@ export default function Chips() {
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const columnStorageKey = useMemo(
     () => `chips.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
     [resolvedClientId, user?.id],
@@ -398,7 +398,7 @@ export default function Chips() {
         apnPass: form.apnPass.trim() || undefined,
         notes: form.notes.trim() || undefined,
         deviceId: form.deviceId || undefined,
-        clientId: tenantId || user?.clientId,
+        clientId: resolvedClientId || undefined,
       };
       if (editingId) {
         await CoreApi.updateChip(editingId, payload);
@@ -425,7 +425,7 @@ export default function Chips() {
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
-          await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
+          await CoreApi.deleteChip(id, { clientId: resolvedClientId || undefined });
           await load();
           showToast("Excluído com sucesso.");
         } catch (requestError) {
@@ -456,9 +456,6 @@ export default function Chips() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-5">
       <PageHeader
-        overline="Central de chips"
-        title="Chips"
-        subtitle="Gerencie chips ativos, vínculos e informações de conectividade."
         actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={load} icon={RefreshCw}>

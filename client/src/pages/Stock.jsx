@@ -693,8 +693,6 @@ export default function Stock() {
   return (
     <div className="flex min-h-[calc(100vh-72px)] flex-col gap-4">
       <PageHeader
-        title="Estoque"
-        subtitle="Controle por cliente, disponíveis e vinculados."
         actions={
           <div className="flex items-center gap-2">
             <button

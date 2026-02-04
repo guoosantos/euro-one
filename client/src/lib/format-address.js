@@ -158,6 +158,8 @@ export function formatAddress(rawAddress) {
     return formatted || "—";
   }
   if (typeof rawAddress === "object") {
+    const formattedParts = formatFromParts(rawAddress);
+    if (formattedParts) return formattedParts;
     const composed = [
       rawAddress.road,
       rawAddress.suburb,

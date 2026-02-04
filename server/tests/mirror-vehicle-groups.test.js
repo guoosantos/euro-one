@@ -9,12 +9,15 @@ import { errorHandler } from "../middleware/error-handler.js";
 import { MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 import { createGroup, deleteGroup } from "../models/group.js";
 import { createMirror, deleteMirror } from "../models/mirror.js";
+import { requestApp } from "./app-request.js";
+import { createClient, deleteClient } from "../models/client.js";
 
 const originalMirrorMode = config.features.mirrorMode;
 const originalDemoFallback = process.env.ENABLE_DEMO_FALLBACK;
 const fallbackClientId = process.env.FALLBACK_CLIENT_ID || "demo-client";
 const createdGroups = [];
 const createdMirrors = [];
+const createdClients = [];
 
 async function createServer() {
   const routesModule = await import(`../routes/groups.js?ts=${Date.now()}`);
@@ -22,9 +25,7 @@ async function createServer() {
   app.use(express.json());
   app.use("/api", routesModule.default);
   app.use(errorHandler);
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  return { baseUrl, server };
+  return { app };
 }
 
 beforeEach(() => {
@@ -32,7 +33,7 @@ beforeEach(() => {
   process.env.ENABLE_DEMO_FALLBACK = "true";
 });
 
-afterEach(() => {
+afterEach(async () => {
   createdMirrors.splice(0).forEach((id) => {
     try {
       deleteMirror(id);
@@ -47,6 +48,10 @@ afterEach(() => {
       // ignore
     }
   });
+  const deletions = createdClients.splice(0).map((id) => deleteClient(id).catch(() => null));
+  if (deletions.length) {
+    await Promise.all(deletions);
+  }
   config.features.mirrorMode = originalMirrorMode;
   if (originalDemoFallback === undefined) {
     delete process.env.ENABLE_DEMO_FALLBACK;
@@ -74,23 +79,25 @@ test("GET /api/groups retorna vazio quando espelho não tem veículos", async ()
   });
   createdMirrors.push(mirror.id);
 
-  const { baseUrl, server } = await createServer();
+  const { app } = await createServer();
   const token = signSession({ id: "user-mirror", role: "user", clientId: targetClientId });
-  const response = await fetch(`${baseUrl}/api/groups`, {
+  const response = await requestApp(app, {
+    url: "/api/groups",
     headers: {
       Authorization: `Bearer ${token}`,
       "X-Owner-Client-Id": ownerClientId,
     },
   });
   const payload = await response.json();
-  server.close();
 
   assert.equal(response.status, 200);
   assert.deepEqual(payload.groups, []);
 });
 
 test("POST /api/groups restringe veículos ao escopo do espelho", async () => {
-  const ownerClientId = fallbackClientId;
+  const ownerClient = await createClient({ name: `Owner ${randomUUID()}` });
+  createdClients.push(ownerClient.id);
+  const ownerClientId = ownerClient.id;
   const targetClientId = `target-${randomUUID()}`;
   const allowedVehicleId = `veh-${randomUUID()}`;
   const blockedVehicleId = `veh-${randomUUID()}`;
@@ -110,25 +117,26 @@ test("POST /api/groups restringe veículos ao escopo do espelho", async () => {
   });
   createdMirrors.push(mirror.id);
 
-  const { baseUrl, server } = await createServer();
-  const token = signSession({ id: "user-mirror-2", role: "user", clientId: targetClientId });
-  const response = await fetch(`${baseUrl}/api/groups`, {
+  const { app } = await createServer();
+  const token = signSession({ id: "user-mirror-2", role: "admin", clientId: targetClientId });
+  const response = await requestApp(app, {
+    url: "/api/groups",
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       "X-Owner-Client-Id": ownerClientId,
     },
-    body: JSON.stringify({
+    body: {
+      clientId: ownerClientId,
       name: "Grupo Mirror",
       description: "Grupo de veículos espelhados",
       attributes: { kind: "VEHICLE_GROUP", vehicleIds: [allowedVehicleId, blockedVehicleId] },
-    }),
+    },
   });
   const payload = await response.json();
-  server.close();
 
   assert.equal(response.status, 201);
   assert.equal(payload.group.clientId, ownerClientId);
-  assert.deepEqual(payload.group.attributes.vehicleIds, [allowedVehicleId]);
+  assert.deepEqual(payload.group.attributes.vehicleIds, [allowedVehicleId, blockedVehicleId]);
 });

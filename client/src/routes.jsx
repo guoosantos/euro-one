@@ -125,7 +125,7 @@ export const routeConfig = [
   { path: "/clients", element: Clients, title: "Clientes", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/clients/:id", element: ClientDetailsPage, title: "Detalhes do cliente", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/mirrors/received", element: MirrorReceivers, title: "Espelhamento", requireTenant: true, permission: { menuKey: "admin", pageKey: "mirrors" } },
-  { path: "/users", element: Users, title: "Usuários", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "users" } },
+  { path: "/users", element: Users, title: "Usuários", permission: { menuKey: "admin", pageKey: "users" } },
   { path: "/technicians", element: Technicians, title: "Técnico", hideTitle: true, roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "fleet", pageKey: "services", subKey: "technicians" } },
   { path: "/crm", element: Crm, title: "CRM", requireTenant: true, permission: { menuKey: "business", pageKey: "crm" } },
   { path: "/crm/:section", element: Crm, title: "CRM", requireTenant: true, permission: { menuKey: "business", pageKey: "crm" } },
@@ -167,7 +167,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route element={<PrivateRoute />}>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/home" replace />} />
         {routeConfig.map(({ path, element: Component, title, hideTitle, roles, requireTenant, permission }) => {
           const content = <Component />;
           const guarded = applyGuards(withLayout(content, { title, hideTitle }), { roles, requireTenant, permission });

@@ -67,7 +67,7 @@ async function withTempEnv(vars, fn) {
 
 test("loadEnv remove aspas em XDM_CONFIG_NAME", async () => {
   await withTempEnv({ NODE_ENV: "test", XDM_CONFIG_NAME: undefined }, async () => {
-    await withTempEnvFile('XDM_CONFIG_NAME="Config XDM 01"\n', async () => {
+    await withProductionEnvFile('XDM_CONFIG_NAME="Config XDM 01"\n', async () => {
       const { loadEnv } = await import(`../utils/env.js?quoted-${Date.now()}`);
       await loadEnv();
       assert.equal(process.env.XDM_CONFIG_NAME, "Config XDM 01");
@@ -77,7 +77,7 @@ test("loadEnv remove aspas em XDM_CONFIG_NAME", async () => {
 
 test("loadEnv não sobrescreve XDM_CONFIG_NAME já definido", async () => {
   await withTempEnv({ NODE_ENV: "test", XDM_CONFIG_NAME: "Config Atual" }, async () => {
-    await withTempEnvFile('XDM_CONFIG_NAME="Config Nova"\n', async () => {
+    await withProductionEnvFile('XDM_CONFIG_NAME="Config Nova"\n', async () => {
       const { loadEnv } = await import(`../utils/env.js?no-override-${Date.now()}`);
       await loadEnv();
       assert.equal(process.env.XDM_CONFIG_NAME, "Config Atual");

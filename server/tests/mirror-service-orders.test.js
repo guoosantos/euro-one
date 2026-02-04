@@ -13,6 +13,7 @@ import serviceOrderRoutes, {
   __resetServiceOrderRouteMocks,
   __setServiceOrderRouteMocks,
 } from "../routes/service-orders.js";
+import { requestApp } from "./app-request.js";
 
 const createdMirrors = [];
 const createdGroups = [];
@@ -46,13 +47,11 @@ async function callServiceOrders({ ownerClientId, token }) {
   app.use("/api/core", serviceOrderRoutes);
   app.use(errorHandler);
 
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}/api/core/service-orders?clientId=${ownerClientId}`, {
+  const response = await requestApp(app, {
+    url: `/api/core/service-orders?clientId=${ownerClientId}`,
     headers: { Authorization: `Bearer ${token}` },
   });
   const payload = await response.json();
-  server.close();
   return { status: response.status, payload };
 }
 
