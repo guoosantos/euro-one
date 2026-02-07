@@ -32,6 +32,7 @@ import { resolveMirrorHeaders } from "../lib/mirror-params.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 import PageHeader from "../components/ui/PageHeader.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -937,6 +938,7 @@ function ReplayMap({
   focusMode,
   isPlaying,
   manualCenter,
+  tripKey,
   selectedVehicle = null,
   isActive = false,
   layoutToken,
@@ -1088,7 +1090,7 @@ function ReplayMap({
     const observer = new ResizeObserver(() => {
       if (frame) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (typeof map.invalidateSize === "function") {
+        if (canInteractWithMap(map, containerRef.current) && typeof map.invalidateSize === "function") {
           map.invalidateSize({ animate: false });
         }
         refreshMap();
@@ -1105,7 +1107,7 @@ function ReplayMap({
     if (!map || !isActive || focusMode !== "map") return undefined;
     const timeout = setTimeout(() => {
       if (!map) return;
-      if (typeof map.invalidateSize === "function") {
+      if (canInteractWithMap(map, containerRef.current) && typeof map.invalidateSize === "function") {
         map.invalidateSize({ animate: false });
       }
       refreshMap();
@@ -1166,7 +1168,7 @@ function ReplayMap({
           activeIndex={directionPathIndex}
           isVisible={showDirectionMarkers}
         />
-        <MapFocus point={activePoint} />
+        <MapFocus point={activePoint} tripKey={tripKey} />
         <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} enabled={focusMode === "map" && isPlaying} />
         <ManualCenter target={manualCenter} />
         <MapResizeHandler />
@@ -1248,11 +1250,18 @@ function DirectionMarkers({ pathPoints = [], activeIndex = 0, isVisible = false 
   return null;
 }
 
-function MapFocus({ point }) {
+function MapFocus({ point, tripKey }) {
   const map = useMap();
   const lastViewRef = useRef(null);
   const retryRef = useRef(null);
   const attemptsRef = useRef(0);
+  const tripKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (!tripKey || tripKey === tripKeyRef.current) return;
+    tripKeyRef.current = tripKey;
+    lastViewRef.current = null;
+  }, [tripKey]);
 
   useEffect(() => {
     if (!map) return undefined;
@@ -1367,7 +1376,8 @@ function ManualCenter({ target }) {
     lastTsRef.current = target.ts;
 
     if (!canInteractWithMap(map)) return undefined;
-    map.flyTo([target.lat, target.lng], map.getZoom(), { animate: true });
+    const zoom = Number.isFinite(target.zoom) ? target.zoom : map.getZoom();
+    map.flyTo([target.lat, target.lng], zoom, { animate: true });
 
     return undefined;
   }, [map, target]);
@@ -1649,7 +1659,7 @@ export default function Trips() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles();
+  } = useVehicles({ includeTelemetry: false });
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,
@@ -1734,6 +1744,7 @@ export default function Trips() {
     if (!start || !end) return null;
     return { from: start.toISOString(), to: end.toISOString() };
   }, [selectedTrip]);
+  const lastCenteredTripKeyRef = useRef("");
   const tripDeviceId = useMemo(
     () => selectedTrip?.deviceId || selectedTrip?.device_id || deviceId || null,
     [deviceId, selectedTrip?.deviceId, selectedTrip?.device_id],
@@ -2001,6 +2012,26 @@ export default function Trips() {
     routePointsRef.current = routePoints;
     routeTimesRef.current = routePoints.map((point) => point.t || 0);
   }, [routePoints]);
+
+  useEffect(() => {
+    if (!selectedTrip) return;
+    if (!routePoints.length) return;
+    const tripKey = resolveTripKey(selectedTrip);
+    if (!tripKey || lastCenteredTripKeyRef.current === tripKey) return;
+    if (selectedTripRange?.from && selectedTripRange?.to) {
+      const startMs = new Date(selectedTripRange.from).getTime();
+      const endMs = new Date(selectedTripRange.to).getTime();
+      const firstTime = routePoints[0]?.t;
+      if (Number.isFinite(firstTime)) {
+        const margin = 5 * 60 * 1000;
+        if (firstTime < startMs - margin || firstTime > endMs + margin) return;
+      }
+    }
+    const firstPoint = routePoints[0];
+    if (!firstPoint || !Number.isFinite(firstPoint.lat) || !Number.isFinite(firstPoint.lng)) return;
+    lastCenteredTripKeyRef.current = tripKey;
+    setManualCenter({ lat: firstPoint.lat, lng: firstPoint.lng, ts: Date.now(), zoom: DEFAULT_ZOOM });
+  }, [routePoints, selectedTrip, selectedTripRange]);
 
   useEffect(() => {
     if (shouldWaitForMirror) {
@@ -3373,48 +3404,6 @@ export default function Trips() {
     (feedback?.type === "success" ? feedback.message : null) ||
     (generatedAtLabel ? `Relatório gerado • Última geração: ${generatedAtLabel}` : "Relatório não gerado.");
 
-  const replayNotices = useMemo(() => {
-    const items = [];
-    if (routeLoading) {
-      items.push({ tone: "info", text: "Carregando posições do trajeto..." });
-    }
-    if (routeError?.message) {
-      items.push({ tone: "error", text: routeError.message });
-    }
-    if (mapMatchingLoading) {
-      items.push({ tone: "info", text: "Ajustando rota (map matching)..." });
-    }
-    if (mapMatchingError) {
-      items.push({ tone: "error", text: mapMatchingError });
-    }
-    if (mapMatchingNotice) {
-      items.push({ tone: "info", text: mapMatchingNotice });
-    }
-    if (mapMatchingProvider) {
-      items.push({ tone: "info", text: `Map matching: ${mapMatchingProvider}` });
-    }
-    if (logicalRouteLoading) {
-      items.push({ tone: "info", text: "Calculando rota lógica..." });
-    }
-    if (logicalRouteError) {
-      items.push({ tone: "error", text: logicalRouteError });
-    }
-    if (logicalRouteProvider) {
-      items.push({ tone: "info", text: `Rota lógica: ${logicalRouteProvider}` });
-    }
-    return items;
-  }, [
-    logicalRouteError,
-    logicalRouteLoading,
-    logicalRouteProvider,
-    mapMatchingError,
-    mapMatchingLoading,
-    mapMatchingNotice,
-    mapMatchingProvider,
-    routeError,
-    routeLoading,
-  ]);
-
   const drawerCountLabel = useMemo(() => {
     if (drawerTab === "events" && tripEventsLoading) return "Carregando...";
     if (drawerTab === "audit") return `${filteredAuditEntries.length} registros`;
@@ -3428,27 +3417,28 @@ export default function Trips() {
       style={{ "--trips-header-h": "124px", "--trips-replay-offset": "72px" }}
     >
       <header className="shrink-0 border-b border-white/10 bg-white/5 px-3 py-2 sm:px-4 lg:px-4 2xl:px-6 backdrop-blur">
-        <PageHeader subtitle="Frota › Monitoramento › Trajetos/Replay" />
+        <PageHeader />
 
         <form onSubmit={handleSubmit} className="mt-1 flex w-full flex-wrap items-center gap-2 min-[1200px]:flex-nowrap">
-          <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs">
-            <span className="text-white/60">Veículo</span>
-            <select
+          <div className="min-w-[240px] flex-1">
+            <AutocompleteSelect
+              label={null}
+              placeholder={loadingVehicles ? "Carregando veículos..." : "Digite placa ou nome"}
               value={vehicleId || ""}
-              onChange={(event) => {
-                const nextVehicleId = event.target.value;
-                const option = vehicleOptions.find((item) => String(item.value) === String(nextVehicleId));
-                setVehicleSelection(nextVehicleId || null, option?.deviceId ?? null);
+              options={vehicleOptions}
+              onChange={(nextVehicleId, option) => {
+                if (!nextVehicleId) {
+                  setVehicleSelection(null, null);
+                  return;
+                }
+                setVehicleSelection(nextVehicleId, option?.deviceId ?? null);
               }}
-              className="h-full min-w-[180px] bg-transparent text-sm text-white outline-none"
-            >
-              <option value="">Selecione...</option>
-              {vehicleOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              className="w-full"
+              inputClassName="h-9 rounded-full px-3 text-sm"
+              allowClear
+              emptyText={loadingVehicles ? "Carregando veículos..." : "Nenhum veículo encontrado."}
+              disabled={loadingVehicles}
+            />
           </div>
 
           <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs">
@@ -3477,7 +3467,7 @@ export default function Trips() {
 
           <Button
             type="submit"
-            variant="primary"
+            variant={loading ? "danger" : "primary"}
             className="h-9 whitespace-nowrap rounded-full px-4 text-xs font-semibold"
             disabled={loading || !deviceId}
           >
@@ -3509,8 +3499,8 @@ export default function Trips() {
         {vehiclesError && <p className="mt-2 text-xs text-red-300">{vehiclesError.message}</p>}
       </header>
 
-      <main className="relative isolate grid flex-1 min-h-0 overflow-hidden grid-cols-[clamp(380px,32vw,520px)_minmax(0,1fr)] gap-[14px] px-3 py-4 sm:px-4 lg:px-4 2xl:px-6 max-[1100px]:grid-cols-1">
-        <aside className="relative isolate z-10 flex min-h-0 w-[clamp(380px,32vw,520px)] min-w-0 shrink-0 flex-col gap-2 overflow-x-hidden border-r border-white/10 bg-[#0B0F16] max-[1100px]:w-full">
+      <main className="relative isolate grid flex-1 min-h-0 h-[calc(100vh-var(--e-header-h)-var(--trips-header-h))] grid-rows-[minmax(0,1fr)] overflow-hidden grid-cols-[clamp(380px,32vw,520px)_minmax(0,1fr)] gap-[14px] px-3 py-4 sm:px-4 lg:px-4 2xl:px-6 max-[1100px]:grid-cols-1 max-[1100px]:h-auto">
+        <aside className="relative isolate z-10 flex h-full min-h-0 w-[clamp(380px,32vw,520px)] min-w-0 shrink-0 flex-col gap-2 overflow-hidden border-r border-white/10 bg-[#0B0F16] max-[1100px]:w-full">
           <div className="flex flex-wrap items-center gap-3 border-b border-white/10 pb-2">
             <div className="shrink-0 whitespace-nowrap text-sm font-semibold text-white">
               Viagens encontradas <span className="text-white/50">({filteredTrips.length})</span>
@@ -3688,7 +3678,7 @@ export default function Trips() {
           </div>
         </aside>
 
-        <section className="relative z-0 flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+        <section className="relative z-0 flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-2 min-[1200px]:flex-nowrap">
             <div className="flex items-center gap-3">
               <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold tracking-[0.12em]" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
@@ -3733,7 +3723,7 @@ export default function Trips() {
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             {activeTab === "replay" ? (
               <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 pb-2 text-xs min-[1200px]:flex-nowrap">
                 <button
@@ -3830,23 +3820,6 @@ export default function Trips() {
               </div>
             ) : null}
 
-            {replayNotices.length ? (
-              <div className="mt-3 flex shrink-0 flex-wrap gap-2 text-[11px] text-white/70">
-                {replayNotices.map((notice, index) => (
-                  <span
-                    key={`notice-${index}`}
-                    className={`rounded-full border px-3 py-1 ${
-                      notice.tone === "error"
-                        ? "border-red-400/40 bg-red-400/10 text-red-100"
-                        : "border-white/10 bg-white/5 text-white/70"
-                    }`}
-                  >
-                    {notice.text}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
             {activeTab === "replay" ? (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
                 <div className="shrink-0 overflow-hidden rounded-[16px] border border-white/10 bg-[#0f141c]/60">
@@ -3854,7 +3827,7 @@ export default function Trips() {
                     <span className="font-semibold text-white">Mapa do trajeto</span>
                     <span className="text-white/50">{selectedVehicle?.plate || "—"}</span>
                   </div>
-                  <div className="h-[clamp(300px,40vh,460px)] overflow-hidden">
+                  <div className="h-[clamp(320px,46vh,520px)] overflow-hidden">
                     <ReplayMap
                       points={routePoints}
                       activeIndex={activeIndex}
@@ -3865,6 +3838,7 @@ export default function Trips() {
                       focusMode="map"
                       isPlaying={isPlaying}
                       manualCenter={manualCenter}
+                      tripKey={selectedTrip ? resolveTripKey(selectedTrip) : ""}
                       selectedVehicle={selectedVehicle}
                       isActive={activeTab === "replay"}
                       layoutToken={`${drawerTab}-${activeTab}`}
@@ -3917,7 +3891,7 @@ export default function Trips() {
                   </div>
                 </div>
 
-                <div className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden rounded-[16px] border border-white/10 bg-white/[0.02]">
+                <div className="flex min-w-0 flex-1 min-h-0 flex-col rounded-[16px] border border-white/10 bg-white/[0.02]">
                   <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-2 text-xs">
                     <div className="flex items-center gap-3 text-white/70">
                       <span className="font-semibold text-white">
@@ -3947,7 +3921,7 @@ export default function Trips() {
                     </div>
                   </div>
 
-                  <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 text-xs text-white/70">
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-4 text-xs text-white/70">
                     {drawerTab === "events" ? (
                       <div className="flex min-h-0 flex-1 flex-col gap-3">
                         <div className="shrink-0 space-y-3">
@@ -3983,7 +3957,7 @@ export default function Trips() {
                             />
                           </div>
                         </div>
-                        <div className="min-h-0 min-w-0 flex-1 overflow-auto pr-1">
+                        <div className="min-w-0 pr-1">
                           <div className="min-w-0 space-y-2">
                           {tripEventsLoading ? (
                             <div className="rounded-[12px] border border-white/10 bg-white/5 p-3 text-[11px] text-white/60">
@@ -4161,7 +4135,7 @@ export default function Trips() {
                           <span>{statusText}</span>
                         </div>
 
-                        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                        <div className="min-w-0 pr-1">
                           <TimelineTable
                             entries={limitedAuditEntries}
                             activeIndex={activeIndex}
@@ -4196,7 +4170,7 @@ export default function Trips() {
                             </div>
                           </div>
                         </div>
-                        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                        <div className="min-w-0 pr-1">
                           {limitedPositions.length ? (
                             <table className="min-w-full text-[11px] text-white/80">
                               <thead className="sticky top-0 bg-slate-900/80 backdrop-blur">

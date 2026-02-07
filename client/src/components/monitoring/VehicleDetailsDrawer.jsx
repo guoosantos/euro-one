@@ -18,9 +18,15 @@ import {
 } from "lucide-react";
 import { formatAddress as formatAddressString } from "../../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
-import { resolveTelemetryDescriptor } from "../../../../shared/telemetryDictionary.js";
+import { resolveTelemetryDescriptor, telemetryAliases } from "../../../../shared/telemetryDictionary.js";
 import { resolveEventDefinitionFromPayload } from "../../lib/event-translations.js";
-import { getIgnition, isOnline, pickSpeed } from "../../lib/monitoring-helpers.js";
+import {
+  getIgnition,
+  isOnline,
+  pickSpeed,
+  resolveVehicleDisplayName,
+  resolveVehicleInfo,
+} from "../../lib/monitoring-helpers.js";
 import useTrips from "../../lib/hooks/useTrips.js";
 import useReportsRoute from "../../lib/hooks/useReportsRoute.js";
 import safeApi from "../../lib/safe-api.js";
@@ -68,6 +74,7 @@ export default function VehicleDetailsDrawer({
   floating = true,
 }) {
   const safeVehicle = vehicle || {};
+  const vehicleSource = safeVehicle?.vehicle || safeVehicle;
   const { tenantId } = useTenant();
   const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
   const defaultTabs = useMemo(
@@ -125,6 +132,19 @@ export default function VehicleDetailsDrawer({
 
   const fallbackDevice = safeVehicle?.device ?? {};
   const device = selectedDevice || fallbackDevice;
+  const vehicleInfo = useMemo(
+    () =>
+      resolveVehicleInfo({
+        vehicle: safeVehicle?.vehicle || safeVehicle,
+        device,
+        attributes:
+          safeVehicle?.attributes ||
+          safeVehicle?.vehicle?.attributes ||
+          device?.attributes ||
+          {},
+      }),
+    [device, safeVehicle],
+  );
   const clientIdForRequests =
     safeVehicle?.client?.id ||
     safeVehicle?.clientId ||
@@ -155,15 +175,20 @@ export default function VehicleDetailsDrawer({
     device?.vehicleId ??
     device?.vehicle?.id ??
     null;
-  const vehicleBrand = safeVehicle?.brand || safeVehicle?.marca || safeVehicle?.make || null;
-  const vehicleModel = safeVehicle?.model || safeVehicle?.modelo || null;
+  const vehicleBrand = vehicleInfo.brand || null;
+  const vehicleModel = vehicleInfo.model || null;
   const vehicleYear =
     safeVehicle?.modelYear ||
     safeVehicle?.year ||
     safeVehicle?.manufactureYear ||
     safeVehicle?.manufacturingYear ||
     null;
-  const vehicleSummary = formatVehicleSummary(vehicleBrand, vehicleModel, vehicleYear);
+  const resolvedDisplayName = resolveVehicleDisplayName(vehicleInfo);
+  const vehicleSummary = (() => {
+    const summary = formatVehicleSummary(vehicleBrand, vehicleModel, vehicleYear);
+    if (summary !== "—") return summary;
+    return resolvedDisplayName;
+  })();
 
   const [reportDeviceId, setReportDeviceId] = useState(null);
   const [reportDeviceLoading, setReportDeviceLoading] = useState(false);
@@ -990,13 +1015,18 @@ export default function VehicleDetailsDrawer({
     };
     const merged = { ...attributes, ...baseValues };
     const entries = Object.entries(merged)
-      .map(([key, value]) => {
+      .map(([rawKey, value]) => {
         if (!isValidSensorValue(value)) return null;
-        const descriptor = resolveTelemetryDescriptor(key);
-        const label = descriptor?.labelPt || formatSensorLabel(key);
-        const formattedValue = formatSensorValue(value, descriptor);
+        const resolvedKey = resolveSensorKey(rawKey);
+        if (!resolvedKey) return null;
+        const descriptor = resolveTelemetryDescriptor(resolvedKey);
+        const meta = SENSOR_META[resolvedKey] || null;
+        if (!descriptor && !meta) return null;
+        const label = descriptor?.labelPt || meta?.label || formatSensorLabel(resolvedKey);
+        const formattedValue = formatSensorValue(value, descriptor, meta, resolvedKey);
+        if (!formattedValue) return null;
         return {
-          key,
+          key: resolvedKey,
           label,
           value: formattedValue,
           rawValue: value,
@@ -1071,7 +1101,11 @@ export default function VehicleDetailsDrawer({
                 type="button"
                 onClick={() => refreshTrips?.()}
                 disabled={tripsLoading || !(deviceIdForReports || vehicleId)}
-                className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition hover:border-white/30 disabled:cursor-not-allowed disabled:text-white/30"
+                className={`rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition disabled:cursor-not-allowed disabled:text-white/30 ${
+                  tripsLoading
+                    ? "border-red-500/40 bg-red-500/20 text-red-100 hover:border-red-400/70"
+                    : "border-white/10 bg-white/5 text-white/80 hover:border-white/30"
+                }`}
               >
                 {tripsLoading ? "Gerando..." : "Gerar"}
               </button>
@@ -1468,24 +1502,24 @@ export default function VehicleDetailsDrawer({
       return (
         <Section title="Informações do veículo">
           <div className="grid gap-3 sm:grid-cols-2">
-            <InfoField label="Cliente" value={safeVehicle.client?.name || safeVehicle.clientName || "—"} />
-            <InfoField label="Item" value={safeVehicle.item || safeVehicle.name || "—"} />
-            <InfoField label="Tipo do veículo" value={safeVehicle.type || safeVehicle.vehicleType || "—"} />
-            <InfoField label="Placa" value={safeVehicle.plate || "—"} />
-            <InfoField label="Identificador" value={safeVehicle.identifier || safeVehicle.identificador || "—"} />
-            <InfoField label="Modelo" value={safeVehicle.model || "—"} />
-            <InfoField label="Marca" value={safeVehicle.brand || "—"} />
-            <InfoField label="Chassi" value={safeVehicle.chassis || safeVehicle.chassi || "—"} />
-            <InfoField label="Renavam" value={safeVehicle.renavam || "—"} />
-            <InfoField label="Cor" value={safeVehicle.color || safeVehicle.cor || "—"} />
-            <InfoField label="Ano Modelo" value={safeVehicle.modelYear || "—"} />
-            <InfoField label="Ano de Fabricação" value={safeVehicle.manufactureYear || safeVehicle.manufacturingYear || "—"} />
-            <InfoField label="Código FIPE" value={safeVehicle.fipeCode || "—"} />
-            <InfoField label="Valor FIPE" value={safeVehicle.fipeValue || "—"} />
-            <InfoField label="Zero Km" value={safeVehicle.zeroKm ? "Sim" : "Não"} />
-            <InfoField label="Motorista" value={safeVehicle.driver?.name || safeVehicle.driverName || "—"} />
-            <InfoField label="Grupo" value={safeVehicle.group?.name || safeVehicle.groupName || "—"} />
-            <InfoField label="Status" value={safeVehicle.status || "—"} />
+            <InfoField label="Cliente" value={vehicleSource.client?.name || vehicleSource.clientName || "—"} />
+            <InfoField label="Item" value={vehicleSource.item || vehicleSource.name || "—"} />
+            <InfoField label="Tipo do veículo" value={vehicleSource.type || vehicleSource.vehicleType || "—"} />
+            <InfoField label="Placa" value={vehicleSource.plate || "—"} />
+            <InfoField label="Identificador" value={vehicleSource.identifier || vehicleSource.identificador || "—"} />
+            <InfoField label="Modelo" value={vehicleModel || "—"} />
+            <InfoField label="Marca" value={vehicleBrand || "—"} />
+            <InfoField label="Chassi" value={vehicleSource.chassis || vehicleSource.chassi || "—"} />
+            <InfoField label="Renavam" value={vehicleSource.renavam || "—"} />
+            <InfoField label="Cor" value={vehicleSource.color || vehicleSource.cor || "—"} />
+            <InfoField label="Ano Modelo" value={vehicleSource.modelYear || "—"} />
+            <InfoField label="Ano de Fabricação" value={vehicleSource.manufactureYear || vehicleSource.manufacturingYear || "—"} />
+            <InfoField label="Código FIPE" value={vehicleSource.fipeCode || "—"} />
+            <InfoField label="Valor FIPE" value={vehicleSource.fipeValue || "—"} />
+            <InfoField label="Zero Km" value={vehicleSource.zeroKm ? "Sim" : "Não"} />
+            <InfoField label="Motorista" value={vehicleSource.driver?.name || vehicleSource.driverName || "—"} />
+            <InfoField label="Grupo" value={vehicleSource.group?.name || vehicleSource.groupName || "—"} />
+            <InfoField label="Status" value={vehicleSource.status || "—"} />
           </div>
         </Section>
       );
@@ -1927,7 +1961,7 @@ export default function VehicleDetailsDrawer({
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-white/50">Veículo</p>
-          <h2 className="text-lg font-semibold text-white">{safeVehicle.plate || safeVehicle.name || "Veículo"}</h2>
+          <h2 className="text-lg font-semibold text-white">{vehicleSource.plate || vehicleSource.name || "Veículo"}</h2>
           <p className="text-xs text-white/60">{vehicleSummary}</p>
           {devices.length > 0 ? (
             <div className="mt-2">
@@ -2059,17 +2093,18 @@ function SensorCard({ sensor }) {
 
 function AlertCard({ alert, draft, onDraftChange, onOpenHandle }) {
   const isPending = alert.status === "pending";
+  const normalizedTitle = alert.normalizedEvent?.title || alert.normalizedEvent?.label || null;
+  const title = formatDisplayValue(normalizedTitle || alert.eventLabel || "Alerta");
+  const severity = formatDisplayValue(alert.normalizedEvent?.severity || alert.severity || "—");
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-white">
-            {formatDisplayValue(alert.eventLabel || "Alerta")}
-          </p>
+          <p className="text-sm font-semibold text-white">{title}</p>
           <p className="text-[11px] text-white/50">
             {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : "—"} •
             {" "}
-            {formatDisplayValue(alert.severity || "—")}
+            {severity}
           </p>
         </div>
         <span className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.12em] ${
@@ -2121,7 +2156,9 @@ function AlertHandleModal({ alert, draft, isOpen, onClose, onDraftChange, onHand
         <div className="flex items-center justify-between gap-2">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-white/50">Tratativa obrigatória</p>
-            <h3 className="text-lg font-semibold text-white">{formatDisplayValue(alert.eventLabel || "Alerta")}</h3>
+            <h3 className="text-lg font-semibold text-white">
+              {formatDisplayValue(alert.normalizedEvent?.title || alert.eventLabel || "Alerta")}
+            </h3>
           </div>
           <button
             type="button"
@@ -2381,6 +2418,80 @@ function isValidSensorValue(value) {
   return true;
 }
 
+const SENSOR_META = {
+  speed: { label: "Velocidade", unit: "km/h", precision: 1, min: 0, max: 300 },
+  distance: { label: "Distância", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  totalDistance: { label: "Distância Total", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  totalDistanceHighRes: { label: "Distância Total", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  odometer: { label: "Odômetro", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  obdOdometer: { label: "Odômetro CAN", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  tachoOdometer: { label: "Odômetro TACO", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  slot1Distance: { label: "Distância Slot 1", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  slot2Distance: { label: "Distância Slot 2", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  serviceDistance: { label: "Distância para Revisão", unit: "km", precision: 2, scale: 0.001, min: 0 },
+  rangeKm: { label: "Autonomia Estimada", unit: "km", precision: 1, min: 0 },
+  batteryLevel: { label: "Bateria", unit: "%", precision: 0, min: 0, max: 100 },
+  battery: { label: "Bateria Dispositivo", unit: "V", precision: 2, min: 0, max: 30 },
+  power: { label: "Tensão", unit: "V", precision: 2, min: 0, max: 30 },
+  vehicleVoltage: { label: "Tensão do Veículo", unit: "V", precision: 2, min: 0, max: 30 },
+  vcc: { label: "Alimentação (VCC)", unit: "V", precision: 2, min: 0, max: 30 },
+  vbat: { label: "Bateria Veicular (VBAT)", unit: "V", precision: 2, min: 0, max: 30 },
+  temperature: { label: "Temperatura", unit: "°C", precision: 1, min: -60, max: 200 },
+  deviceTemp: { label: "Temperatura do Dispositivo", unit: "°C", precision: 1, min: -60, max: 200 },
+  engineTemperature: { label: "Temperatura do Motor", unit: "°C", precision: 1, min: -60, max: 200 },
+  acceleration: { label: "Aceleração", unit: "m/s²", precision: 2, min: -50, max: 50 },
+  hdop: { label: "Precisão GPS", unit: null, precision: 1, min: 0, max: 50 },
+  sat: { label: "Satélites", unit: null, precision: 0, min: 0, max: 100 },
+  rssi: { label: "Sinal Celular", unit: null, precision: 0, min: -200, max: 200 },
+  rpm: { label: "RPM", unit: "rpm", precision: 0, min: 0, max: 20000 },
+  hours: { label: "Horas de Motor", unit: "h", precision: 1, min: 0, secondsToHours: true },
+  totalEngineHours: { label: "Horas de Motor Totais", unit: "h", precision: 1, min: 0, secondsToHours: true },
+  ignitionState: { label: "Ignição", unit: null, type: "boolean" },
+  engineWorking: { label: "Motor", unit: null, type: "boolean" },
+};
+
+const SENSOR_KEY_ALIASES = {
+  totaldistance: "totalDistanceHighRes",
+  total_distance: "totalDistanceHighRes",
+  totaldistancehighres: "totalDistanceHighRes",
+  totalkm: "totalDistanceHighRes",
+  odometer: "odometer",
+  hour: "hours",
+  hours: "hours",
+  enginehours: "hours",
+  totalenginehours: "totalEngineHours",
+  speed: "speed",
+  ignition: "ignitionState",
+  acc: "ignitionState",
+  ign: "ignitionState",
+};
+
+const SENSOR_KEY_BLACKLIST = new Set([
+  "id",
+  "deviceid",
+  "positionid",
+  "protocol",
+  "type",
+  "event",
+  "alarm",
+  "attributes",
+  "raw",
+]);
+
+function resolveSensorKey(rawKey) {
+  if (!rawKey) return null;
+  const cleaned = String(rawKey).trim();
+  if (!cleaned) return null;
+  const normalized = cleaned.toLowerCase();
+  const compact = normalized.replace(/[^a-z0-9]/g, "");
+  if (SENSOR_KEY_BLACKLIST.has(normalized) || (compact && SENSOR_KEY_BLACKLIST.has(compact))) return null;
+  if (telemetryAliases?.[normalized]) return telemetryAliases[normalized];
+  if (compact && telemetryAliases?.[compact]) return telemetryAliases[compact];
+  if (SENSOR_KEY_ALIASES[normalized]) return SENSOR_KEY_ALIASES[normalized];
+  if (compact && SENSOR_KEY_ALIASES[compact]) return SENSOR_KEY_ALIASES[compact];
+  return cleaned;
+}
+
 function formatSensorLabel(key) {
   if (!key) return "Sensor";
   return String(key)
@@ -2390,14 +2501,42 @@ function formatSensorLabel(key) {
     .trim();
 }
 
-function formatSensorValue(value, descriptor) {
-  if (typeof value === "boolean") return value ? "Sim" : "Não";
-  if (typeof value === "number") {
-    const unit = descriptor?.unit || "";
-    const formatted = Number.isFinite(value) ? value.toString() : "—";
-    return unit ? `${formatted} ${unit}` : formatted;
+function formatSensorValue(value, descriptor, meta, key) {
+  const resolvedType = meta?.type || descriptor?.type || (typeof value === "boolean" ? "boolean" : "number");
+  if (resolvedType === "boolean") {
+    return value ? "Sim" : "Não";
   }
-  return String(value);
+
+  if (resolvedType === "string") {
+    const text = String(value || "").trim();
+    return text || "—";
+  }
+
+  const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  if (!Number.isFinite(parsed)) return "—";
+
+  let numeric = parsed;
+  const scale = Number.isFinite(meta?.scale) ? meta.scale : 1;
+  numeric *= scale;
+
+  if (meta?.secondsToHours) {
+    const threshold = Number.isFinite(meta?.secondsToHoursThreshold) ? meta.secondsToHoursThreshold : 100_000;
+    if (numeric > threshold) {
+      numeric = numeric / 3600;
+    }
+  }
+
+  const min = Number.isFinite(meta?.min) ? meta.min : null;
+  const max = Number.isFinite(meta?.max) ? meta.max : null;
+  if ((min !== null && numeric < min) || (max !== null && numeric > max)) {
+    return "Valor inválido";
+  }
+
+  const precision = Number.isFinite(meta?.precision) ? meta.precision : 2;
+  const rounded = Number(numeric.toFixed(precision));
+  const formatted = Number.isFinite(rounded) ? rounded.toString() : "—";
+  const unit = meta?.unit ?? descriptor?.unit ?? "";
+  return unit ? `${formatted} ${unit}` : formatted;
 }
 
 function resolveSensorIcon(key, descriptor) {
@@ -2419,7 +2558,15 @@ function resolveSensorIcon(key, descriptor) {
 }
 
 function formatVehicleSummary(brand, model, year) {
-  const parts = [brand, model, year].filter((item) => item && String(item).trim());
+  const brandText = brand ? String(brand).trim() : "";
+  const modelText = model ? String(model).trim() : "";
+  const yearText = year ? String(year).trim() : "";
+  const modelIncludesBrand = brandText && modelText.toLowerCase().includes(brandText.toLowerCase());
+  const parts = [
+    modelIncludesBrand ? null : brandText,
+    modelText,
+    yearText,
+  ].filter((item) => item && String(item).trim());
   if (!parts.length) return "—";
   return parts.join(" • ");
 }

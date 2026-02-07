@@ -60,13 +60,30 @@ function mergeItemMappings(currentItems = [], nextItems = []) {
 }
 
 const persisted = loadCollection(STORAGE_KEY, []);
+let needsSync = false;
 persisted.forEach((item) => {
   if (!item?.id) return;
+  const normalizedClientId = item.clientId != null ? String(item.clientId).toLowerCase() : null;
+  const shouldForceGlobal = normalizedClientId === "all";
+  if (shouldForceGlobal) {
+    item.clientId = null;
+    item.scope = "global";
+    needsSync = true;
+  }
   itineraries.set(item.id, item);
 });
+if (needsSync) {
+  syncStorage();
+}
 
-export function listItineraries({ clientId } = {}) {
+export function listItineraries({ clientId, scope } = {}) {
   const list = Array.from(itineraries.values());
+  const normalizedScope = String(scope || "").toLowerCase();
+  if (normalizedScope === "global") {
+    return list
+      .filter((itinerary) => (itinerary.scope || (itinerary.clientId ? "client" : "global")) === "global")
+      .map(clone);
+  }
   if (!clientId) return list.map(clone);
   return list.filter((itinerary) => String(itinerary.clientId) === String(clientId)).map(clone);
 }
@@ -75,20 +92,22 @@ export function getItineraryById(id) {
   return clone(itineraries.get(String(id)));
 }
 
-export function createItinerary({ clientId, name, description = "", items = [] }) {
-  if (!clientId) {
+export function createItinerary({ clientId, name, description = "", items = [], scope } = {}) {
+  const normalizedScope = String(scope || "").toLowerCase() === "global" ? "global" : "client";
+  if (!clientId && normalizedScope !== "global") {
     throw createError(400, "clientId é obrigatório");
   }
   const record = {
     id: randomUUID(),
-    clientId: String(clientId),
+    clientId: clientId ? String(clientId) : null,
+    scope: normalizedScope,
     name: ensureName(name),
     description: description || "",
     items: normalizeItems(items),
     xdmGeozoneGroupId: null,
     xdmGeozoneGroupIds: null,
     xdmGeozoneIds: [],
-    xdmSyncStatus: "PENDING",
+    xdmSyncStatus: normalizedScope === "global" ? "GLOBAL" : "PENDING",
     xdmLastSyncError: null,
     xdmLastError: null,
     xdmLastSyncedAt: null,
@@ -104,8 +123,16 @@ export function updateItinerary(id, updates = {}) {
     throw createError(404, "Itinerário não encontrado");
   }
 
+  const normalizedScope =
+    Object.prototype.hasOwnProperty.call(updates, "scope") && updates.scope !== undefined
+      ? String(updates.scope).toLowerCase() === "global"
+        ? "global"
+        : "client"
+      : existing.scope || (existing.clientId ? "client" : "global");
   const updated = {
     ...existing,
+    scope: normalizedScope,
+    clientId: normalizedScope === "global" ? null : existing.clientId,
     name: updates.name ? ensureName(updates.name) : existing.name,
     description:
       Object.prototype.hasOwnProperty.call(updates, "description") && updates.description !== undefined

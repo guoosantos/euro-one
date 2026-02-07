@@ -48,14 +48,17 @@ function buildAlertRecord({
   const eventTime =
     event?.eventTime ?? event?.serverTime ?? event?.deviceTime ?? event?.time ?? null;
   const createdAt = parseTimestamp(eventTime) || new Date();
+  const normalizedEvent = event?.normalizedEvent || null;
+  const fallbackLabel = normalizedEvent?.title || normalizedEvent?.label || null;
+  const fallbackSeverity = normalizedEvent?.severity || null;
 
   return {
     id: eventId,
     eventId,
     protocol: protocol || null,
     eventType: event?.type || event?.attributes?.type || event?.event || null,
-    eventLabel: configuredEvent?.label || event?.eventLabel || null,
-    severity: configuredEvent?.severity || event?.eventSeverity || event?.severity || null,
+    eventLabel: configuredEvent?.label || event?.eventLabel || fallbackLabel || null,
+    severity: configuredEvent?.severity || event?.eventSeverity || event?.severity || fallbackSeverity || null,
     category: configuredEvent?.category ?? event?.eventCategory ?? null,
     requiresHandling: configuredEvent?.requiresHandling ?? event?.eventRequiresHandling ?? true,
     status: "pending",
@@ -69,6 +72,7 @@ function buildAlertRecord({
     vehicleLabel: vehicleLabel || null,
     plate: plate || null,
     address: address || null,
+    normalizedEvent,
   };
 }
 

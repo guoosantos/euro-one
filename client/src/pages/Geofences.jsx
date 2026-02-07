@@ -9,26 +9,32 @@ import {
   Eye,
   FileUp,
   LayoutGrid,
+  Layers,
+  List,
   MousePointer2,
   PanelRight,
   Pencil,
-  RefreshCw,
   Save,
   Trash2,
   Undo2,
-  X,
 } from "lucide-react";
 
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveMapPreferences } from "../lib/map-config.js";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
 import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
-import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
+import {
+  ENABLED_MAP_LAYERS,
+  MAP_LAYER_FALLBACK,
+  MAP_LAYER_STORAGE_KEYS,
+  getValidMapLayer,
+} from "../lib/mapLayers.js";
 import AppMap from "../components/map/AppMap.jsx";
 import MapToolbar from "../components/map/MapToolbar.jsx";
 import Button from "../ui/Button";
@@ -42,6 +48,7 @@ const DEFAULT_ZOOM = 12;
 const DEFAULT_CONFIG = "entry";
 const DEFAULT_ACTION = "block";
 const TARGET_ACTIONS = ["unlock", "unlink_itinerary"];
+const CLIENT_SCOPE_ALL = "all";
 
 function normalizeConfig(value) {
   const normalized = String(value || "").toLowerCase();
@@ -263,7 +270,7 @@ function GeofenceHandles({ geofence, onUpdatePolygon, onUpdateCircle }) {
   return null;
 }
 
-function ToolbarButton({ icon: Icon, active = false, title, className = "", ...props }) {
+function ToolbarButton({ icon: Icon, active = false, title, className = "", iconSize = 16, ...props }) {
   return (
     <button
       type="button"
@@ -271,8 +278,16 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
       title={title}
       {...props}
     >
-      <Icon size={16} />
+      <Icon size={iconSize} />
     </button>
+  );
+}
+
+function SidebarCard({ children, className = "" }) {
+  return (
+    <div className={`pointer-events-auto rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl ${className}`.trim()}>
+      {children}
+    </div>
   );
 }
 
@@ -284,6 +299,10 @@ function GeofencePanel({
   emptyText,
   searchTerm,
   onSearch,
+  clientOptions,
+  selectedClientId,
+  onClientChange,
+  clientContextLabel,
   hiddenIds,
   onToggleVisibility,
   onFocus,
@@ -307,6 +326,27 @@ function GeofencePanel({
       </div>
 
       <div className="mt-3 space-y-2">
+        {Array.isArray(clientOptions) && clientOptions.length > 0 && (
+          <div className="space-y-2">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Cliente</p>
+              <Select
+                value={selectedClientId ?? ""}
+                onChange={(event) => onClientChange?.(event.target.value)}
+                className="map-compact-input mt-1"
+              >
+                {clientOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {clientContextLabel && (
+              <span className="map-status-pill bg-white/5 text-white/70">Criando para: {clientContextLabel}</span>
+            )}
+          </div>
+        )}
         <Input
           value={searchTerm}
           onChange={(event) => onSearch(event.target.value)}
@@ -367,7 +407,6 @@ export default function Geofences({ variant = "geofences" }) {
   const searchPlaceholder = `Buscar ${entityLabelLower}`;
   const savedVerb = isTargetView ? "salvos" : "salvas";
   const mapRef = useRef(null);
-  const userActionRef = useRef(false);
   const importInputRef = useRef(null);
   const polygonFinalizeRef = useRef(false);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -383,15 +422,24 @@ export default function Geofences({ variant = "geofences" }) {
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
   const { confirmDelete } = useConfirmDialog();
-  const { tenantId, tenantScope, user, tenant } = useTenant();
+  const { tenantId, user, tenant, tenants, role } = useTenant();
+  const { isAdminGeneral } = useAdminGeneralAccess();
+  const canSelectClient = isAdminGeneral || role === "manager";
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
-  const baseLayer = DEFAULT_MAP_LAYER;
-  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const [mapLayerKey, setMapLayerKey] = useState(() => getValidMapLayer());
+  const [mapLayerMenuOpen, setMapLayerMenuOpen] = useState(false);
+  const mapLayerButtonRef = useRef(null);
+  const mapLayerStorageKey = isTargetView ? MAP_LAYER_STORAGE_KEYS.targets : MAP_LAYER_STORAGE_KEYS.geofences;
+  const mapLayer = useMemo(
+    () => ENABLED_MAP_LAYERS.find((layer) => layer.key === mapLayerKey) || MAP_LAYER_FALLBACK,
+    [mapLayerKey],
+  );
+  const tileUrl = mapLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileAttribution =
-    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-  const tileSubdomains = baseLayer?.subdomains ?? "abc";
-  const tileMaxZoom = baseLayer?.maxZoom;
-  const addressSearch = useAddressSearchState({ mapPreferences });
+    mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = mapLayer?.subdomains ?? "abc";
+  const tileMaxZoom = mapLayer?.maxZoom;
+  const [addressValue, setAddressValue] = useState({ formattedAddress: "" });
   const [geofenceFilter, setGeofenceFilter] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
@@ -399,6 +447,75 @@ export default function Geofences({ variant = "geofences" }) {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
+  const clientStorageKey = isTargetView ? "targets-client-scope" : "geofences-client-scope";
+  const [selectedClientId, setSelectedClientId] = useState(() => {
+    if (!canSelectClient) {
+      return tenantId || user?.clientId || null;
+    }
+    const fallback = isAdminGeneral ? CLIENT_SCOPE_ALL : tenantId || user?.clientId || null;
+    if (typeof window === "undefined") {
+      return fallback;
+    }
+    return sessionStorage.getItem(clientStorageKey) || fallback;
+  });
+
+  useEffect(() => {
+    if (!canSelectClient) return;
+    if (typeof window === "undefined") return;
+    if (selectedClientId) {
+      sessionStorage.setItem(clientStorageKey, selectedClientId);
+    } else {
+      sessionStorage.removeItem(clientStorageKey);
+    }
+  }, [canSelectClient, clientStorageKey, selectedClientId]);
+
+  const clientOptions = useMemo(() => {
+    if (!canSelectClient) return [];
+    const list = Array.isArray(tenants) ? tenants : [];
+    const options = list
+      .map((entry) => ({
+        value: String(entry.id),
+        label: entry.name || String(entry.id),
+      }))
+      .filter((option) => option.value);
+    if (isAdminGeneral) {
+      return [{ value: CLIENT_SCOPE_ALL, label: "Todos os clientes" }, ...options];
+    }
+    return options;
+  }, [canSelectClient, isAdminGeneral, tenants]);
+
+  useEffect(() => {
+    if (!canSelectClient) return;
+    const allowedValues = new Set(clientOptions.map((option) => option.value));
+    if (selectedClientId === CLIENT_SCOPE_ALL && isAdminGeneral) return;
+    if (selectedClientId && allowedValues.has(selectedClientId)) return;
+    const fallback = isAdminGeneral
+      ? CLIENT_SCOPE_ALL
+      : clientOptions[0]?.value || tenantId || user?.clientId || null;
+    if (fallback && fallback !== selectedClientId) {
+      setSelectedClientId(fallback);
+    }
+  }, [canSelectClient, clientOptions, isAdminGeneral, selectedClientId, tenantId, user?.clientId]);
+
+  const resolvedClientId = useMemo(() => {
+    if (!canSelectClient) return tenantId || user?.clientId || null;
+    if (selectedClientId === CLIENT_SCOPE_ALL) return null;
+    return selectedClientId || null;
+  }, [canSelectClient, selectedClientId, tenantId, user?.clientId]);
+
+  const availableClientIds = useMemo(() => {
+    if (!canSelectClient) return [];
+    return (Array.isArray(tenants) ? tenants : [])
+      .map((entry) => String(entry.id))
+      .filter(Boolean);
+  }, [canSelectClient, tenants]);
+
+  const clientContextLabel = useMemo(() => {
+    if (!canSelectClient) return null;
+    if (selectedClientId === CLIENT_SCOPE_ALL) return "TODOS";
+    const match = clientOptions.find((option) => option.value === selectedClientId);
+    return (match?.label || "CLIENTE").toString().toUpperCase();
+  }, [canSelectClient, clientOptions, selectedClientId]);
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef });
   const { registerMap, focusDevice, focusGeometry } = useMapController({ page: isTargetView ? "Targets" : "Geofences" });
   const handleMapReady = useCallback(
@@ -420,6 +537,61 @@ export default function Geofences({ variant = "geofences" }) {
     [mapPreferences?.selectZoom, tenant?.attributes],
   );
 
+  const mapLayerOptions = useMemo(() => {
+    const candidates = ENABLED_MAP_LAYERS.filter((layer) => layer?.url);
+    const pickedKeys = new Set();
+    const pick = (keys) =>
+      candidates.find((layer) => keys.some((key) => layer.key.includes(key))) || null;
+
+    const options = [
+      { id: "satellite", label: "Satélite", layer: pick(["google-satellite", "satellite", "hybrid", "google-hybrid"]) },
+      { id: "streets", label: "Ruas / Padrão", layer: pick(["google-road", "openstreetmap", "osm", "carto-light"]) },
+      { id: "terrain", label: "Terreno", layer: pick(["opentopomap", "topo", "terrain"]) },
+      { id: "dark", label: "Escuro", layer: pick(["carto-dark", "dark"]) },
+    ]
+      .filter((item) => item.layer)
+      .filter((item) => {
+        if (!item.layer) return false;
+        if (pickedKeys.has(item.layer.key)) return false;
+        pickedKeys.add(item.layer.key);
+        return true;
+      });
+
+    if (!options.length && candidates.length) {
+      return candidates.slice(0, 5).map((layer) => ({ id: layer.key, label: layer.label, layer }));
+    }
+
+    return options;
+  }, []);
+
+  useEffect(() => {
+    try {
+      const storedLayer = localStorage.getItem(mapLayerStorageKey);
+      setMapLayerKey(getValidMapLayer(storedLayer));
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerStorageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(mapLayerStorageKey, mapLayerKey);
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerKey, mapLayerStorageKey]);
+
+  useEffect(() => {
+    if (!mapLayerMenuOpen) return;
+    const handleClick = (event) => {
+      if (!mapLayerButtonRef.current) return;
+      if (mapLayerButtonRef.current.contains(event.target)) return;
+      setMapLayerMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [mapLayerMenuOpen]);
+
   const {
     geofences: remoteGeofences,
     loading,
@@ -428,7 +600,7 @@ export default function Geofences({ variant = "geofences" }) {
     createGeofence,
     updateGeofence,
     deleteGeofence,
-  } = useGeofences({ autoRefreshMs: 0 });
+  } = useGeofences({ autoRefreshMs: 0, clientId: resolvedClientId });
   const accessDenied = Number(fetchError?.status) === 403;
 
   const scopedGeofences = useMemo(() => {
@@ -459,20 +631,6 @@ export default function Geofences({ variant = "geofences" }) {
     if (points.length < 3) return null;
     return { ...selectedGeofence, points };
   }, [selectedGeofence]);
-  useEffect(() => {
-    if (!userActionRef.current) return;
-    if (!safeSelectedGeofence) return;
-    if (safeSelectedGeofence.type === "circle") {
-      const [lat, lng] = safeSelectedGeofence.center || [];
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        focusDevice({ lat, lng }, { zoom: 15, animate: true, reason: "GEOFENCE_SELECT" });
-      }
-    } else if (safeSelectedGeofence.points?.length) {
-      focusGeometry(safeSelectedGeofence.points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
-    }
-    userActionRef.current = false;
-  }, [focusDevice, focusGeometry, safeSelectedGeofence]);
-
   useEffect(() => {
     refreshMap();
   }, [panelOpen, geofencesTopbarVisible, refreshMap]);
@@ -742,16 +900,26 @@ export default function Geofences({ variant = "geofences" }) {
     setStatus(`Sincronizando ${entityLabelPluralLower}...`);
     try {
       for (const geo of activeGeofences) {
-        const clientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
-        if (!clientId) {
+        const isNew = !geo.id || geo.id.startsWith("local-") || geo.id.startsWith("kml-");
+        const targetClientIds = canSelectClient && selectedClientId === CLIENT_SCOPE_ALL
+          ? availableClientIds
+          : [resolvedClientId || tenantId || user?.clientId || null].filter(Boolean);
+
+        if (isNew && targetClientIds.length === 0) {
           throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
         }
 
-        const payload = { ...buildPayload(geo), clientId };
-        if (!geo.id || geo.id.startsWith("local-") || geo.id.startsWith("kml-")) {
-          await createGeofence(payload);
+        const payload = buildPayload(geo);
+        if (isNew) {
+          for (const clientId of targetClientIds) {
+            await createGeofence({ ...payload, clientId });
+          }
         } else {
-          await updateGeofence(geo.id, payload);
+          const clientId = geo.clientId || resolvedClientId || tenantId || user?.clientId || null;
+          if (!clientId) {
+            throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
+          }
+          await updateGeofence(geo.id, { ...payload, clientId });
         }
       }
 
@@ -779,6 +947,10 @@ export default function Geofences({ variant = "geofences" }) {
     resetDrafts,
     savedVerb,
     tenantId,
+    availableClientIds,
+    canSelectClient,
+    resolvedClientId,
+    selectedClientId,
     updateGeofence,
     user?.clientId,
   ]);
@@ -827,20 +999,26 @@ export default function Geofences({ variant = "geofences" }) {
       console.info("[MAP] USER_ADDRESS_SELECT", { lat, lng });
       focusDevice({ lat, lng }, { zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
 
-      setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
+      setSearchMarker({ lat, lng, label: payload.formattedAddress || payload.label || "Local encontrado" });
     },
     [focusDevice],
   );
 
+  const handleAddressChange = useCallback((value) => {
+    setAddressValue(value || { formattedAddress: "" });
+  }, []);
+
   const handleSelectAddress = useCallback(
     (payload) => {
       if (!payload) return;
+      setAddressValue(payload);
       focusSearchResult(payload);
     },
     [focusSearchResult],
   );
 
   const handleClearSearch = useCallback(() => {
+    setAddressValue({ formattedAddress: "" });
     setSearchMarker(null);
   }, []);
 
@@ -854,11 +1032,34 @@ export default function Geofences({ variant = "geofences" }) {
     setLayoutMenuOpen(false);
   }, []);
 
-  const focusOnGeofence = useCallback((geo) => {
-    if (!geo) return;
-    userActionRef.current = true;
-    setSelectedId(geo.id);
-  }, []);
+  const centerGeofence = useCallback(
+    (geo) => {
+      if (!geo) return;
+      if (geo.type === "circle") {
+        const center = geo.center || [geo.latitude ?? geo.lat, geo.longitude ?? geo.lng];
+        const circle = sanitizeCircleGeometry({ center, radius: geo.radius });
+        if (!circle) return;
+        const [lat, lng] = circle.center || [];
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          focusDevice({ lat, lng }, { zoom: 15, animate: true, reason: "GEOFENCE_SELECT" });
+        }
+        return;
+      }
+      const points = sanitizePolygon(geo.points);
+      if (!points.length) return;
+      focusGeometry(points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
+    },
+    [focusDevice, focusGeometry],
+  );
+
+  const focusOnGeofence = useCallback(
+    (geo) => {
+      if (!geo) return;
+      setSelectedId(geo.id);
+      centerGeofence(geo);
+    },
+    [centerGeofence],
+  );
 
   const guideLine = useMemo(() => {
     if (drawMode !== "polygon") return [];
@@ -899,14 +1100,6 @@ export default function Geofences({ variant = "geofences" }) {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const markVisible = useCallback((ids = []) => {
-    setHiddenIds((current) => {
-      const next = new Set(current);
-      ids.forEach((id) => next.delete(id));
       return next;
     });
   }, []);
@@ -1060,75 +1253,142 @@ export default function Geofences({ variant = "geofences" }) {
         </AppMap>
       </div>
 
-      <AddressSearchInput
-        state={addressSearch}
-        onSelect={handleSelectAddress}
-        onClear={handleClearSearch}
-        floating
-      />
-
-      <MapToolbar className="floating-toolbar" map={mapInstance}>
-        <div className="relative">
-          <ToolbarButton
-            icon={LayoutGrid}
-            onClick={() => setLayoutMenuOpen((open) => !open)}
-            title="Layout e visibilidade"
-            className={layoutMenuOpen ? "is-active" : ""}
-          />
-          {layoutMenuOpen && (
-            <div className="layout-popover">
-              <label className="layout-toggle">
-                <input type="checkbox" checked={geofencesTopbarVisible} onChange={handleToggleTopbar} />
-                <span>Mostrar Topbar</span>
-              </label>
-              <label className="layout-toggle">
-                <input type="checkbox" checked={panelOpen} onChange={handleTogglePanel} />
-                <span>Mostrar painel de {entityLabelPluralLower}</span>
-              </label>
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <div className="pointer-events-auto absolute left-4 top-4 flex w-fit max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
+          <SidebarCard className="w-[640px] max-w-[calc(100vw-2rem)] md:w-[680px] lg:w-[720px]">
+            <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-1">
+              <div className="flex min-w-[280px] flex-1 items-center gap-2">
+                <AddressAutocomplete
+                  label={null}
+                  value={addressValue}
+                  onChange={handleAddressChange}
+                  onSelect={handleSelectAddress}
+                  onClear={handleClearSearch}
+                  variant="toolbar"
+                  portalSuggestions
+                  containerClassName="flex-1 min-w-0"
+                  placeholder="Buscar endereço"
+                  mapPreferences={mapPreferences}
+                />
+                <div className="flex shrink-0 items-center gap-1">
+                  <ToolbarButton
+                    icon={List}
+                    title="Minhas Cercas"
+                    iconSize={18}
+                    active={panelOpen}
+                    onClick={handleTogglePanel}
+                  />
+                  <ToolbarButton
+                    icon={MousePointer2}
+                    title="Desenhar polígono"
+                    iconSize={18}
+                    active={drawMode === "polygon"}
+                    onClick={() => (drawMode === "polygon" ? resetDrafts() : startDrawing("polygon"))}
+                  />
+                  <ToolbarButton
+                    icon={CircleIcon}
+                    title="Desenhar círculo"
+                    iconSize={18}
+                    active={drawMode === "circle"}
+                    onClick={() => (drawMode === "circle" ? resetDrafts() : startDrawing("circle"))}
+                  />
+                </div>
+              </div>
+              <div className="flex min-w-max shrink-0 items-center gap-2">
+                <ToolbarButton
+                  icon={FileUp}
+                  title="Importar KML"
+                  iconSize={18}
+                  onClick={() => importInputRef.current?.click()}
+                />
+                <ToolbarButton icon={Download} title="Exportar KML" iconSize={18} onClick={handleExport} />
+                <ToolbarButton
+                  icon={Save}
+                  title="Salvar Cerca"
+                  iconSize={18}
+                  onClick={handleSave}
+                  disabled={!hasUnsavedChanges || isBusy}
+                />
+                <ToolbarButton
+                  icon={Undo2}
+                  title="Cancelar alterações"
+                  iconSize={18}
+                  onClick={handleCancelChanges}
+                  disabled={!hasUnsavedChanges}
+                />
+              </div>
             </div>
-          )}
+          </SidebarCard>
         </div>
-        <ToolbarButton
-          icon={MousePointer2}
-          active={drawMode === "polygon"}
-          onClick={() => startDrawing("polygon")}
-          title="Desenhar polígono"
-        />
-        <ToolbarButton
-          icon={CircleIcon}
-          active={drawMode === "circle"}
-          onClick={() => startDrawing("circle")}
-          title="Desenhar círculo"
-        />
-        {drawMode && (
-          <ToolbarButton icon={X} onClick={resetDrafts} title="Encerrar desenho" />
-        )}
-        <ToolbarButton
-          icon={Save}
-          className="disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={handleSave}
-          disabled={!hasUnsavedChanges || isBusy}
-          title={`Salvar ${entityLabelPluralLower}`}
-        />
-        <ToolbarButton
-          icon={Undo2}
-          className="disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={handleCancelChanges}
-          disabled={!hasUnsavedChanges}
-          title="Cancelar mudanças"
-        />
-        <ToolbarButton
-          icon={RefreshCw}
-          onClick={() => refresh()}
-          title="Recarregar lista"
-        />
-        <ToolbarButton
-          icon={FileUp}
-          onClick={() => importInputRef.current?.click()}
-          title="Importar KML"
-        />
-        <ToolbarButton icon={Download} onClick={handleExport} title="Exportar KML" />
-      </MapToolbar>
+
+        <MapToolbar
+          className="floating-toolbar pointer-events-auto"
+          map={mapInstance}
+          zoomControls={
+            <div ref={mapLayerButtonRef} className="map-layer-control">
+              <button
+                type="button"
+                className={`map-tool-button map-toolbar-zoom-button ${mapLayerMenuOpen ? "is-active" : ""}`.trim()}
+                onClick={() => setMapLayerMenuOpen((open) => !open)}
+                title="Selecionar mapa"
+                aria-label="Selecionar mapa"
+              >
+                <Layers style={{ width: 16, height: 16 }} />
+              </button>
+              {mapLayerMenuOpen && (
+                <div className="map-layer-popover">
+                  <p className="map-layer-popover-title">Selecionar mapa</p>
+                  <div className="map-layer-options">
+                    {mapLayerOptions.map((option) => {
+                      const isActive = option.layer?.key === mapLayer?.key;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`map-layer-option ${isActive ? "is-active" : ""}`.trim()}
+                          onClick={() => {
+                            if (option.layer?.key) {
+                              setMapLayerKey(option.layer.key);
+                            }
+                            setMapLayerMenuOpen(false);
+                          }}
+                        >
+                          <span className="map-layer-option-label">{option.label}</span>
+                          {option.layer?.description ? (
+                            <span className="map-layer-option-subtitle">{option.layer.description}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          }
+        >
+          <div className="relative">
+            <ToolbarButton
+              icon={LayoutGrid}
+              onClick={() => setLayoutMenuOpen((open) => !open)}
+              title="Layout e visibilidade"
+              className={layoutMenuOpen ? "is-active" : ""}
+              iconSize={12}
+            />
+            {layoutMenuOpen && (
+              <div className="layout-popover">
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={geofencesTopbarVisible} onChange={handleToggleTopbar} />
+                  <span>Mostrar Topbar</span>
+                </label>
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={panelOpen} onChange={handleTogglePanel} />
+                  <span>Mostrar painel de {entityLabelPluralLower}</span>
+                </label>
+              </div>
+            )}
+          </div>
+        </MapToolbar>
+      </div>
 
       <div className="geofence-status-stack">
         <span className="map-status-pill map-status-pill--emphasis">
@@ -1154,6 +1414,10 @@ export default function Geofences({ variant = "geofences" }) {
         emptyText={emptyPanelText}
         searchTerm={geofenceFilter}
         onSearch={setGeofenceFilter}
+        clientOptions={clientOptions}
+        selectedClientId={selectedClientId}
+        onClientChange={setSelectedClientId}
+        clientContextLabel={clientContextLabel}
         hiddenIds={hiddenIds}
         onToggleVisibility={toggleVisibility}
         onFocus={focusOnGeofence}
@@ -1211,7 +1475,6 @@ export default function Geofences({ variant = "geofences" }) {
             <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
               <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Ações do alvo</p>
               <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] text-white/80">
-                <li>Desbloquear</li>
                 <li>Desvincular itinerário do equipamento</li>
               </ul>
             </div>
@@ -1223,10 +1486,10 @@ export default function Geofences({ variant = "geofences" }) {
                 : `${selectedGeofence.points?.length || 0} vértices`}
             </span>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => markVisible([selectedGeofence.id])}>
-                Mostrar
+              <Button size="sm" variant="secondary" onClick={() => toggleVisibility(selectedGeofence.id)}>
+                {hiddenIds.has(selectedGeofence.id) ? "Mostrar" : "Ocultar"}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => focusOnGeofence(selectedGeofence)}>
+              <Button size="sm" variant="ghost" onClick={() => centerGeofence(selectedGeofence)}>
                 Centralizar
               </Button>
               <Button size="sm" variant="ghost" onClick={handleRemoveSelected}>

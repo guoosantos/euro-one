@@ -245,6 +245,7 @@ export default function Vehicles() {
     try {
       const clientParams = resolvedClientId ? { clientId: resolvedClientId } : {};
       clientParams.accessible = true;
+      clientParams.skipPositions = true;
       if (user?.role === "admin" || user?.role === "manager") {
         clientParams.includeUnlinked = true;
       } else {

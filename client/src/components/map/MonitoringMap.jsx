@@ -74,6 +74,8 @@ function getClusterIcon(count) {
 
 function PopupContent({ marker }) {
   const statusStyle = getStatusStyle(marker.status);
+  const primaryLabel = marker.plate || marker.label || "Sem placa";
+  const secondaryLabel = marker.model && marker.model !== primaryLabel ? marker.model : "";
   
   const addressText = useMemo(() => {
     if (typeof marker.address === "string") return marker.address;
@@ -91,9 +93,10 @@ function PopupContent({ marker }) {
 
   return (
     <div className="space-y-1.5 text-white min-w-[200px]">
-      {marker.label && <div className="text-sm font-bold leading-tight text-white">{marker.label}</div>}
-      {marker.plate && <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div>}
-      {marker.model && <div className="text-[11px] text-white/70">{marker.model}</div>}
+      <div className="text-sm font-bold leading-tight text-white">{primaryLabel}</div>
+      {secondaryLabel ? (
+        <div className="text-[11px] text-white/70">{secondaryLabel}</div>
+      ) : null}
       
       {addressText && <div className="text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">{addressText}</div>}
       

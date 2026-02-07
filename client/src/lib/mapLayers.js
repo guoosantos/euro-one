@@ -13,6 +13,9 @@ const GOOGLE_HYBRID_TILE_URL = import.meta.env.VITE_GOOGLE_HYBRID_TILE_URL || bu
 export const MAP_LAYER_STORAGE_KEYS = {
   monitoring: "monitoring.map.layer",
   trips: "trips.map.layer",
+  routes: "routes.map.layer",
+  geofences: "geofences.map.layer",
+  targets: "targets.map.layer",
 };
 
 export const BASE_MAP_LAYERS = [

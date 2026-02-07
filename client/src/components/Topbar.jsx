@@ -175,7 +175,7 @@ export function Topbar({ title }) {
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
   const { telemetry = [] } = useTelemetry();
-  const { vehicles = [] } = useVehicles();
+  const { vehicles = [] } = useVehicles({ includeTelemetry: false });
   const effectiveTenantId = tenantId === "" ? null : tenantId;
   const isGlobalScope = hasAdminAccess && (tenantScope === "ALL" || effectiveTenantId === null);
   const searchTerm = debouncedQuery.trim();
@@ -607,7 +607,7 @@ export function Topbar({ title }) {
       : { filter: "brightness(0)" };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-surface backdrop-blur">
+    <header className="sticky top-0 z-[9998] border-b border-border bg-surface backdrop-blur">
       <div className="flex w-full items-center gap-4 px-4 py-3 md:px-6 lg:px-8">
         <div className="flex flex-1 items-center gap-3">
           <button type="button" className="btn md:hidden" onClick={toggleSidebar} aria-label={t("topbar.openMenu")}>
@@ -646,7 +646,7 @@ export function Topbar({ title }) {
           </label>
 
           {focused && query.trim() ? (
-            <div className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
+            <div className="absolute left-0 right-0 top-full z-[9999] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               {searchResults.length ? (
                 <ul>
                   {searchResults.map((item) => {
@@ -680,7 +680,7 @@ export function Topbar({ title }) {
               )}
             </div>
           ) : focused ? (
-            <div className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
+            <div className="absolute left-0 right-0 top-full z-[9999] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               <div className="px-4 py-3 text-sm text-sub">
                 Digite para buscar veículos…
               </div>

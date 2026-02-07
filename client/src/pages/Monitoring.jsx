@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Globe } from "lucide-react";
 import { useTranslation } from "../lib/i18n.js";
 
@@ -11,8 +12,10 @@ import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnS
 import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutSelector.jsx";
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
 import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import DataState from "../ui/DataState.jsx";
+import AlertStateCard from "../ui/AlertStateCard.jsx";
+import Button from "../ui/Button";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
@@ -31,6 +34,7 @@ import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js"
 import useOverlayActivity from "../lib/hooks/useOverlayActivity.js";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
+import { isBlockingAccessReason, isNoVehiclesReason, resolveAccessReason } from "../lib/access-reasons.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -57,6 +61,8 @@ import {
   minutesSince,
   pickCoordinate,
   pickSpeed,
+  resolveVehicleDisplayName,
+  resolveVehicleInfo,
 } from "../lib/monitoring-helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import { resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
@@ -386,13 +392,19 @@ function PaginationButton({ children, disabled, onClick }) {
 export default function Monitoring() {
   const { t, locale } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const { tenantId, user, tenant, canAccess } = useTenant();
+  const { tenantId, user, tenant, canAccess, isGlobalAdmin, isMirrorReceiver, logout } = useTenant();
   const canAccessMonitoring = canAccess("primary", "monitoring");
   const canAccessAlerts = canAccess("primary", "monitoring", "alerts");
   const canAccessConjugatedAlerts = canAccess("primary", "monitoring", "alerts-conjugated");
-  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const {
+    accessibleVehicles,
+    isRestricted,
+    reason: accessListReason,
+    accessReason: mirrorAccessReason,
+  } = useVehicleAccess();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
   const {
@@ -401,7 +413,13 @@ export default function Monitoring() {
     error: tasksError,
     reload: reloadTasks,
   } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]), { enabled: canAccessMonitoring });
-  const { vehicles } = useVehicles({ enabled: canAccessMonitoring });
+  const {
+    vehicles,
+    loading: vehiclesLoading,
+    error: vehiclesError,
+    reason: vehiclesReason,
+    accessReason: vehiclesAccessReason,
+  } = useVehicles({ enabled: canAccessMonitoring });
   const pendingAlertsRefresh = useAutoRefresh({
     enabled: canAccessMonitoring,
     intervalMs: 30_000,
@@ -502,8 +520,7 @@ export default function Monitoring() {
   const setMonitoringTopbarVisible = useUI((state) => state.setMonitoringTopbarVisible);
 
   const [vehicleQuery, setVehicleQuery] = useState("");
-  const addressSearch = useAddressSearchState({ mapPreferences });
-  const clearAddressSearch = addressSearch?.onClear;
+  const [addressValue, setAddressValue] = useState({ formattedAddress: "" });
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
@@ -646,7 +663,7 @@ export default function Monitoring() {
 
   useEffect(() => {
     setVehicleQuery("");
-    clearAddressSearch?.();
+    setAddressValue({ formattedAddress: "" });
     setSelectedAddress(null);
     setFilterMode("all");
     setSelectedDeviceId(null);
@@ -659,7 +676,7 @@ export default function Monitoring() {
     setRouteFilter(null);
     setSecurityFilters([]);
     clearVehicleSelection();
-  }, [clearAddressSearch, clearVehicleSelection, tenantId]);
+  }, [clearVehicleSelection, tenantId]);
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -1397,25 +1414,47 @@ export default function Monitoring() {
   }, []);
 
   const markers = useMemo(() => {
-    return displayRows
-      .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
-      .map(r => {
-        const resolvedVehicle = r.vehicle || r.device?.vehicle || null;
-        const resolvedDeviceId = r.deviceId ?? r.device?.id ?? r.device?.traccarId ?? null;
+    const byDeviceId = new Map();
+    displayRows.forEach((row) => {
+      const id = row.deviceId ?? row.device?.id ?? row.device?.traccarId ?? null;
+      if (!id) return;
+      const key = String(id);
+      const existing = byDeviceId.get(key);
+      if (!existing) {
+        byDeviceId.set(key, row);
+        return;
+      }
+      const existingTime = existing.lastUpdate?.getTime?.() ?? -Infinity;
+      const nextTime = row.lastUpdate?.getTime?.() ?? -Infinity;
+      if (nextTime > existingTime) {
+        byDeviceId.set(key, row);
+      }
+    });
+
+    return Array.from(byDeviceId.values())
+      .filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng))
+      .map((row) => {
+        const resolvedVehicle = row.vehicle || row.device?.vehicle || null;
+        const resolvedDeviceId = row.deviceId ?? row.device?.id ?? row.device?.traccarId ?? null;
         const deviceFromVehicle = resolvedVehicle?.devices?.find((device) => {
           if (!resolvedDeviceId) return false;
           const candidates = [device?.traccarId, device?.id, device?.uniqueId].filter(Boolean).map(String);
           return candidates.includes(String(resolvedDeviceId));
         });
-        const resolvedDevice = r.device || deviceFromVehicle || null;
+        const resolvedDevice = row.device || deviceFromVehicle || null;
         const resolvedAttributes =
-          r.attributes ||
+          row.attributes ||
           resolvedDevice?.attributes ||
           resolvedVehicle?.attributes ||
           deviceFromVehicle?.attributes ||
           {};
+        const info = resolveVehicleInfo({
+          vehicle: resolvedVehicle || row.vehicle || row,
+          device: resolvedDevice || row.device,
+          attributes: resolvedAttributes,
+        });
 
-        const status = r.statusBadge;
+        const status = row.statusBadge;
         const statusLabel = status === "online"
           ? t("monitoring.filters.online")
           : status === "alert"
@@ -1423,17 +1462,17 @@ export default function Monitoring() {
             : t("monitoring.filters.offline");
 
         const ignitionColor =
-          r.ignition === true ? "#22c55e" : r.ignition === false ? "#ef4444" : "#94a3b8";
+          row.ignition === true ? "#22c55e" : row.ignition === false ? "#ef4444" : "#94a3b8";
         const markerIconType = resolveMarkerIconType(
           {
-            iconType: r.iconType || resolvedAttributes?.iconType,
-            vehicleType: r.vehicleType || resolvedVehicle?.vehicleType || resolvedVehicle?.type,
-            type: resolvedDevice?.type || resolvedVehicle?.type || r.device?.type,
+            iconType: row.iconType || resolvedAttributes?.iconType,
+            vehicleType: row.vehicleType || resolvedVehicle?.vehicleType || resolvedVehicle?.type,
+            type: resolvedDevice?.type || resolvedVehicle?.type || row.device?.type,
             category: resolvedVehicle?.category,
             attributes: resolvedAttributes,
           },
           [
-            r.vehicleType,
+            row.vehicleType,
             resolvedAttributes?.vehicleType,
             resolvedVehicle?.vehicleType,
             resolvedVehicle?.category,
@@ -1441,38 +1480,36 @@ export default function Monitoring() {
           ],
         );
 
-        const plateLabel = (resolvedVehicle?.plate ?? resolvedDevice?.plate ?? r.plate ?? "").trim() || "Sem placa";
-        const vehicleName = resolvedVehicle?.name || resolvedVehicle?.item || resolvedDevice?.vehicle?.name || null;
-        const vehicleLabel = vehicleName || plateLabel;
-        const modelLabel =
-          [resolvedVehicle?.brand, resolvedVehicle?.model].filter(Boolean).join(" ") ||
-          resolvedVehicle?.model ||
-          "—";
-        const eventDefinition = resolveEventDefinitionFromPayload(r.position || resolvedDevice?.position || {});
-        const eventTime = getEventTime(r.position || resolvedDevice?.position || null);
+        const plateLabelRaw = info.plate || resolvedVehicle?.plate || resolvedDevice?.plate || row.plate || "";
+        const plateLabel = String(plateLabelRaw).trim() || "Sem placa";
+        const displayName = resolveVehicleDisplayName(info);
+        const secondaryLabel = displayName !== "—" ? displayName : "";
+        const eventDefinition = resolveEventDefinitionFromPayload(row.position || resolvedDevice?.position || {});
+        const eventTime = getEventTime(row.position || resolvedDevice?.position || null);
         const ignitionLabel =
-          r.ignition === true ? "Ligada" : r.ignition === false ? "Desligada" : "—";
+          row.ignition === true ? "Ligada" : row.ignition === false ? "Desligada" : "—";
 
         return {
-          id: r.deviceId,
-          lat: r.lat,
-          lng: r.lng,
-          label: vehicleLabel,
+          id: resolvedDeviceId ? String(resolvedDeviceId) : String(row.deviceId),
+          lat: row.lat,
+          lng: row.lng,
+          label: plateLabel,
           mapLabel: plateLabel,
           plate: plateLabel,
-          model: modelLabel,
-          address: r.address,
-          speedLabel: `${r.speed ?? 0} km/h`,
-          lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
+          model: secondaryLabel,
+          address: row.address,
+          speedLabel: `${row.speed ?? 0} km/h`,
+          lastUpdateLabel: formatDateTime(row.lastUpdate, locale),
           ignitionLabel,
           lastEventLabel: eventDefinition?.label || "—",
           lastEventTimeLabel: eventTime ? formatDateTime(eventTime, locale) : "—",
           color: ignitionColor,
-          accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
-          muted: !r.isOnline,
+          accentColor: row.deviceId === selectedDeviceId ? "#f97316" : row.isNearby ? "#22d3ee" : undefined,
+          muted: !row.isOnline,
+          status,
           statusLabel,
           iconType: markerIconType,
-          heading: r.heading,
+          heading: row.heading,
         };
       });
   }, [displayRows, locale, selectedDeviceId, t]);
@@ -1641,13 +1678,15 @@ export default function Monitoring() {
     const lng = Number(payload?.lng);
     if (!payload || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
-    const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
+    const raw = payload.raw && typeof payload.raw === "object" ? payload.raw : null;
+    const boundingBox = normaliseBoundingBox(payload.viewport || raw?.boundingBox || raw?.boundingbox);
+    const label = payload.formattedAddress || payload.description || payload.address || payload.label || "Local selecionado";
     const focusKey = buildAddressFocusKey(payload, lat, lng);
     const target = {
       lat,
       lng,
-      label: payload.label,
-      address: payload.description || payload.address || payload.label,
+      label,
+      address: label,
       radius,
       boundingBox,
     };
@@ -1656,7 +1695,7 @@ export default function Monitoring() {
     setAddressPin({
       lat,
       lng,
-      label: payload.label || payload.description || "Local selecionado",
+      label,
       key: focusKey,
     });
 
@@ -1680,12 +1719,18 @@ export default function Monitoring() {
     focusDevice(option.deviceId, { openDetails: true });
   }, [focusDevice, focusSelectedRowOnMap]);
 
+  const handleAddressChange = useCallback((value) => {
+    setAddressValue(value || { formattedAddress: "" });
+  }, []);
+
   const handleSelectAddress = useCallback((option) => {
     if (!option) return;
+    setAddressValue(option);
     applyAddressTarget(option);
   }, [applyAddressTarget]);
 
   const handleClearAddress = useCallback(() => {
+    setAddressValue({ formattedAddress: "" });
     setRegionTarget(null);
     setAddressPin(null);
     setSelectedAddress(null);
@@ -1769,8 +1814,11 @@ export default function Monitoring() {
   );
 
   const totalRows = displayRows.length;
-  const hasLinkedVehicles = linkedTelemetry.length > 0;
-  const showNoLinkedState = !loading && !hasLinkedVehicles;
+  const isAdminContext = isGlobalAdmin || isMirrorReceiver;
+  const accessReason = vehiclesAccessReason || mirrorAccessReason || resolveAccessReason(vehiclesError);
+  const noVehiclesReason = vehiclesReason || accessListReason;
+  const hasAccessIssue = isBlockingAccessReason(accessReason);
+  const showNoVehiclesState = !vehiclesLoading && !hasAccessIssue && isNoVehiclesReason(noVehiclesReason);
   const effectivePageSize = pageSize === "all" ? totalRows || 1 : pageSize;
   const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
   const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
@@ -1793,22 +1841,61 @@ export default function Monitoring() {
     return "1fr";
   }, [layoutVisibility.showMap, layoutVisibility.showTable, localMapHeight, tableHeightPercent]);
 
-  if (showNoLinkedState) {
+  const handleLogout = useCallback(async () => {
+    await logout();
+    navigate("/login");
+  }, [logout, navigate]);
+
+  if (hasAccessIssue) {
+    const accessBullets = isAdminContext
+      ? [
+          "Revise o status do usuário (ativo/bloqueado/expirado) e as permissões do perfil.",
+          "Se o tenant estiver inativo/bloqueado, regularize o acesso antes de prosseguir.",
+          "Caso seja um usuário de cliente, valide as regras do tenant selecionado.",
+        ]
+      : [
+          "Seu tempo de acesso ao sistema pode ter expirado.",
+          "Para liberação, procure o administrador ou o setor de gestão de acesso da sua empresa para avaliação e reativação.",
+        ];
     return (
       <div className="flex h-full flex-col items-center justify-center gap-6 bg-[#0b0f17] px-6 py-10 text-white">
-        <DataState
-          tone="muted"
-          state="info"
-          title="Nenhum veículo vinculado para monitoramento"
-          description="Somente veículos com equipamento vinculado aparecem na lista e no mapa."
-          action={(
-            <Link
-              to="/equipamentos?link=unlinked"
-              className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white hover:border-primary/60"
-            >
-              Vincular equipamento a um veículo
-            </Link>
+        <AlertStateCard
+          title="Alerta de Usuário"
+          text={isAdminContext ? "Acesso expirado, bloqueado ou sem permissão" : "Acesso expirado ou bloqueado"}
+          bullets={accessBullets}
+          actions={(
+            <>
+              <Button onClick={handleLogout}>Sair</Button>
+              <Button variant="secondary" onClick={handleLogout}>Voltar ao login</Button>
+            </>
           )}
+        />
+      </div>
+    );
+  }
+
+  if (showNoVehiclesState) {
+    const vehicleBullets = isAdminContext
+      ? [
+          "Confirme se existe equipamento com sinal e se o veículo foi vinculado corretamente.",
+          "Verifique permissões do usuário e se o veículo está liberado para monitoramento no tenant selecionado.",
+          "Se necessário, realize o vínculo/atribuição do veículo ao usuário.",
+        ]
+      : [
+          "Apenas veículos vinculados/liberados ao seu usuário aparecem na lista e no mapa.",
+          "Se não visualizar o veículo, verifique se foi transferido sinal do equipamento e se ocorreu o vínculo ao seu usuário pelo administrador do sistema.",
+        ];
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-6 bg-[#0b0f17] px-6 py-10 text-white">
+        <AlertStateCard
+          title="Alerta Vínculo de Veículo"
+          text={isAdminContext ? "Nenhum veículo disponível para este cliente/usuário" : "Nenhum veículo vinculado para monitoramento"}
+          bullets={vehicleBullets}
+          actions={isAdminContext ? (
+            <Link to="/equipamentos?link=unlinked" className="btn btn-outline">
+              Ir para vínculos
+            </Link>
+          ) : null}
         />
         <button
           type="button"
@@ -1817,19 +1904,6 @@ export default function Monitoring() {
         >
           Atualizar telemetria
         </button>
-      </div>
-    );
-  }
-
-  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-6 bg-[#0b0f17] px-6 py-10 text-white">
-        <DataState
-          tone="muted"
-          state="info"
-          title="Sem veículos espelhados ativos"
-          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
-        />
       </div>
     );
   }
@@ -1869,12 +1943,15 @@ export default function Monitoring() {
                     containerClassName="bg-black/70 backdrop-blur-md"
                   />
 
-                  <AddressSearchInput
-                    state={addressSearch}
+                  <AddressAutocomplete
+                    label={null}
+                    value={addressValue}
+                    onChange={handleAddressChange}
                     onSelect={handleSelectAddress}
                     onClear={handleClearAddress}
                     containerClassName="bg-black/70 backdrop-blur-md"
                     variant="toolbar"
+                    mapPreferences={mapPreferences}
                   />
                 </div>
 
@@ -1947,7 +2024,8 @@ export default function Monitoring() {
                 onVehicleSearchChange={handleVehicleSearchChange}
                 vehicleSuggestions={vehicleSuggestions}
                 onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
-                addressSearchState={addressSearch}
+                addressValue={addressValue}
+                onAddressChange={handleAddressChange}
                 onSelectAddress={handleSelectAddress}
                 filterMode={filterMode}
                 onFilterChange={setFilterMode}
@@ -1958,6 +2036,7 @@ export default function Monitoring() {
                 onClearAddress={handleClearAddress}
                 hasSelection={Boolean(selectedDeviceId)}
                 onClearSelection={clearSelection}
+                mapPreferences={mapPreferences}
               />
             ) : (
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
@@ -1970,11 +2049,14 @@ export default function Monitoring() {
                     onSelectSuggestion={handleSelectVehicleSuggestion}
                   />
 
-                  <AddressSearchInput
-                    state={addressSearch}
+                  <AddressAutocomplete
+                    label={null}
+                    value={addressValue}
+                    onChange={handleAddressChange}
                     onSelect={handleSelectAddress}
                     onClear={handleClearAddress}
                     variant="toolbar"
+                    mapPreferences={mapPreferences}
                   />
                 </div>
 
@@ -2085,29 +2167,32 @@ export default function Monitoring() {
         />
       )}
 
-      {drawerMounted ? (
-        <div className="fixed inset-0 z-[9996] flex h-full items-stretch justify-end">
-          <button
-            type="button"
-            aria-label="Fechar painel de detalhes do veículo"
-            className={`flex-1 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${drawerVisible ? "opacity-100" : "opacity-0"}`}
-            onClick={closeDetails}
-          />
-          <div
-            className={`pointer-events-auto relative h-full w-full min-w-[320px] max-w-[960px] overflow-hidden bg-[#0b0f17] shadow-2xl transition-transform duration-300 ease-out sm:w-[60vw] sm:min-w-[420px] ${
-              drawerVisible ? "translate-x-0" : "translate-x-full"
-            }`}
-            onClick={(event) => event.stopPropagation()}
-            onTransitionEnd={() => {
-              if (!isDetailsOpen) {
-                setDrawerMounted(false);
-              }
-            }}
-          >
-            <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={closeDetails} floating={false} />
-          </div>
-        </div>
-      ) : null}
+      {drawerMounted && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-[11000] flex h-full items-stretch justify-end">
+              <button
+                type="button"
+                aria-label="Fechar painel de detalhes do veículo"
+                className={`flex-1 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${drawerVisible ? "opacity-100" : "opacity-0"}`}
+                onClick={closeDetails}
+              />
+              <div
+                className={`pointer-events-auto relative h-full w-full min-w-[320px] max-w-[960px] overflow-hidden bg-[#0b0f17] shadow-2xl transition-transform duration-300 ease-out sm:w-[60vw] sm:min-w-[420px] ${
+                  drawerVisible ? "translate-x-0" : "translate-x-full"
+                }`}
+                onClick={(event) => event.stopPropagation()}
+                onTransitionEnd={() => {
+                  if (!isDetailsOpen) {
+                    setDrawerMounted(false);
+                  }
+                }}
+              >
+                <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={closeDetails} floating={false} />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

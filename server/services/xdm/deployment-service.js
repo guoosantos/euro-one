@@ -621,7 +621,7 @@ export async function embarkItinerary({
   if (!itinerary) {
     throw new Error("Itinerário não encontrado");
   }
-  if (clientId && String(itinerary.clientId) !== String(clientId)) {
+  if (clientId && itinerary.clientId && String(itinerary.clientId) !== String(clientId)) {
     throw new Error("Itinerário não pertence ao cliente");
   }
 
@@ -645,10 +645,10 @@ export async function embarkItinerary({
     geofencesById instanceof Map
       ? geofencesById
       : geofenceIds.length
-        ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
+        ? await loadGeofencesById({ clientId: resolvedClientId, geofenceIds })
         : new Map();
   const resolvedRoutesById =
-    routeIds.length > 0 ? await loadRoutesById({ clientId: itinerary.clientId, routeIds }) : new Map();
+    routeIds.length > 0 ? await loadRoutesById({ clientId: resolvedClientId, routeIds }) : new Map();
   if (Number.isFinite(bufferMeters) && bufferMeters > 0) {
     await updateRoutesBufferMeters({ routeIds, bufferMeters });
   }
@@ -662,7 +662,7 @@ export async function embarkItinerary({
   });
 
   const { xdmGeozoneGroupId, groupHash, groupIds, groupHashes } = await ensureGeozoneGroups(itinerary.id, {
-    clientId: itinerary.clientId,
+    clientId: resolvedClientId,
     clientDisplayName,
     correlationId,
     geofencesById: resolvedGeofencesById,
@@ -672,13 +672,13 @@ export async function embarkItinerary({
 
   const results = vehicleIds.map((vehicleId) => {
     const vehicle = getVehicleById(vehicleId);
-    if (!vehicle || String(vehicle.clientId) !== String(itinerary.clientId)) {
+    if (!vehicle || String(vehicle.clientId) !== String(resolvedClientId)) {
       const snapshot = cloneSnapshot(snapshotBase);
       if (snapshot) {
         snapshot.error = "Veículo não encontrado para o cliente";
       }
       createFailedDeployment({
-        clientId: itinerary.clientId,
+        clientId: resolvedClientId,
         itineraryId: itinerary.id,
         vehicleId: String(vehicleId),
         requestedByUserId,
@@ -701,7 +701,7 @@ export async function embarkItinerary({
         snapshot.error = "Veículo sem IMEI cadastrado";
       }
       createFailedDeployment({
-        clientId: itinerary.clientId,
+        clientId: resolvedClientId,
         itineraryId: itinerary.id,
         vehicleId: vehicle.id,
         requestedByUserId,
@@ -730,7 +730,7 @@ export async function embarkItinerary({
     }
 
     const { deployment, status } = queueDeployment({
-      clientId: itinerary.clientId,
+      clientId: resolvedClientId,
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
       deviceImei: deviceUid,
@@ -790,7 +790,7 @@ export async function disembarkItinerary({
   if (!itinerary) {
     throw new Error("Itinerário não encontrado");
   }
-  if (clientId && String(itinerary.clientId) !== String(clientId)) {
+  if (clientId && itinerary.clientId && String(itinerary.clientId) !== String(clientId)) {
     throw new Error("Itinerário não pertence ao cliente");
   }
 
@@ -802,7 +802,7 @@ export async function disembarkItinerary({
     : [];
   if (!targetVehicleIds.length) {
     const latestDeployments = listLatestDeploymentsByItinerary({
-      clientId: itinerary.clientId,
+      clientId: resolvedClientId,
       itineraryId: itinerary.id,
     });
     targetVehicleIds = latestDeployments
@@ -824,10 +824,10 @@ export async function disembarkItinerary({
     .map((item) => item.id);
   const routeIds = (itinerary.items || []).filter((item) => item.type === "route").map((item) => item.id);
   const resolvedGeofencesById = geofenceIds.length
-    ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
+    ? await loadGeofencesById({ clientId: resolvedClientId, geofenceIds })
     : new Map();
   const resolvedRoutesById = routeIds.length
-    ? await loadRoutesById({ clientId: itinerary.clientId, routeIds })
+    ? await loadRoutesById({ clientId: resolvedClientId, routeIds })
     : new Map();
   const snapshotBase = buildItinerarySnapshot({
     itinerary,
@@ -839,13 +839,13 @@ export async function disembarkItinerary({
 
   const results = targetVehicleIds.map((vehicleId) => {
     const vehicle = getVehicleById(vehicleId);
-    if (!vehicle || String(vehicle.clientId) !== String(itinerary.clientId)) {
+    if (!vehicle || String(vehicle.clientId) !== String(resolvedClientId)) {
       const snapshot = cloneSnapshot(snapshotBase);
       if (snapshot) {
         snapshot.error = "Veículo não encontrado para o cliente";
       }
       createFailedDeployment({
-        clientId: itinerary.clientId,
+        clientId: resolvedClientId,
         itineraryId: itinerary.id,
         vehicleId: String(vehicleId),
         requestedByUserId,
@@ -868,7 +868,7 @@ export async function disembarkItinerary({
         snapshot.error = "Veículo sem IMEI cadastrado";
       }
       createFailedDeployment({
-        clientId: itinerary.clientId,
+        clientId: resolvedClientId,
         itineraryId: itinerary.id,
         vehicleId: vehicle.id,
         requestedByUserId,
@@ -897,7 +897,7 @@ export async function disembarkItinerary({
     }
 
     const lastDeployment = findLatestDeploymentByPair({
-      clientId: itinerary.clientId,
+      clientId: resolvedClientId,
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
     });
@@ -906,7 +906,7 @@ export async function disembarkItinerary({
     const resolvedGroupHash = lastDeployment?.groupHash || buildGroupHashSummary(resolvedGroupHashes);
 
     const { deployment, status } = queueDeployment({
-      clientId: itinerary.clientId,
+      clientId: resolvedClientId,
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
       deviceImei: deviceUid,

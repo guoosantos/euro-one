@@ -24,6 +24,8 @@ import ServiceOrderDetails from "./pages/serviceOrders/ServiceOrderDetails.jsx";
 import ServiceOrderExecute from "./pages/serviceOrders/ServiceOrderExecute.jsx";
 import ServiceOrderImport from "./pages/serviceOrders/ServiceOrderImport.jsx";
 import ServiceOrderNew from "./pages/serviceOrders/ServiceOrderNew.jsx";
+import ServiceRequests from "./pages/ServiceRequests.jsx";
+import VarLive from "./pages/VarLive.jsx";
 import Deliveries from "./pages/Deliveries";
 import DeviceImport from "./pages/DeviceImport";
 import Geofences from "./pages/Geofences.jsx";
@@ -99,7 +101,9 @@ export const routeConfig = [
   { path: "/services/import", element: ServiceOrderImport, title: "Importar OS", requireTenant: true, roles: ["admin"], permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
   { path: "/services/:id", element: ServiceOrderDetails, title: "Detalhes da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
   { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
+  { path: "/service-requests", element: ServiceRequests, title: "Solicitações", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
   { path: "/appointments", element: Appointments, title: "Agendamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "appointments" } },
+  { path: "/var", element: VarLive, title: "VAR / Auditoria ao vivo", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "var-live" } },
   { path: "/deliveries", element: Deliveries, title: "Entregas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "deliveries" } },
   { path: "/tasks", element: Tasks, title: "Tasks", requireTenant: true },
   { path: "/tasks/new", element: TaskForm, title: "Nova task", requireTenant: true },

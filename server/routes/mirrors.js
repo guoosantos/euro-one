@@ -3,7 +3,6 @@ import createError from "http-errors";
 
 import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { requireAdminGeneral } from "../middleware/admin-general.js";
 import { authorizePermission, MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
 import { getClientById, listClients } from "../models/client.js";
 import { createGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
@@ -534,7 +533,6 @@ router.delete(
   "/mirrors/:id",
   authorizePermission({ menuKey: "admin", pageKey: "mirrors", requireFull: true }),
   requireRole("manager", "admin"),
-  requireAdminGeneral,
   (req, res, next) => {
   try {
     const { id } = req.params;
@@ -543,7 +541,11 @@ router.delete(
       throw createError(404, "Espelhamento não encontrado");
     }
     if (req.user.role !== "admin") {
-      ensureOwnerAccess(req.user, existing.ownerClientId);
+      const isOwner = String(req.user.clientId) === String(existing.ownerClientId);
+      const isTarget = String(req.user.clientId) === String(existing.targetClientId);
+      if (!isOwner && !isTarget) {
+        throw createError(403, "Operação não permitida para este cliente");
+      }
     }
     deleteMirror(id);
     return res.status(204).send();

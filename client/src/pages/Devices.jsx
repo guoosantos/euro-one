@@ -360,6 +360,7 @@ export default function Devices() {
       const vehiclesParams = clientId ? { clientId } : {};
       vehiclesParams.accessible = true;
       vehiclesParams.includeUnlinked = true;
+      vehiclesParams.skipPositions = true;
       const [deviceResult, modelResult, chipResult, vehicleResult] = await Promise.allSettled([
         CoreApi.listDevices(clientId ? { clientId } : undefined),
         CoreApi.models(clientId ? { clientId, includeGlobal: true } : undefined),
@@ -1535,7 +1536,7 @@ export default function Devices() {
   const tableColCount = 8;
 
   const toastClassName =
-    "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
+    "fixed right-4 top-20 z-[12000] rounded-lg border px-4 py-3 text-sm shadow-lg " +
     (toast?.type === "error"
       ? "border-red-500/40 bg-red-500/20 text-red-50"
       : toast?.type === "warning"

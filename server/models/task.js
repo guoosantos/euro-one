@@ -17,7 +17,7 @@ function clone(record) {
   return { ...record, attachments: Array.isArray(record.attachments) ? [...record.attachments] : [] };
 }
 
-export async function listTasks({ id, clientId, vehicleId, driverId, status, type, from, to } = {}) {
+export async function listTasks({ id, clientId, vehicleId, driverId, status, type, category, from, to } = {}) {
   const statuses = status
     ? Array.isArray(status)
       ? status.map(String)
@@ -36,6 +36,7 @@ export async function listTasks({ id, clientId, vehicleId, driverId, status, typ
       vehicleId: vehicleId ? String(vehicleId) : undefined,
       driverId: driverId ? String(driverId) : undefined,
       type: type ? String(type) : undefined,
+      category: category ? String(category) : undefined,
       status: statuses && statuses.length ? { in: statuses } : undefined,
       startTimeExpected: fromDate ? { gte: fromDate } : undefined,
       endTimeExpected: toDate ? { lte: toDate } : undefined,

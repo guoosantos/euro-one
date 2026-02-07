@@ -25,6 +25,14 @@ const documentTypeOptions = ["CPF", "CNPJ", "CI", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora", "Seguradora"];
 const cnhCategories = ["ACC", "A", "B", "C", "D", "E", "AB", "AC", "AD", "AE"];
 const genderOptions = ["Masculino", "Feminino"];
+const roleLabels = {
+  admin: "Administrador",
+  tenant_admin: "Administrador do cliente",
+  manager: "Gestor",
+  user: "Operador",
+  driver: "Motorista",
+  viewer: "Visualizador",
+};
 
 const defaultProfile = {
   documentType: "CPF",
@@ -170,7 +178,7 @@ function Drawer({ open, onClose, title, description, children }) {
 export default function ClientDetailsPage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { role } = useTenant();
+  const { role, permissionContext } = useTenant();
   const [client, setClient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -248,6 +256,34 @@ export default function ClientDetailsPage() {
     () => groups.filter((entry) => entry.attributes?.kind === "PERMISSION_GROUP"),
     [groups],
   );
+  const permissionGroupLabelById = useMemo(() => {
+    const map = new Map();
+    permissionGroups.forEach((group) => {
+      if (!group?.id) return;
+      const suffix = group.attributes?.scope === "global" ? " (Global)" : "";
+      map.set(String(group.id), `${group.name}${suffix}`);
+    });
+    return map;
+  }, [permissionGroups]);
+  const resolveUserProfileLabel = useMemo(
+    () => (entry) => {
+      if (!entry) return "—";
+      const groupId = entry.attributes?.permissionGroupId;
+      if (groupId && permissionGroupLabelById.has(String(groupId))) {
+        return permissionGroupLabelById.get(String(groupId));
+      }
+      if (entry.role === "admin") {
+        return "Administrador (Global)";
+      }
+      return roleLabels[entry.role] || entry.role || "—";
+    },
+    [permissionGroupLabelById],
+  );
+  const scopedPermissionContext = useMemo(() => {
+    if (isAdminGeneral) return null;
+    if (permissionContext?.isFull) return null;
+    return permissionContext?.permissions || {};
+  }, [isAdminGeneral, permissionContext]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1184,7 +1220,7 @@ export default function ClientDetailsPage() {
                       <tr key={userItem.id} className="hover:bg-white/5">
                         <td className="py-2 pr-4 text-white">{userItem.name}</td>
                         <td className="py-2 pr-4 text-white/70">{userItem.email}</td>
-                        <td className="py-2 pr-4 text-white/70">{userItem.role}</td>
+                        <td className="py-2 pr-4 text-white/70">{resolveUserProfileLabel(userItem)}</td>
                       </tr>
                     ))}
                     {!users.length && (
@@ -1468,6 +1504,8 @@ export default function ClientDetailsPage() {
               </label>
               <PermissionTreeEditor
                 permissions={permissionGroupForm.permissions}
+                scopePermissions={scopedPermissionContext}
+                allowBulkActions={isAdminGeneral}
                 onChange={(nextPermissions) =>
                   setPermissionGroupForm((prev) => ({ ...prev, permissions: nextPermissions }))
                 }

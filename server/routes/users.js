@@ -3,9 +3,11 @@ import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
-import { authorizePermission } from "../middleware/permissions.js";
+import { authorizePermission, resolvePermissionContext } from "../middleware/permissions.js";
 import { getAdminGeneralClient, getClientById } from "../models/client.js";
+import { getGroupById } from "../models/group.js";
 import { ensureClientInScope, resolveTenantScope } from "../utils/tenant-scope.js";
+import { findPermissionExpansion } from "../utils/permission-scope.js";
 import {
   createUser,
   deleteUser,
@@ -42,6 +44,49 @@ async function ensureClientAccess(sessionUser, clientId) {
     return;
   }
   await ensureClientInScope(sessionUser, clientId);
+}
+
+async function isAdminGeneralUser(sessionUser) {
+  if (sessionUser?.role !== "admin") return false;
+  if (!sessionUser?.clientId) return false;
+  const adminGeneralClient = await getAdminGeneralClient().catch(() => null);
+  if (!adminGeneralClient) return false;
+  return String(sessionUser.clientId) === String(adminGeneralClient.id);
+}
+
+async function ensurePermissionGroupAssignment(req, permissionGroupId) {
+  if (permissionGroupId === undefined || permissionGroupId === null || permissionGroupId === "") {
+    return;
+  }
+  if (await isAdminGeneralUser(req.user)) {
+    return;
+  }
+  const group = getGroupById(permissionGroupId);
+  if (!group) {
+    throw createError(404, "Grupo de permissões não encontrado");
+  }
+  if (group.attributes?.kind !== "PERMISSION_GROUP") {
+    throw createError(400, "Grupo informado não é um grupo de permissões");
+  }
+  const context = await resolvePermissionContext(req);
+  if (context?.isFull) {
+    return;
+  }
+  const allowedPermissions = context?.permissions || {};
+  const violation = findPermissionExpansion(group.attributes?.permissions || {}, allowedPermissions);
+  if (violation) {
+    throw createError(403, "Permissão insuficiente para conceder acesso fora do seu escopo");
+  }
+}
+
+function ensureTenantAdminOwnClient(sessionUser, targetClientId) {
+  if (sessionUser?.role !== "tenant_admin") return;
+  if (!sessionUser?.clientId) {
+    throw createError(403, "Cliente do administrador não identificado");
+  }
+  if (!targetClientId || String(targetClientId) !== String(sessionUser.clientId)) {
+    throw createError(403, "Administrador do cliente só pode operar no próprio tenant");
+  }
 }
 
 function normalizePermissionGroupId(value) {
@@ -107,6 +152,8 @@ async function transferUserConfig({ fromUserId, toUserId, mode, req }) {
   }
 
   if (req.user.role !== "admin") {
+    ensureTenantAdminOwnClient(req.user, source.clientId);
+    ensureTenantAdminOwnClient(req.user, target.clientId);
     await ensureClientAccess(req.user, source.clientId);
     await ensureClientAccess(req.user, target.clientId);
     if (String(source.clientId) !== String(target.clientId)) {
@@ -141,6 +188,8 @@ async function transferUserConfig({ fromUserId, toUserId, mode, req }) {
     permissionGroupId: nextPermissionGroupId,
     mirrorAccess: nextMirrorAccess,
   };
+
+  await ensurePermissionGroupAssignment(req, nextPermissionGroupId);
 
   const updated = await updateUser(toUserId, { attributes: nextAttributes });
 
@@ -236,6 +285,7 @@ router.post(
       if (!targetClientId) {
         throw createError(400, "clientId é obrigatório para usuários não administradores");
       }
+      ensureTenantAdminOwnClient(req.user, targetClientId);
       await ensureClientAccess(req.user, targetClientId);
       const client = await getClientById(targetClientId);
       if (!client) {
@@ -250,6 +300,8 @@ router.post(
       ...attributes,
       permissionGroupId: resolvedPermissionGroupId ?? null,
     };
+
+    await ensurePermissionGroupAssignment(req, resolvedPermissionGroupId);
 
     const user = await createUser({
       name,
@@ -279,6 +331,7 @@ router.put(
     }
 
     if (req.user.role !== "admin") {
+      ensureTenantAdminOwnClient(req.user, existing.clientId);
       await ensureClientAccess(req.user, existing.clientId);
       if (existing.role === "admin") {
         throw createError(403, "Não é permitido atualizar administradores globais");
@@ -287,6 +340,7 @@ router.put(
         throw createError(403, "Somente administradores podem alterar papéis");
       }
       if (req.body.clientId) {
+        ensureTenantAdminOwnClient(req.user, req.body.clientId);
         await ensureClientAccess(req.user, req.body.clientId);
       }
     } else {
@@ -330,6 +384,10 @@ router.put(
       };
     }
 
+    if (resolvedPermissionGroupId !== undefined) {
+      await ensurePermissionGroupAssignment(req, resolvedPermissionGroupId);
+    }
+
     const user = await updateUser(id, payload);
     return res.json({ user });
   } catch (error) {
@@ -349,6 +407,7 @@ router.delete(
       throw createError(404, "Usuário não encontrado");
     }
     if (req.user.role !== "admin") {
+      ensureTenantAdminOwnClient(req.user, existing.clientId);
       await ensureClientAccess(req.user, existing.clientId);
       if (existing.role !== "user") {
         throw createError(403, "Somente administradores podem remover este usuário");

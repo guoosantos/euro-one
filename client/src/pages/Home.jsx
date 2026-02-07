@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
@@ -102,7 +102,7 @@ async function fetchMirrorOwnerBundle({
 } = {}) {
   const headers = ownerId ? { "X-Owner-Client-Id": ownerId } : undefined;
   const requests = [
-    CoreApi.listVehicles({ params: { accessible: true }, headers }).catch(() => []),
+    CoreApi.listVehicles({ params: { accessible: true, skipPositions: true }, headers }).catch(() => []),
     canAccessMonitoring
       ? safeApi.get(API_ROUTES.lastPositions, {
           headers,
@@ -236,6 +236,8 @@ export default function Home() {
   const {
     tenantId,
     tenant,
+    tenantScope,
+    tenants,
     canAccess,
     mirrorContextMode,
     activeMirrorOwnerClientId,
@@ -267,6 +269,7 @@ export default function Home() {
     mirrorContextMode === "target" && mirrorOwnerTenantId && !isMirrorAll,
   );
   const effectiveTenantId = isMirrorAll ? null : (mirrorOwnerTenantId || tenantId);
+  const isAllTenantsScope = tenantScope === "ALL";
   const tasksTenantOverride = isMirrorAll ? null : undefined;
   const pendingAlertParams = useMemo(() => ({ status: "pending" }), []);
   const conjugatedAlertParams = useMemo(() => ({ windowHours: 5 }), []);
@@ -520,8 +523,93 @@ export default function Home() {
       }),
     [table, vehicleByDeviceId],
   );
+  const [allTenantsCommunication, setAllTenantsCommunication] = useState({
+    loading: false,
+    items: [],
+    error: null,
+  });
 
-  const communicationBuckets = useMemo(() => buildOfflineBuckets(decoratedTable), [decoratedTable]);
+  useEffect(() => {
+    let active = true;
+
+    const loadAllTenantsDevices = async () => {
+      if (!canAccessMonitoring || !isAllTenantsScope || mirrorContextMode === "target") {
+        if (active) {
+          setAllTenantsCommunication((prev) => ({
+            ...prev,
+            loading: false,
+            items: [],
+            error: null,
+          }));
+        }
+        return;
+      }
+
+      const tenantIds = Array.isArray(tenants)
+        ? Array.from(new Set(tenants.map((item) => item?.id).filter(Boolean).map(String)))
+        : [];
+
+      if (tenantIds.length === 0) {
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+
+      if (active) {
+        setAllTenantsCommunication((prev) => ({ ...prev, loading: true, error: null }));
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          tenantIds.map(async (clientId) => {
+            const devices = await CoreApi.listDevices({ clientId });
+            return (Array.isArray(devices) ? devices : []).map((device) => ({
+              ...device,
+              clientId: device?.clientId ?? clientId,
+            }));
+          }),
+        );
+
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && Array.isArray(result.value)) {
+            merged.push(...result.value);
+          }
+        });
+
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: merged, error: null });
+        }
+      } catch (error) {
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: [], error });
+        }
+      }
+    };
+
+    loadAllTenantsDevices();
+
+    return () => {
+      active = false;
+    };
+  }, [canAccessMonitoring, isAllTenantsScope, mirrorContextMode, tenants]);
+
+  const communicationSource = useMemo(() => {
+    if (isAllTenantsScope && mirrorContextMode !== "target") {
+      return {
+        items: allTenantsCommunication.items,
+        loading: allTenantsCommunication.loading,
+      };
+    }
+    return { items: decoratedTable, loading: false };
+  }, [allTenantsCommunication.items, allTenantsCommunication.loading, decoratedTable, isAllTenantsScope, mirrorContextMode]);
+
+  const communicationStats = useMemo(
+    () => buildCommunicationBuckets(communicationSource.items, { dedupeByClient: isAllTenantsScope }),
+    [communicationSource.items, isAllTenantsScope],
+  );
+  const communicationBuckets = communicationStats.buckets;
   const routeMetrics = useMemo(
     () => buildRouteMetrics(decoratedTable, effectiveTasks, vehicleByDeviceId),
     [decoratedTable, effectiveTasks, vehicleByDeviceId],
@@ -601,6 +689,17 @@ export default function Home() {
               ))}
             </tbody>
           </table>
+          {communicationSource.loading && (
+            <div className="mt-3 text-xs text-white/50">Carregando dados de comunicação…</div>
+          )}
+          {!communicationSource.loading && communicationStats.totalWithData === 0 && (
+            <div className="mt-3 text-xs text-white/50">Sem dados no período.</div>
+          )}
+          {!communicationSource.loading && communicationStats.missingCount > 0 && communicationStats.totalWithData > 0 && (
+            <div className="mt-3 text-xs text-white/50">
+              {communicationStats.missingCount} veículo(s) sem registro de comunicação.
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -952,23 +1051,93 @@ function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()
   return { totalWithRoute, withoutSignal, withSignal, routeDelay, routeDeviation, blocked };
 }
 
-function buildOfflineBuckets(table = []) {
-  const now = Date.now();
-  const offlineVehicles = table.filter((item) => item.status === "offline" || item.status === "blocked");
+function resolveCommunicationTimestamp(entry) {
+  if (!entry) return null;
+  const device = entry.device || entry;
+  const vehicle = entry.vehicle || null;
+  const position = entry.position || device?.lastPosition || device?.position || null;
+  const candidate =
+    position?.serverTime ||
+    position?.deviceTime ||
+    position?.fixTime ||
+    position?.gpsTime ||
+    position?.time ||
+    device?.lastCommunication ||
+    device?.lastUpdate ||
+    device?.traccar?.lastUpdate ||
+    vehicle?.lastCommunication ||
+    vehicle?.lastUpdate ||
+    entry?.lastUpdate ||
+    null;
 
-  const withLast = offlineVehicles.map((vehicle) => {
-    const lastUpdate = vehicle.lastUpdate ? Date.parse(vehicle.lastUpdate) : null;
-    const minutes = lastUpdate ? (now - lastUpdate) / (1000 * 60) : Infinity;
-    return { ...vehicle, offlineMinutes: minutes };
-  });
+  if (!candidate) return null;
+  const ts = typeof candidate === "number" ? candidate : Date.parse(candidate);
+  return Number.isFinite(ts) ? ts : null;
+}
 
-  return COMMUNICATION_BUCKETS.map((bucket) => ({
+function resolveCommunicationClientId(entry) {
+  const device = entry?.device || entry || {};
+  const vehicle = entry?.vehicle || null;
+  return (
+    entry?.clientId ||
+    device?.clientId ||
+    device?.tenantId ||
+    vehicle?.clientId ||
+    vehicle?.tenantId ||
+    vehicle?.client?.id ||
+    entry?.tenantId ||
+    null
+  );
+}
+
+function resolveCommunicationKey(entry) {
+  const device = entry?.device || entry || {};
+  return (
+    entry?.id ||
+    entry?.deviceId ||
+    entry?.uniqueId ||
+    device?.traccarId ||
+    device?.deviceId ||
+    device?.id ||
+    device?.uniqueId ||
+    null
+  );
+}
+
+function buildCommunicationBuckets(entries = [], { now = Date.now(), dedupeByClient = false } = {}) {
+  const buckets = COMMUNICATION_BUCKETS.map((bucket) => ({
     label: bucket.label,
     filterKey: bucket.key,
-    vehicles: withLast.filter(
-      (vehicle) => vehicle.offlineMinutes >= bucket.minMinutes && vehicle.offlineMinutes < bucket.maxMinutes,
-    ),
+    vehicles: [],
+    minMinutes: bucket.minMinutes,
+    maxMinutes: bucket.maxMinutes,
   }));
+  const missing = [];
+  const seen = new Set();
+
+  (Array.isArray(entries) ? entries : []).forEach((entry, index) => {
+    const clientId = resolveCommunicationClientId(entry);
+    const key = resolveCommunicationKey(entry) ?? `row-${index}`;
+    const compositeKey = dedupeByClient ? `${clientId ?? "unknown"}:${key}` : String(key);
+    if (seen.has(compositeKey)) return;
+    seen.add(compositeKey);
+
+    const ts = resolveCommunicationTimestamp(entry);
+    if (!ts) {
+      missing.push(entry);
+      return;
+    }
+    const minutes = Math.max(0, (now - ts) / (1000 * 60));
+    const bucket = buckets.find((item) => minutes >= item.minMinutes && minutes < item.maxMinutes) || buckets[buckets.length - 1];
+    bucket.vehicles.push(entry);
+  });
+
+  return {
+    buckets,
+    missingCount: missing.length,
+    total: seen.size,
+    totalWithData: Math.max(0, seen.size - missing.length),
+  };
 }
 
 function percentage(value, total) {

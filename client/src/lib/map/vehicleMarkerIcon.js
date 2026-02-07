@@ -50,22 +50,28 @@ export function createVehicleMarkerIcon({
   }`;
   if (markerIconCache.has(cacheKey)) return markerIconCache.get(cacheKey);
 
-  const iconSvg = getVehicleIconSvg(resolvedType);
   const arrowColor = color || "#60a5fa";
   const ringColor = accentColor || "rgba(148,163,184,0.35)";
   const baseColor = color || "#94a3b8";
+  const rawIconSvg = getVehicleIconSvg(resolvedType);
+  const iconSvg = rawIconSvg
+    ? rawIconSvg
+        .replace(/stroke=["']currentColor["']/g, `stroke="${baseColor}"`)
+        .replace(/fill=["']currentColor["']/g, `fill="${baseColor}"`)
+        .replace("<svg", `<svg style="color:${baseColor};stroke:${baseColor};"`)
+    : "";
   const opacity = muted ? 0.55 : 1;
   const labelHtml = labelText ? `<div class="fleet-marker__label">${labelText}</div>` : "";
 
   const html = `
     <div class="fleet-marker__wrap" style="opacity:${opacity};">
-      <div style="position:absolute;top:4px;left:50%;transform:translate(-50%,-70%) rotate(${heading}deg);transform-origin:50% 100%;width:20px;height:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="${arrowColor}" stroke="rgba(15,23,42,0.8)" stroke-width="1.2">
+      <div style="position:absolute;top:4px;left:50%;transform:translate(-50%,-70%) rotate(${heading}deg);transform-origin:50% 100%;width:26px;height:26px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="${arrowColor}" stroke="rgba(15,23,42,0.8)" stroke-width="1.2">
           <path d="M12 2l7 9h-4v11h-6V11H5z" />
         </svg>
       </div>
       <div class="fleet-marker__base" style="border:1px solid ${ringColor};color:${baseColor};">
-        <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
+        <div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
       </div>
       ${labelHtml}
     </div>
@@ -74,9 +80,9 @@ export function createVehicleMarkerIcon({
   const icon = L.divIcon({
     className: "fleet-marker",
     html,
-    iconSize: [120, 56],
-    iconAnchor: [60, 26],
-    popupAnchor: [0, -30],
+    iconSize: [120, 62],
+    iconAnchor: [60, 30],
+    popupAnchor: [0, -34],
   });
 
   markerIconCache.set(cacheKey, icon);

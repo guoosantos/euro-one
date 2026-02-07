@@ -112,12 +112,24 @@ router.get("/context", async (req, res, next) => {
 
     const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
     const permissionContext = await resolvePermissionContext(req);
+    const resolvedTenantId = tenant.clientIdResolved ?? null;
+    const resolvedTenantName = resolvedTenantId
+      ? clients.find((client) => String(client.id) === String(resolvedTenantId))?.name ?? null
+      : null;
     const responsePayload = {
       clientId: tenant.clientIdResolved ?? null,
       clients,
       mirror,
       mirrorModeEnabled,
       permissionContext,
+      user: {
+        id: user.id,
+        role: user.role,
+        userRole: user.role,
+        isGlobalAdmin: isAdmin,
+        tenantId: resolvedTenantId,
+        tenantName: resolvedTenantName,
+      },
     };
 
     if (isAdmin) {

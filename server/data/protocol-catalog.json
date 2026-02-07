@@ -37,32 +37,6 @@
         "parameters": []
       },
       {
-        "id": "positionSingle",
-        "code": "positionSingle",
-        "name": "Solicitar posição",
-        "description": "Solicita uma posição instantânea ao rastreador.",
-        "type": "positionSingle",
-        "tags": ["posicao"],
-        "parameters": []
-      },
-      {
-        "id": "positionPeriodic",
-        "code": "positionPeriodic",
-        "name": "Atualização periódica",
-        "description": "Define o intervalo de envio de posições.",
-        "type": "positionPeriodic",
-        "tags": ["posicao", "config"],
-        "parameters": [
-          {
-            "key": "frequency",
-            "label": "Intervalo (segundos)",
-            "type": "number",
-            "min": 10,
-            "defaultValue": 60
-          }
-        ]
-      },
-      {
         "id": "setSpeedLimit",
         "code": "setSpeedLimit",
         "name": "Limite de velocidade",

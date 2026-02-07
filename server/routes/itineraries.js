@@ -71,6 +71,59 @@ function resolveTargetClient(req, provided, { required = false } = {}) {
   return clientId;
 }
 
+function resolveMirrorAllClientIds(req) {
+  const ownerClientId = req.mirrorContext?.ownerClientId ?? null;
+  if (!ownerClientId || String(ownerClientId) !== "all") return null;
+  const ownerIds = Array.isArray(req.mirrorContext?.ownerClientIds)
+    ? req.mirrorContext.ownerClientIds.map((id) => String(id)).filter(Boolean)
+    : [];
+  return ownerIds.length ? ownerIds : [];
+}
+
+function mergeUniqueByKey(list = [], getKey) {
+  const map = new Map();
+  list.forEach((item) => {
+    const key = getKey(item);
+    if (!key || map.has(key)) return;
+    map.set(key, item);
+  });
+  return Array.from(map.values());
+}
+
+function listItinerariesWithGlobals({ clientId, includeGlobal = true } = {}) {
+  if (!clientId) {
+    return listItineraries();
+  }
+  if (!includeGlobal) {
+    return listItineraries({ clientId });
+  }
+  const globals = listItineraries({ scope: "global" });
+  const perClient = listItineraries({ clientId });
+  return mergeUniqueByKey([...globals, ...perClient], (item) => String(item?.id || ""));
+}
+
+async function collectByClientIds(clientIds = [], loader, label = "dados") {
+  if (!clientIds.length) return [];
+  const results = await Promise.allSettled(
+    clientIds.map(async (clientId) => {
+      const value = await Promise.resolve(loader(clientId));
+      return { clientId, value };
+    }),
+  );
+  const merged = [];
+  results.forEach((result) => {
+    if (result.status === "fulfilled") {
+      const list = result.value?.value;
+      if (Array.isArray(list)) merged.push(...list);
+      return;
+    }
+    console.warn(`[itineraries] Falha ao carregar ${label} por cliente`, {
+      message: result.reason?.message || result.reason,
+    });
+  });
+  return merged;
+}
+
 function shouldAllowXdmFailure(error) {
   const status = Number(error?.status || error?.statusCode || error?.response?.status);
   if (Number.isFinite(status) && status === 405) return true;
@@ -81,6 +134,10 @@ function shouldAllowXdmFailure(error) {
 function ensureSameClient(req, clientId) {
   const user = req.user;
   if (user.role === "admin") return;
+  if (!clientId) {
+    const mirrorAll = req.mirrorContext?.ownerClientId && String(req.mirrorContext.ownerClientId) === "all";
+    if (mirrorAll) return;
+  }
   if (user.clientId && String(user.clientId) === String(clientId)) return;
   const mirrorOwnerId = req.mirrorContext?.ownerClientId ?? null;
   const hasMirrorAccess =
@@ -88,6 +145,13 @@ function ensureSameClient(req, clientId) {
     mirrorOwnerId &&
     String(mirrorOwnerId) === String(clientId);
   if (hasMirrorAccess) return;
+  const mirrorAllAccess =
+    req.tenant?.accessType === "mirror" &&
+    mirrorOwnerId &&
+    String(mirrorOwnerId) === "all" &&
+    Array.isArray(req.mirrorContext?.ownerClientIds) &&
+    req.mirrorContext.ownerClientIds.some((id) => String(id) === String(clientId));
+  if (mirrorAllAccess) return;
   throw createError(403, `Usuário não tem permissão para clientId ${clientId}`);
 }
 
@@ -561,9 +625,36 @@ router.get(
   authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
   async (req, res, next) => {
   try {
+    const scope = String(req.query?.scope || "").toLowerCase();
+    if (scope === "global") {
+      if (req.user.role !== "admin") {
+        throw createError(403, "Sem acesso a itinerários globais");
+      }
+      const itineraries = listItineraries({ scope: "global" }).map(withSyncStatus);
+      return res.json({ data: itineraries, error: null });
+    }
+    const mirrorAllClientIds = resolveMirrorAllClientIds(req);
+    const requestedClientId = req.query?.clientId ?? null;
+    const wantsAll = !requestedClientId || String(requestedClientId).toLowerCase() === "all";
+    if (mirrorAllClientIds && wantsAll) {
+      const perClient = mirrorAllClientIds.flatMap((clientId) => listItineraries({ clientId }));
+      const globals = listItineraries({ scope: "global" });
+      const merged = mergeUniqueByKey([...globals, ...perClient], (item) => String(item?.id || ""));
+      return res.json({ data: merged.map(withSyncStatus), error: null });
+    }
+    if (mirrorAllClientIds && requestedClientId && String(requestedClientId).toLowerCase() !== "all") {
+      const normalized = String(requestedClientId);
+      if (!mirrorAllClientIds.some((id) => String(id) === normalized)) {
+        throw createError(403, `Usuário não tem permissão para clientId ${normalized}`);
+      }
+      const itineraries = listItinerariesWithGlobals({ clientId: normalized }).map(withSyncStatus);
+      return res.json({ data: itineraries, error: null });
+    }
     const targetClientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
-    const itineraries = listItineraries(targetClientId ? { clientId: targetClientId } : {})
-      .map(withSyncStatus);
+    const itineraries = (targetClientId
+      ? listItinerariesWithGlobals({ clientId: targetClientId })
+      : listItineraries()
+    ).map(withSyncStatus);
     return res.json({ data: itineraries, error: null });
   } catch (error) {
     return next(error);
@@ -593,7 +684,19 @@ router.post(
   authorizePermission({ menuKey: "fleet", pageKey: "itineraries", requireFull: true }),
   async (req, res, next) => {
   try {
-    const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
+    const scope = String(req.body?.scope || "").toLowerCase();
+    const requestedClientId = req.body?.clientId ?? null;
+    const ownerHeader = req.get?.("X-Owner-Client-Id") || req.headers?.["x-owner-client-id"] || null;
+    const wantsAllClient = String(requestedClientId || ownerHeader || "").toLowerCase() === "all";
+    const mirrorAllClientIds = resolveMirrorAllClientIds(req);
+    const allowGlobal =
+      req.user.role === "admin" ||
+      (Array.isArray(mirrorAllClientIds) && mirrorAllClientIds.length > 0 && (wantsAllClient || scope === "global"));
+    const isGlobal = scope === "global" || wantsAllClient;
+    if (isGlobal && !allowGlobal) {
+      throw createError(403, "Sem acesso para criar itinerários globais");
+    }
+    const clientId = isGlobal ? null : resolveTargetClient(req, requestedClientId, { required: true });
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
     const sentAt = new Date().toISOString();
     const items = buildItineraryItems({
@@ -601,7 +704,10 @@ router.post(
       routeIds: req.body?.routeIds,
       hasItems: Object.prototype.hasOwnProperty.call(req.body || {}, "items"),
     });
-    const itinerary = createItinerary({ ...req.body, items, clientId });
+    const itinerary = createItinerary({ ...req.body, items, clientId, scope: isGlobal ? "global" : undefined });
+    if (isGlobal) {
+      return res.status(201).json({ data: withSyncStatus(itinerary), error: null });
+    }
     try {
       const synced = await syncItineraryXdm(itinerary.id, {
         clientId,
@@ -695,6 +801,20 @@ router.put(
     const existing = getItineraryById(req.params.id);
     if (!existing) {
       throw createError(404, "Itinerário não encontrado");
+    }
+    const isGlobal = existing.scope === "global" || !existing.clientId;
+    if (isGlobal) {
+      if (req.user.role !== "admin") {
+        throw createError(403, "Sem acesso para atualizar itinerários globais");
+      }
+      const items = buildItineraryItems({
+        items: req.body?.items,
+        routeIds: req.body?.routeIds,
+        existingItems: existing.items || [],
+        hasItems: Object.prototype.hasOwnProperty.call(req.body || {}, "items"),
+      });
+      const updated = updateItinerary(req.params.id, { ...req.body, items, scope: "global", clientId: null });
+      return res.json({ data: withSyncStatus(updated), error: null });
     }
     const clientId = resolveTargetClient(req, req.body?.clientId || existing.clientId, { required: true });
     ensureSameClient(req, clientId);
@@ -852,6 +972,10 @@ router.delete(
     const existing = getItineraryById(req.params.id);
     if (!existing) {
       throw createError(404, "Itinerário não encontrado");
+    }
+    const isGlobal = existing.scope === "global" || !existing.clientId;
+    if (isGlobal && req.user.role !== "admin") {
+      throw createError(403, "Sem acesso para excluir itinerários globais");
     }
     ensureSameClient(req, existing.clientId);
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
@@ -1036,13 +1160,79 @@ router.get(
   authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
   async (req, res, next) => {
   try {
+    const mirrorAllClientIds = resolveMirrorAllClientIds(req);
+    const requestedClientId = req.query?.clientId ?? null;
+    const wantsAll = !requestedClientId || String(requestedClientId).toLowerCase() === "all";
+    if (mirrorAllClientIds && wantsAll) {
+      if (!mirrorAllClientIds.length) {
+        return res.json({ data: [], error: null });
+      }
+      const deployments = mirrorAllClientIds.flatMap((clientId) => listDeployments({ clientId }));
+      const vehicles = (await resolveAccessibleVehicleList(req, null)).reduce((acc, vehicle) => {
+        acc.set(String(vehicle.id), vehicle);
+        return acc;
+      }, new Map());
+      const perClientItineraries = mirrorAllClientIds.flatMap((clientId) => listItineraries({ clientId }));
+      const globals = listItineraries({ scope: "global" });
+      const mergedItineraries = mergeUniqueByKey(
+        [...globals, ...perClientItineraries],
+        (item) => String(item?.id || ""),
+      );
+      const itineraries = mergedItineraries.reduce((acc, itinerary) => {
+        acc.set(String(itinerary.id), itinerary);
+        return acc;
+      }, new Map());
+
+      const deploymentsHistory = toHistoryEntries({
+        deploymentsList: deployments,
+        vehiclesById: vehicles,
+        itinerariesById: itineraries,
+      }).map(normalizeHistoryEntry);
+      const extraHistory = mirrorAllClientIds
+        .flatMap((clientId) => listEmbarkHistory({ clientId }))
+        .map(normalizeHistoryEntry);
+
+      const history = [...deploymentsHistory, ...extraHistory].sort(
+        (a, b) => new Date(b.sentAt || b.at || 0).getTime() - new Date(a.sentAt || a.at || 0).getTime(),
+      );
+
+      return res.json({ data: history, error: null });
+    }
+    if (mirrorAllClientIds && requestedClientId && String(requestedClientId).toLowerCase() !== "all") {
+      const normalized = String(requestedClientId);
+      if (!mirrorAllClientIds.some((id) => String(id) === normalized)) {
+        throw createError(403, `Usuário não tem permissão para clientId ${normalized}`);
+      }
+      const deployments = listDeployments({ clientId: normalized });
+      const vehicles = (await resolveAccessibleVehicleList(req, normalized)).reduce((acc, vehicle) => {
+        acc.set(String(vehicle.id), vehicle);
+        return acc;
+      }, new Map());
+      const itineraries = listItinerariesWithGlobals({ clientId: normalized }).reduce((acc, itinerary) => {
+        acc.set(String(itinerary.id), itinerary);
+        return acc;
+      }, new Map());
+      const deploymentsHistory = toHistoryEntries({
+        deploymentsList: deployments,
+        vehiclesById: vehicles,
+        itinerariesById: itineraries,
+      }).map(normalizeHistoryEntry);
+      const extraHistory = listEmbarkHistory({ clientId: normalized }).map(normalizeHistoryEntry);
+      const history = [...deploymentsHistory, ...extraHistory].sort(
+        (a, b) => new Date(b.sentAt || b.at || 0).getTime() - new Date(a.sentAt || a.at || 0).getTime(),
+      );
+      return res.json({ data: history, error: null });
+    }
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const deployments = listDeployments(clientId ? { clientId } : {});
     const vehicles = (await resolveAccessibleVehicleList(req, clientId)).reduce((acc, vehicle) => {
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());
-    const itineraries = listItineraries(clientId ? { clientId } : {}).reduce((acc, itinerary) => {
+    const itineraries = (clientId
+      ? listItinerariesWithGlobals({ clientId })
+      : listItineraries()
+    ).reduce((acc, itinerary) => {
       acc.set(String(itinerary.id), itinerary);
       return acc;
     }, new Map());
@@ -1070,11 +1260,162 @@ router.get(
   authorizePermission({ menuKey: "fleet", pageKey: "itineraries" }),
   async (req, res, next) => {
   try {
+    const mirrorAllClientIds = resolveMirrorAllClientIds(req);
+    const requestedClientId = req.query?.clientId ?? null;
+    const wantsAll = !requestedClientId || String(requestedClientId).toLowerCase() === "all";
+    if (mirrorAllClientIds && wantsAll) {
+      if (!mirrorAllClientIds.length) {
+        return res.json({ data: [], error: null });
+      }
+      const correlationId = req.headers["x-correlation-id"] || null;
+      const vehicles = await resolveAccessibleVehicleList(req, null);
+      const deployments = mirrorAllClientIds.flatMap((clientId) => listDeployments({ clientId }));
+      const perClientItineraries = mirrorAllClientIds.flatMap((clientId) => listItineraries({ clientId }));
+      const globals = listItineraries({ scope: "global" });
+      const itineraries = mergeUniqueByKey(
+        [...globals, ...perClientItineraries],
+        (item) => String(item?.id || ""),
+      );
+      const geofences = await collectByClientIds(mirrorAllClientIds, (clientId) => listGeofences({ clientId }), "cercas");
+      const routes = mirrorAllClientIds.flatMap((clientId) => listRoutes({ clientId }));
+      const groupMappings = mirrorAllClientIds.flatMap((clientId) => listGeozoneGroupMappings({ clientId }));
+
+      const itinerariesById = new Map(itineraries.map((itinerary) => [String(itinerary.id), itinerary]));
+      const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+      const routesById = new Map(routes.map((route) => [String(route.id), route]));
+      const groupLookup = new Map();
+      groupMappings.forEach((mapping) => {
+        if (!mapping?.xdmGeozoneGroupId) return;
+        let itineraryId = mapping.itineraryId || mapping.id || null;
+        let roleKey = ITINERARY_GEOZONE_GROUPS.itinerary.key;
+        if (mapping.scopeKey) {
+          const [scopePrefix, scopeItineraryId, scopeRole] = String(mapping.scopeKey).split(":");
+          if (scopePrefix === "itinerary") {
+            itineraryId = scopeItineraryId;
+            roleKey = scopeRole || roleKey;
+          }
+        }
+        groupLookup.set(String(mapping.xdmGeozoneGroupId), { itineraryId, roleKey });
+      });
+
+      const sortedDeployments = [...deployments].sort(
+        (a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime(),
+      );
+      const latestByVehicle = new Map();
+      const lastEmbarkByVehicle = new Map();
+      for (const deployment of sortedDeployments) {
+        const vehicleKey = `${deployment.clientId}:${deployment.vehicleId}`;
+        if (!latestByVehicle.has(vehicleKey)) {
+          latestByVehicle.set(vehicleKey, deployment);
+        }
+        if (
+          !lastEmbarkByVehicle.has(vehicleKey) &&
+          normalizeDeploymentAction(deployment.action) === "EMBARK" &&
+          deployment.status === "DEPLOYED"
+        ) {
+          lastEmbarkByVehicle.set(vehicleKey, deployment);
+        }
+      }
+
+      const vehiclesDetail = await Promise.all(
+        vehicles.map(async (vehicle) => {
+          const vehicleKey = `${vehicle.clientId ?? "unknown"}:${vehicle.id}`;
+          const deployment = latestByVehicle.get(vehicleKey) || null;
+          const lastEmbark = lastEmbarkByVehicle.get(vehicleKey) || null;
+          return buildVehicleEmbarkDetail({
+            vehicle,
+            deployment,
+            lastEmbark,
+            itinerariesById,
+            geofencesById,
+            routesById,
+            groupLookup,
+            correlationId,
+          });
+        }),
+      );
+
+      const deduped = mergeUniqueByKey(
+        vehiclesDetail,
+        (detail) => `${detail?.clientId ?? "unknown"}:${detail?.vehicleId ?? ""}`,
+      );
+
+      return res.json({ data: deduped, error: null });
+    }
+    if (mirrorAllClientIds && requestedClientId && String(requestedClientId).toLowerCase() !== "all") {
+      const normalized = String(requestedClientId);
+      if (!mirrorAllClientIds.some((id) => String(id) === normalized)) {
+        throw createError(403, `Usuário não tem permissão para clientId ${normalized}`);
+      }
+      const correlationId = req.headers["x-correlation-id"] || null;
+      const vehicles = await resolveAccessibleVehicleList(req, normalized);
+      const deployments = listDeployments({ clientId: normalized });
+      const itineraries = listItinerariesWithGlobals({ clientId: normalized });
+      const geofences = await listGeofences({ clientId: normalized });
+      const routes = listRoutes({ clientId: normalized });
+      const groupMappings = listGeozoneGroupMappings({ clientId: normalized });
+
+      const itinerariesById = new Map(itineraries.map((itinerary) => [String(itinerary.id), itinerary]));
+      const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+      const routesById = new Map(routes.map((route) => [String(route.id), route]));
+      const groupLookup = new Map();
+      groupMappings.forEach((mapping) => {
+        if (!mapping?.xdmGeozoneGroupId) return;
+        let itineraryId = mapping.itineraryId || mapping.id || null;
+        let roleKey = ITINERARY_GEOZONE_GROUPS.itinerary.key;
+        if (mapping.scopeKey) {
+          const [scopePrefix, scopeItineraryId, scopeRole] = String(mapping.scopeKey).split(":");
+          if (scopePrefix === "itinerary") {
+            itineraryId = scopeItineraryId;
+            roleKey = scopeRole || roleKey;
+          }
+        }
+        groupLookup.set(String(mapping.xdmGeozoneGroupId), { itineraryId, roleKey });
+      });
+
+      const sortedDeployments = [...deployments].sort(
+        (a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime(),
+      );
+      const latestByVehicle = new Map();
+      const lastEmbarkByVehicle = new Map();
+      for (const deployment of sortedDeployments) {
+        const vehicleId = String(deployment.vehicleId);
+        if (!latestByVehicle.has(vehicleId)) {
+          latestByVehicle.set(vehicleId, deployment);
+        }
+        if (
+          !lastEmbarkByVehicle.has(vehicleId) &&
+          normalizeDeploymentAction(deployment.action) === "EMBARK" &&
+          deployment.status === "DEPLOYED"
+        ) {
+          lastEmbarkByVehicle.set(vehicleId, deployment);
+        }
+      }
+
+      const vehiclesDetail = await Promise.all(
+        vehicles.map(async (vehicle) => {
+          const deployment = latestByVehicle.get(String(vehicle.id)) || null;
+          const lastEmbark = lastEmbarkByVehicle.get(String(vehicle.id)) || null;
+          return buildVehicleEmbarkDetail({
+            vehicle,
+            deployment,
+            lastEmbark,
+            itinerariesById,
+            geofencesById,
+            routesById,
+            groupLookup,
+            correlationId,
+          });
+        }),
+      );
+
+      return res.json({ data: vehiclesDetail, error: null });
+    }
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const correlationId = req.headers["x-correlation-id"] || null;
     const vehicles = await resolveAccessibleVehicleList(req, clientId);
     const deployments = listDeployments(clientId ? { clientId } : {});
-    const itineraries = listItineraries(clientId ? { clientId } : {});
+    const itineraries = clientId ? listItinerariesWithGlobals({ clientId }) : listItineraries();
     const geofences = await listGeofences(clientId ? { clientId } : {});
     const routes = listRoutes(clientId ? { clientId } : {});
     const groupMappings = listGeozoneGroupMappings(clientId ? { clientId } : {});
@@ -1164,7 +1505,7 @@ router.get(
       (deployment) => normalizeDeploymentAction(deployment.action) === "EMBARK" && deployment.status === "DEPLOYED",
     );
 
-    const itineraries = listItineraries({ clientId: vehicle.clientId });
+    const itineraries = listItinerariesWithGlobals({ clientId: vehicle.clientId });
     const geofences = await listGeofences({ clientId: vehicle.clientId });
     const routes = listRoutes({ clientId: vehicle.clientId });
     const groupMappings = listGeozoneGroupMappings({ clientId: vehicle.clientId });
@@ -1371,6 +1712,8 @@ router.post(
   try {
     const operationId = req.headers["x-correlation-id"] || crypto.randomUUID();
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
+    const mirrorAllClientIds = resolveMirrorAllClientIds(req);
+    const isMirrorAll = Array.isArray(mirrorAllClientIds);
     const vehicleIds = Array.isArray(req.body?.vehicleIds)
       ? Array.from(new Set(req.body.vehicleIds.map(String)))
       : [];
@@ -1410,7 +1753,7 @@ router.post(
         summary.errors.push({ itineraryId: String(itineraryId), message: "Itinerário não encontrado" });
         continue;
       }
-      if (String(itinerary.clientId) !== String(clientId)) {
+      if (itinerary.clientId && String(itinerary.clientId) !== String(clientId)) {
         summary.failed += 1;
         summary.errors.push({ itineraryId: String(itineraryId), message: "Itinerário não pertence ao cliente" });
         continue;
@@ -1581,6 +1924,8 @@ router.post(
   async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
+    const mirrorAllClientIds = resolveMirrorAllClientIds(req);
+    const isMirrorAll = Array.isArray(mirrorAllClientIds);
     const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
     const itineraryIds = Array.isArray(req.body?.itineraryIds) ? req.body.itineraryIds.map(String) : [];
     if (!vehicleIds.length || !itineraryIds.length) {
@@ -1596,6 +1941,24 @@ router.post(
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());
+    const geofenceCache = new Map();
+    const routeCache = new Map();
+    const snapshotByContext = new Map();
+    const resolveMapsForClient = async (targetClientId) => {
+      const key = targetClientId ? String(targetClientId) : "";
+      if (!key) {
+        return { geofencesById: new Map(), routesById: new Map() };
+      }
+      if (!geofenceCache.has(key)) {
+        const geofences = await listGeofences({ clientId: key });
+        geofenceCache.set(key, new Map(geofences.map((geofence) => [String(geofence.id), geofence])));
+      }
+      if (!routeCache.has(key)) {
+        const routes = listRoutes({ clientId: key });
+        routeCache.set(key, new Map(routes.map((route) => [String(route.id), route])));
+      }
+      return { geofencesById: geofenceCache.get(key), routesById: routeCache.get(key) };
+    };
     const itinerariesById = new Map();
     for (const itineraryId of itineraryIds) {
       const itinerary = getItineraryById(itineraryId);
@@ -1613,23 +1976,24 @@ router.post(
       }
     }
 
+    if (!isMirrorAll) {
+      await resolveMapsForClient(clientId);
+    }
+
     const entries = [];
     let success = 0;
     let failed = 0;
-    const [geofences, routes] = await Promise.all([
-      listGeofences({ clientId }),
-      listRoutes({ clientId }),
-    ]);
-    const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
-    const routesById = new Map(routes.map((route) => [String(route.id), route]));
-    const snapshotByItinerary = new Map();
 
     for (const vehicleId of vehicleIds) {
       const vehicle = vehicles.get(String(vehicleId)) || getVehicleById(vehicleId);
       for (const itineraryId of itineraryIds) {
         const itinerary = itinerariesById.get(String(itineraryId)) || getItineraryById(itineraryId);
-        let snapshot = snapshotByItinerary.get(String(itineraryId)) || null;
+        const entryClientId =
+          isMirrorAll && vehicle?.clientId ? String(vehicle.clientId) : String(clientId);
+        const snapshotKey = `${itineraryId}:${entryClientId || ""}`;
+        let snapshot = snapshotByContext.get(snapshotKey) || null;
         if (!snapshot && itinerary) {
+          const { geofencesById, routesById } = await resolveMapsForClient(entryClientId);
           snapshot = buildItinerarySnapshot({
             itinerary,
             geofencesById,
@@ -1637,10 +2001,10 @@ router.post(
             action: "EMBARK",
             requestedByName: userLabel,
           });
-          snapshotByItinerary.set(String(itineraryId), snapshot);
+          snapshotByContext.set(snapshotKey, snapshot);
         }
         const entryBase = {
-          clientId: String(clientId),
+          clientId: entryClientId,
           itineraryId: String(itineraryId),
           itineraryName: itinerary?.name || null,
           vehicleId: String(vehicleId),
@@ -1658,21 +2022,26 @@ router.post(
         if (!itinerary) {
           failed += 1;
           entries.push({ ...entryBase, status: "Falhou", result: "Itinerário não encontrado" });
-          return;
+          continue;
         }
-        if (String(itinerary.clientId) !== String(clientId)) {
+        if (itinerary.clientId && String(itinerary.clientId) !== String(entryClientId)) {
           failed += 1;
           entries.push({ ...entryBase, status: "Falhou", result: "Itinerário não pertence ao cliente" });
-          return;
+          continue;
         }
-        if (!vehicle || String(vehicle.clientId) !== String(clientId)) {
+        const vehicleMatchesClient =
+          vehicle &&
+          (isMirrorAll
+            ? mirrorAllClientIds?.some((id) => String(id) === String(vehicle.clientId))
+            : String(vehicle.clientId) === String(clientId));
+        if (!vehicle || !vehicleMatchesClient) {
           failed += 1;
           entries.push({ ...entryBase, status: "Falhou", result: "Veículo não encontrado para o cliente" });
-          return;
+          continue;
         }
 
         const { deployment, status } = queueDeployment({
-          clientId,
+          clientId: entryClientId,
           itineraryId,
           vehicleId,
           deviceImei: vehicle.deviceImei,

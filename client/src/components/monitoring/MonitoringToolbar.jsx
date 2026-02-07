@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "../../lib/i18n.js";
-import AddressSearchInput from "../shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../AddressAutocomplete.jsx";
 import MonitoringSearchBox from "./MonitoringSearchBox.jsx";
 
 // --- ÍCONES SVG (Para não depender de bibliotecas externas) ---
@@ -40,8 +40,10 @@ export default function MonitoringToolbar({
   onVehicleSearchChange,
   vehicleSuggestions,
   onSelectVehicleSuggestion,
-  addressSearchState,
+  addressValue,
+  onAddressChange,
   onSelectAddress,
+  mapPreferences,
   filterMode,
   onFilterChange,
   summary,
@@ -82,13 +84,16 @@ export default function MonitoringToolbar({
             onSelectSuggestion={onSelectVehicleSuggestion}
           />
 
-          <AddressSearchInput
-            state={addressSearchState}
+          <AddressAutocomplete
+            label={null}
+            value={addressValue}
+            onChange={onAddressChange}
             onSelect={onSelectAddress}
             onClear={onClearAddress}
             placeholder={t("monitoring.searchRegionPlaceholder")}
             containerClassName="w-full"
             variant="toolbar"
+            mapPreferences={mapPreferences}
           />
         </div>
 

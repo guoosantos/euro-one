@@ -414,7 +414,7 @@ export default function Sidebar() {
         <div
           ref={profileMenuRef}
           className={`rounded-xl ${
-            collapsed ? "bg-transparent p-2 shadow-none" : "bg-surface p-3 shadow-soft"
+            collapsed ? "bg-transparent p-2 shadow-none" : "bg-[var(--surface-user-card)] p-3 shadow-soft"
           }`}
         >
           <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-between"}`}>

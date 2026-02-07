@@ -20,6 +20,7 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useVehicles from "../lib/hooks/useVehicles.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { CoreApi } from "../lib/coreApi.js";
 import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../lib/mapLayers.js";
 import { canInteractWithMap } from "../lib/map/mapSafety.js";
 import { resolveMirrorHeaders } from "../lib/mirror-params.js";
@@ -29,9 +30,10 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
-import DataState from "../ui/DataState.jsx";
+import AlertStateCard from "../ui/AlertStateCard.jsx";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import { ACCESS_REASONS, isBlockingAccessReason, isNoVehiclesReason, resolveAccessReason } from "../lib/access-reasons.js";
 
 const HISTORY_PAGE_SIZE = 10;
 const HISTORY_POLL_INTERVAL_MS = 8000;
@@ -173,6 +175,57 @@ function resolveEmbarkErrorMessage(error) {
 function normalizeIdList(list = []) {
   if (!Array.isArray(list)) return [];
   return Array.from(new Set(list.map((item) => String(item)).filter(Boolean)));
+}
+
+function resolveEntityClientId(entity) {
+  if (!entity) return null;
+  return entity.clientId ?? entity.tenantId ?? entity?.client?.id ?? null;
+}
+
+function buildClientScopedBatches({ vehicleIds, itineraryIds, vehicleClientById, itineraryClientById }) {
+  const globalItineraryIds = [];
+  const itineraryByClient = new Map();
+
+  itineraryIds.forEach((id) => {
+    const clientId = itineraryClientById.get(String(id)) || null;
+    if (!clientId) {
+      globalItineraryIds.push(String(id));
+      return;
+    }
+    const key = String(clientId);
+    if (!itineraryByClient.has(key)) {
+      itineraryByClient.set(key, []);
+    }
+    itineraryByClient.get(key).push(String(id));
+  });
+
+  const vehiclesByClient = new Map();
+  const missingVehicles = [];
+  vehicleIds.forEach((id) => {
+    const clientId = vehicleClientById.get(String(id)) || null;
+    if (!clientId) {
+      missingVehicles.push(String(id));
+      return;
+    }
+    const key = String(clientId);
+    if (!vehiclesByClient.has(key)) {
+      vehiclesByClient.set(key, []);
+    }
+    vehiclesByClient.get(key).push(String(id));
+  });
+
+  const batches = [];
+  const missingItineraryClients = [];
+  vehiclesByClient.forEach((ids, clientId) => {
+    const itinerariesForClient = [...(itineraryByClient.get(clientId) || []), ...globalItineraryIds];
+    if (!itinerariesForClient.length) {
+      missingItineraryClients.push(clientId);
+      return;
+    }
+    batches.push({ clientId, vehicleIds: ids, itineraryIds: itinerariesForClient });
+  });
+
+  return { batches, missingVehicles, missingItineraryClients };
 }
 
 function resolveTechnicalDetails(error) {
@@ -1905,10 +1958,25 @@ function DisembarkModal({
 export default function Itineraries() {
   const navigate = useNavigate();
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
-  const { tenants, tenantId, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const {
+    tenants,
+    tenantId,
+    tenantScope,
+    mirrorContextMode,
+    mirrorModeEnabled,
+    activeMirror,
+    activeMirrorOwnerClientId,
+    isReadOnly,
+    isGlobalAdmin,
+    isMirrorReceiver,
+    logout,
+  } = useTenant();
   const itineraryPermission = usePermissionGate({ menuKey: "fleet", pageKey: "itineraries" });
   const canManageItineraries = itineraryPermission.isFull;
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const isMirrorTarget = mirrorContextMode === "target";
+  const isAllTenantsScope = tenantScope === "ALL";
+  const isAdminContext = isGlobalAdmin || isMirrorReceiver;
   const effectiveClientId = useMemo(() => {
     if (tenantId) return tenantId;
     if (mirrorContextMode === "target") {
@@ -1921,8 +1989,113 @@ export default function Itineraries() {
     [mirrorModeEnabled, mirrorOwnerClientId],
   );
   const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
-  const { vehicles } = useVehicles();
-  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const tenantIds = useMemo(() => {
+    if (!Array.isArray(tenants)) return [];
+    return Array.from(new Set(tenants.map((item) => item?.id).filter(Boolean).map(String)));
+  }, [tenants]);
+  const {
+    vehicles: rawVehicles,
+    loading: vehiclesLoading,
+    error: vehiclesError,
+    reason: vehiclesReason,
+    accessReason: vehiclesAccessReason,
+  } = useVehicles({ enabled: !isAllTenantsScope, includeTelemetry: false });
+  const baseVehicles = useMemo(() => {
+    const list = Array.isArray(rawVehicles) ? rawVehicles : [];
+    if (!effectiveClientId || isMirrorTarget) return list;
+    return list.filter((vehicle) =>
+      String(vehicle?.clientId ?? vehicle?.tenantId ?? "") === String(effectiveClientId),
+    );
+  }, [effectiveClientId, isMirrorTarget, rawVehicles]);
+  const {
+    accessibleVehicles,
+    isRestricted,
+    reason: accessListReason,
+    accessReason: mirrorAccessReason,
+  } = useVehicleAccess();
+  const [allTenantsVehicles, setAllTenantsVehicles] = useState({
+    loading: false,
+    items: [],
+    error: null,
+  });
+  useEffect(() => {
+    let active = true;
+
+    const loadAllTenantVehicles = async () => {
+      if (!isAllTenantsScope || shouldWaitForMirror) {
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+      if (!tenantIds.length) {
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+      if (active) {
+        setAllTenantsVehicles((prev) => ({ ...prev, loading: true, error: null }));
+      }
+      try {
+        const results = await Promise.allSettled(
+          tenantIds.map(async (clientId) => {
+            const list = await CoreApi.listVehicles({
+              params: { clientId, accessible: true, skipPositions: true },
+              headers: mirrorHeaders,
+            });
+            return (Array.isArray(list) ? list : []).map((vehicle) => ({
+              ...vehicle,
+              clientId: resolveEntityClientId(vehicle) ?? clientId,
+            }));
+          }),
+        );
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && Array.isArray(result.value)) {
+            merged.push(...result.value);
+          }
+        });
+        const deduped = new Map();
+        merged.forEach((vehicle) => {
+          const key = `${resolveEntityClientId(vehicle) || "unknown"}:${vehicle?.id ?? vehicle?.vehicleId ?? ""}`;
+          if (!deduped.has(key)) deduped.set(key, vehicle);
+        });
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: Array.from(deduped.values()), error: null });
+        }
+      } catch (error) {
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: [], error });
+        }
+      }
+    };
+
+    void loadAllTenantVehicles();
+
+    return () => {
+      active = false;
+    };
+  }, [isAllTenantsScope, mirrorHeaders, shouldWaitForMirror, tenantIds]);
+  const vehicles = useMemo(() => {
+    if (isRestricted && accessibleVehicles.length) {
+      return accessibleVehicles;
+    }
+    if (isAllTenantsScope) {
+      return allTenantsVehicles.items;
+    }
+    if (isMirrorTarget && accessibleVehicles.length) {
+      return accessibleVehicles;
+    }
+    return baseVehicles;
+  }, [
+    accessibleVehicles,
+    allTenantsVehicles.items,
+    baseVehicles,
+    isAllTenantsScope,
+    isMirrorTarget,
+    isRestricted,
+  ]);
   const { confirmDelete } = useConfirmDialog();
   const [routes, setRoutes] = useState([]);
   const [itineraries, setItineraries] = useState([]);
@@ -1951,18 +2124,6 @@ export default function Itineraries() {
   const [editorEmbarkVehicleQuery, setEditorEmbarkVehicleQuery] = useState("");
   const [editorEmbarkItineraryQuery, setEditorEmbarkItineraryQuery] = useState("");
 
-  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
-    return (
-      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
-        <DataState
-          tone="muted"
-          state="info"
-          title="Sem veículos espelhados ativos"
-          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
-        />
-      </div>
-    );
-  }
   const [selectedEditorEmbarkVehicleIds, setSelectedEditorEmbarkVehicleIds] = useState([]);
   const [selectedEditorEmbarkItineraryIds, setSelectedEditorEmbarkItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
@@ -2006,9 +2167,21 @@ export default function Itineraries() {
   const [detailModalData, setDetailModalData] = useState(null);
   const [selectedVehicleHistoryId, setSelectedVehicleHistoryId] = useState(null);
 
-  const clientNameById = useMemo(
-    () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
-    [tenants],
+  const clientNameById = useMemo(() => {
+    const map = new Map((tenants || []).map((client) => [String(client.id), client.name]));
+    map.set("global", "Todos os clientes");
+    return map;
+  }, [tenants]);
+  const vehicleClientById = useMemo(
+    () =>
+      new Map(
+        vehicles.map((vehicle) => [String(vehicle?.id ?? vehicle?.vehicleId ?? ""), resolveEntityClientId(vehicle)]),
+      ),
+    [vehicles],
+  );
+  const itineraryClientById = useMemo(
+    () => new Map(itineraries.map((item) => [String(item.id), resolveEntityClientId(item)])),
+    [itineraries],
   );
   const targetGeofences = useMemo(() => geofences.filter((geo) => geo.isTarget), [geofences]);
 
@@ -2028,7 +2201,8 @@ export default function Itineraries() {
 
   const handleAccessDenied = useCallback((error, message = "Sem acesso a este módulo.") => {
     if (!isForbiddenError(error)) return false;
-    setAccessError({ message });
+    const reason = resolveAccessReason(error) || ACCESS_REASONS.FORBIDDEN_SCOPE;
+    setAccessError({ message, reason });
     return true;
   }, []);
 
@@ -2051,9 +2225,55 @@ export default function Itineraries() {
   }, [mirrorHeaders, shouldWaitForMirror, showToast]);
 
   const loadItineraries = useCallback(async () => {
+    if (shouldWaitForMirror) return;
     setLoading(true);
     try {
-      const response = await api.get(API_ROUTES.itineraries);
+      if (isAllTenantsScope) {
+        const requests = tenantIds.map((clientId) =>
+          api.get(API_ROUTES.itineraries, {
+            params: { clientId },
+            headers: mirrorHeaders,
+          }),
+        );
+        requests.push(
+          api.get(API_ROUTES.itineraries, {
+            params: { scope: "global" },
+            headers: mirrorHeaders,
+          }),
+        );
+        const results = await Promise.allSettled(requests);
+        const merged = [];
+        let forbiddenCount = 0;
+        results.forEach((result) => {
+          if (result.status === "fulfilled") {
+            const list = result.value?.data?.data || [];
+            if (Array.isArray(list)) merged.push(...list);
+            return;
+          }
+          if (isForbiddenError(result.reason)) {
+            forbiddenCount += 1;
+          } else {
+            logItineraryError("[itineraries] Falha ao carregar itinerários (todos)", result.reason);
+          }
+        });
+        const deduped = new Map();
+        merged.forEach((item) => {
+          const key = String(item?.id ?? "");
+          if (!key || deduped.has(key)) return;
+          deduped.set(key, item);
+        });
+        if (merged.length === 0 && forbiddenCount === results.length) {
+          setAccessError({ message: "Sem acesso a itinerários nos clientes selecionados.", reason: ACCESS_REASONS.FORBIDDEN_SCOPE });
+        } else {
+          setAccessError(null);
+        }
+        setItineraries(Array.from(deduped.values()));
+        return;
+      }
+      const response = await api.get(API_ROUTES.itineraries, {
+        params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+        headers: mirrorHeaders,
+      });
       const list = response?.data?.data || [];
       setItineraries(list);
       setAccessError(null);
@@ -2066,15 +2286,47 @@ export default function Itineraries() {
     } finally {
       setLoading(false);
     }
-  }, [handleAccessDenied, showToast]);
+  }, [
+    effectiveClientId,
+    handleAccessDenied,
+    isAllTenantsScope,
+    mirrorHeaders,
+    shouldWaitForMirror,
+    showToast,
+    tenantIds,
+  ]);
 
   const loadHistory = useCallback(async () => {
     if (historyRequestRef.current) return;
+    if (shouldWaitForMirror) return;
     historyRequestRef.current = true;
     setHistoryLoading(true);
     try {
+      if (isAllTenantsScope) {
+        if (!tenantIds.length) {
+          setHistoryEntries([]);
+          return;
+        }
+        const results = await Promise.allSettled(
+          tenantIds.map((clientId) =>
+            api.get(API_ROUTES.itineraryEmbarkHistory, {
+              params: { clientId },
+              headers: mirrorHeaders,
+            }),
+          ),
+        );
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          const list = result.value?.data?.data || result.value?.data?.history || [];
+          if (Array.isArray(list)) merged.push(...list);
+        });
+        setHistoryEntries(merged);
+        return;
+      }
       const response = await api.get(API_ROUTES.itineraryEmbarkHistory, {
         params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+        headers: mirrorHeaders,
       });
       if (response?.status === 304) {
         return;
@@ -2092,13 +2344,48 @@ export default function Itineraries() {
       historyRequestRef.current = false;
       setHistoryLoading(false);
     }
-  }, [effectiveClientId, showToast]);
+  }, [effectiveClientId, isAllTenantsScope, mirrorHeaders, shouldWaitForMirror, showToast, tenantIds]);
 
   const loadEmbarkDetails = useCallback(async () => {
+    if (shouldWaitForMirror) return;
     setEmbarkDetailsLoading(true);
     try {
+      if (isAllTenantsScope) {
+        if (!tenantIds.length) {
+          setEmbarkDetails([]);
+          return;
+        }
+        const results = await Promise.allSettled(
+          tenantIds.map((clientId) =>
+            api.get(API_ROUTES.itineraryEmbarkVehicles, {
+              params: { clientId },
+              headers: mirrorHeaders,
+            }),
+          ),
+        );
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          const list = result.value?.data?.data || result.value?.data?.vehicles || [];
+          if (!Array.isArray(list)) return;
+          list.forEach((detail) => {
+            merged.push({
+              ...detail,
+              clientId: resolveEntityClientId(detail) ?? clientId,
+            });
+          });
+        });
+        const deduped = new Map();
+        merged.forEach((detail) => {
+          const key = `${detail?.clientId ?? "unknown"}:${detail?.vehicleId ?? detail?.vehicle_id ?? ""}`;
+          if (!deduped.has(key)) deduped.set(key, detail);
+        });
+        setEmbarkDetails(Array.from(deduped.values()));
+        return;
+      }
       const response = await api.get(API_ROUTES.itineraryEmbarkVehicles, {
         params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+        headers: mirrorHeaders,
       });
       const list = response?.data?.data || response?.data?.vehicles || [];
       setEmbarkDetails(Array.isArray(list) ? list : []);
@@ -2112,14 +2399,19 @@ export default function Itineraries() {
     } finally {
       setEmbarkDetailsLoading(false);
     }
-  }, [effectiveClientId, showToast]);
+  }, [effectiveClientId, isAllTenantsScope, mirrorHeaders, shouldWaitForMirror, showToast, tenantIds]);
 
   const refreshVehicleStatus = useCallback(
     async (vehicleId) => {
       if (!vehicleId) return;
+      if (isReadOnly || isMirrorTarget) return;
+      const scopedClientId = isAllTenantsScope
+        ? vehicleClientById.get(String(vehicleId)) || null
+        : effectiveClientId;
       try {
         const response = await api.get(API_ROUTES.itineraryEmbarkVehicleStatus(vehicleId), {
-          params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+          params: scopedClientId ? { clientId: scopedClientId } : undefined,
+          headers: mirrorHeaders,
         });
         const detail = response?.data?.data || null;
         if (!detail) return;
@@ -2135,7 +2427,15 @@ export default function Itineraries() {
         showToast(resolveApiError(error, "Não foi possível atualizar o status do veículo."), "warning");
       }
     },
-    [effectiveClientId, showToast],
+    [
+      effectiveClientId,
+      isAllTenantsScope,
+      isMirrorTarget,
+      isReadOnly,
+      mirrorHeaders,
+      showToast,
+      vehicleClientById,
+    ],
   );
 
   const loadVehicleHistory = useCallback(
@@ -2146,8 +2446,12 @@ export default function Itineraries() {
       }
       setVehicleHistoryLoading(true);
       try {
+        const scopedClientId = isAllTenantsScope
+          ? vehicleClientById.get(String(vehicleId)) || null
+          : effectiveClientId;
         const response = await api.get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId), {
-          params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+          params: scopedClientId ? { clientId: scopedClientId } : undefined,
+          headers: mirrorHeaders,
         });
         const list = response?.data?.data || response?.data?.history || [];
         setVehicleHistory(Array.isArray(list) ? list : []);
@@ -2162,7 +2466,15 @@ export default function Itineraries() {
         setVehicleHistoryLoading(false);
       }
     },
-    [effectiveClientId, showToast],
+    [
+      effectiveClientId,
+      isAllTenantsScope,
+      isMirrorTarget,
+      isReadOnly,
+      mirrorHeaders,
+      showToast,
+      vehicleClientById,
+    ],
   );
 
   useEffect(() => {
@@ -2289,7 +2601,7 @@ export default function Itineraries() {
       showToast("Sem permissão para criar ou editar itinerários.", "warning");
       return;
     }
-    if (!itinerary && !effectiveClientId) {
+    if (!itinerary && !effectiveClientId && !isAllTenantsScope) {
       showToast("Selecione um cliente antes de criar um itinerário.", "warning");
       return;
     }
@@ -2367,18 +2679,24 @@ export default function Itineraries() {
       showToast("Sem permissão para criar ou editar itinerários.", "warning");
       return null;
     }
-    const resolvedClientId = effectiveClientId ?? selected?.clientId ?? null;
-    if (!resolvedClientId && !selectedId) {
+    const isGlobalScope = isAllTenantsScope && !selected?.clientId;
+    const resolvedClientId = isGlobalScope ? null : effectiveClientId ?? selected?.clientId ?? null;
+    if (!resolvedClientId && !selectedId && !isGlobalScope) {
       showToast("Selecione um cliente antes de criar um itinerário.", "warning");
       return null;
     }
     const isNew = !selectedId;
     setSaving(true);
     try {
-      const payload = { ...form, items: form.items || [], clientId: resolvedClientId ?? undefined };
+      const payload = {
+        ...form,
+        items: form.items || [],
+        clientId: resolvedClientId ?? undefined,
+        scope: isGlobalScope ? "global" : undefined,
+      };
       const response = selectedId
-        ? await api.put(`${API_ROUTES.itineraries}/${selectedId}`, payload)
-        : await api.post(API_ROUTES.itineraries, payload);
+        ? await api.put(`${API_ROUTES.itineraries}/${selectedId}`, payload, { headers: mirrorHeaders })
+        : await api.post(API_ROUTES.itineraries, payload, { headers: mirrorHeaders });
       const responsePayload = response?.data || {};
       const saved = responsePayload?.data || payload;
       await loadItineraries();
@@ -2430,7 +2748,7 @@ export default function Itineraries() {
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
-          await api.delete(`${API_ROUTES.itineraries}/${id}`);
+          await api.delete(`${API_ROUTES.itineraries}/${id}`, { headers: mirrorHeaders });
           setItineraries((current) => current.filter((item) => item.id !== id));
           if (selectedId === id) resetForm();
           showToast("Excluído com sucesso.");
@@ -2453,7 +2771,10 @@ export default function Itineraries() {
   const exportKml = async (id) => {
     if (!id) return;
     try {
-      const response = await api.get(`${API_ROUTES.itineraries}/${id}/export/kml`, { responseType: "blob" });
+      const response = await api.get(`${API_ROUTES.itineraries}/${id}/export/kml`, {
+        responseType: "blob",
+        headers: mirrorHeaders,
+      });
       const blob = new Blob([response.data], { type: "application/vnd.google-earth.kml+xml" });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -2768,6 +3089,81 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches, missingVehicles, missingItineraryClients } = buildClientScopedBatches({
+        vehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      if (missingVehicles.length) {
+        showToast("Alguns veículos não possuem cliente definido.", "warning");
+      }
+      if (missingItineraryClients.length) {
+        showToast("Nenhum itinerário disponível para alguns clientes selecionados.", "warning");
+      }
+      setEmbarkSending(true);
+      setEmbarkErrorDetails(null);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryEmbark,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                xdmBufferMeters: embarkBufferMeters,
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        const errorMessages = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            return;
+          }
+          const message = isForbiddenError(result.reason)
+            ? "Sem acesso para embarcar em um dos clientes."
+            : resolveEmbarkErrorMessage(result.reason);
+          errorMessages.push(`Cliente ${batches[index]?.clientId || "—"}: ${message}`);
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+        });
+        if (failedCount > 0) {
+          showToast(`Embarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setEmbarkSummary(`Resultado: ${okCount} enviados, ${failedCount} falharam.`);
+          setEmbarkErrorDetails(errorMessages.length ? errorMessages.join("\n") : null);
+        } else {
+          showToast("Embarque enviado com sucesso.");
+          setEmbarkSummary("Embarque enviado com sucesso.");
+          setEmbarkOpen(false);
+          resetEmbarkForm();
+        }
+        await loadHistory();
+        if (activeTab === "veiculos") {
+          await loadEmbarkDetails();
+        }
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao embarcar (todos)", error);
+        const friendlyMessage = resolveEmbarkErrorMessage(error);
+        showToast(friendlyMessage, "warning");
+        setEmbarkSummary(friendlyMessage);
+        setEmbarkErrorDetails(resolveTechnicalDetails(error));
+      } finally {
+        setEmbarkSending(false);
+      }
+      return;
+    }
     const inferredClientId =
       overrideClientId ||
       effectiveClientId ||
@@ -2785,7 +3181,7 @@ export default function Itineraries() {
         itineraryIds,
         clientId: inferredClientId ?? undefined,
         xdmBufferMeters: embarkBufferMeters,
-      });
+      }, { headers: mirrorHeaders });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const okCount = Number(summary?.success || 0);
       const failedCount = Number(summary?.failed || 0);
@@ -2834,6 +3230,99 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches, missingVehicles, missingItineraryClients } = buildClientScopedBatches({
+        vehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      if (missingVehicles.length) {
+        showToast("Alguns veículos não possuem cliente definido.", "warning");
+      }
+      if (missingItineraryClients.length) {
+        showToast("Nenhum itinerário disponível para alguns clientes selecionados.", "warning");
+      }
+      disembarkInFlightRef.current = true;
+      setDisembarkSending(true);
+      setDisembarkErrorDetails(null);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryDisembarkBatch,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                options: {
+                  cleanup: {
+                    deleteGeozoneGroup: cleanupDeleteGroup,
+                    deleteGeozones: cleanupDeleteGeozones,
+                  },
+                },
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        const errorItems = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            const errors = summary?.errors || result.value?.data?.data?.errors || [];
+            if (Array.isArray(errors)) {
+              errors.forEach((entry) =>
+                errorItems.push({ ...entry, clientId: batches[index]?.clientId || null }),
+              );
+            }
+            return;
+          }
+          const message = isForbiddenError(result.reason)
+            ? "Sem acesso para desembarcar em um dos clientes."
+            : resolveEmbarkErrorMessage(result.reason);
+          errorItems.push({
+            itineraryId: "",
+            vehicleId: "",
+            message: `Cliente ${batches[index]?.clientId || "—"}: ${message}`,
+          });
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+        });
+        if (failedCount > 0) {
+          showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+          setDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+        } else {
+          showToast("Desembarque enviado com sucesso.");
+          setDisembarkSummary("Desembarque enviado com sucesso.");
+          setDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+          setDisembarkOpen(false);
+          resetDisembarkForm();
+        }
+        await loadHistory();
+        if (activeTab === "veiculos") {
+          await loadEmbarkDetails();
+        }
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao desembarcar (todos)", error);
+        const friendlyMessage = resolveEmbarkErrorMessage(error);
+        showToast(friendlyMessage, "warning");
+        setDisembarkSummary(friendlyMessage);
+        setDisembarkErrorDetails(resolveTechnicalDetails(error));
+      } finally {
+        setDisembarkSending(false);
+        disembarkInFlightRef.current = false;
+      }
+      return;
+    }
     const inferredClientId =
       overrideClientId ||
       effectiveClientId ||
@@ -2857,7 +3346,7 @@ export default function Itineraries() {
             deleteGeozones: cleanupDeleteGeozones,
           },
         },
-      });
+      }, { headers: mirrorHeaders });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const operationId = response?.data?.data?.operationId || null;
       const okCount = Number(summary?.success || 0);
@@ -2912,6 +3401,60 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches } = buildClientScopedBatches({
+        vehicleIds: selectedEditorEmbarkVehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      setEmbarkSending(true);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryEmbark,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                xdmBufferMeters: editorEmbarkBufferMeters,
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            return;
+          }
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+        });
+        if (failedCount > 0) {
+          showToast(`Embarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setEditorEmbarkSummary(`Resultado: ${okCount} enviados, ${failedCount} falharam.`);
+        } else {
+          showToast("Embarque enviado com sucesso.");
+          setEditorEmbarkSummary("Embarque enviado com sucesso.");
+        }
+        await loadHistory();
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao embarcar (editor)", error);
+        showToast(resolveEmbarkErrorMessage(error), "warning");
+      } finally {
+        setEmbarkSending(false);
+      }
+      return;
+    }
     const inferredClientId = selected?.clientId ?? effectiveClientId ?? null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para embarcar.", "warning");
@@ -2919,12 +3462,16 @@ export default function Itineraries() {
     }
     setEmbarkSending(true);
     try {
-      const response = await api.post(API_ROUTES.itineraryEmbark, {
-        vehicleIds: selectedEditorEmbarkVehicleIds,
-        itineraryIds,
-        clientId: inferredClientId ?? undefined,
-        xdmBufferMeters: editorEmbarkBufferMeters,
-      });
+      const response = await api.post(
+        API_ROUTES.itineraryEmbark,
+        {
+          vehicleIds: selectedEditorEmbarkVehicleIds,
+          itineraryIds,
+          clientId: inferredClientId ?? undefined,
+          xdmBufferMeters: editorEmbarkBufferMeters,
+        },
+        { headers: mirrorHeaders },
+      );
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const okCount = Number(summary?.success || 0);
       const failedCount = Number(summary?.failed || 0);
@@ -2967,6 +3514,83 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches } = buildClientScopedBatches({
+        vehicleIds: selectedEditorDisembarkVehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      disembarkInFlightRef.current = true;
+      setDisembarkSending(true);
+      setEditorDisembarkErrorDetails(null);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryDisembarkBatch,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                options: {
+                  cleanup: {
+                    deleteGeozoneGroup: editorCleanupDeleteGroup,
+                    deleteGeozones: editorCleanupDeleteGeozones,
+                  },
+                },
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        const errorItems = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            const errors = summary?.errors || result.value?.data?.data?.errors || [];
+            if (Array.isArray(errors)) {
+              errors.forEach((entry) =>
+                errorItems.push({ ...entry, clientId: batches[index]?.clientId || null }),
+              );
+            }
+            return;
+          }
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+          errorItems.push({
+            itineraryId: "",
+            vehicleId: "",
+            message: `Cliente ${batches[index]?.clientId || "—"}: ${resolveEmbarkErrorMessage(result.reason)}`,
+          });
+        });
+        if (failedCount > 0) {
+          showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setEditorDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+          setEditorDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+        } else {
+          showToast("Desembarque enviado com sucesso.");
+          setEditorDisembarkSummary("Desembarque enviado com sucesso.");
+          setEditorDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+        }
+        await loadHistory();
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao desembarcar (editor)", error);
+        showToast(resolveEmbarkErrorMessage(error), "warning");
+        setEditorDisembarkErrorDetails(resolveTechnicalDetails(error));
+      } finally {
+        setDisembarkSending(false);
+        disembarkInFlightRef.current = false;
+      }
+      return;
+    }
     const inferredClientId = selected?.clientId ?? effectiveClientId ?? null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para desembarcar.", "warning");
@@ -2976,17 +3600,21 @@ export default function Itineraries() {
     setDisembarkSending(true);
     setEditorDisembarkErrorDetails(null);
     try {
-      const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
-        vehicleIds: selectedEditorDisembarkVehicleIds,
-        itineraryIds,
-        clientId: inferredClientId ?? undefined,
-        options: {
-          cleanup: {
-            deleteGeozoneGroup: editorCleanupDeleteGroup,
-            deleteGeozones: editorCleanupDeleteGeozones,
+      const response = await api.post(
+        API_ROUTES.itineraryDisembarkBatch,
+        {
+          vehicleIds: selectedEditorDisembarkVehicleIds,
+          itineraryIds,
+          clientId: inferredClientId ?? undefined,
+          options: {
+            cleanup: {
+              deleteGeozoneGroup: editorCleanupDeleteGroup,
+              deleteGeozones: editorCleanupDeleteGeozones,
+            },
           },
         },
-      });
+        { headers: mirrorHeaders },
+      );
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const operationId = response?.data?.data?.operationId || null;
       const okCount = Number(summary?.success || 0);
@@ -3023,18 +3651,26 @@ export default function Itineraries() {
     }
     setDeleteConflictSending(true);
     try {
-      await api.post(API_ROUTES.itineraryDisembarkBatch, {
-        vehicleIds: [],
-        itineraryIds: [String(itineraryId)],
-        clientId: effectiveClientId ?? undefined,
-        options: {
-          cleanup: {
-            deleteGeozoneGroup: false,
-            deleteGeozones: false,
+      const targetClientId =
+        itineraries.find((item) => String(item.id) === String(itineraryId))?.clientId ?? effectiveClientId ?? null;
+      if (targetClientId) {
+        await api.post(
+          API_ROUTES.itineraryDisembarkBatch,
+          {
+            vehicleIds: [],
+            itineraryIds: [String(itineraryId)],
+            clientId: targetClientId,
+            options: {
+              cleanup: {
+                deleteGeozoneGroup: false,
+                deleteGeozones: false,
+              },
+            },
           },
-        },
-      });
-      await api.delete(`${API_ROUTES.itineraries}/${itineraryId}`);
+          { headers: mirrorHeaders },
+        );
+      }
+      await api.delete(`${API_ROUTES.itineraries}/${itineraryId}`, { headers: mirrorHeaders });
       setItineraries((current) => current.filter((item) => item.id !== itineraryId));
       if (selectedId === itineraryId) resetForm();
       setDeleteConflict(null);
@@ -3058,24 +3694,68 @@ export default function Itineraries() {
   const historyColCount = 11;
   const manageDisabledTooltip = canManageItineraries ? "" : "Sem permissão";
   const manageDisabledClass = canManageItineraries ? "" : "opacity-50 cursor-not-allowed";
+  const accessErrorReason = resolveAccessReason(accessError);
+  const accessReason = vehiclesAccessReason || mirrorAccessReason || accessErrorReason || resolveAccessReason(vehiclesError);
+  const hasAccessIssue = isBlockingAccessReason(accessReason);
+  const noVehiclesReason = vehiclesReason || accessListReason;
+  const showNoVehiclesState = !vehiclesLoading && !hasAccessIssue && isNoVehiclesReason(noVehiclesReason);
 
-  if (accessError) {
+  const handleLogout = useCallback(async () => {
+    await logout();
+    navigate("/login");
+  }, [logout, navigate]);
+
+  if (hasAccessIssue) {
+    const accessBullets = isAdminContext
+      ? [
+          "Revise o status do usuário (ativo/bloqueado/expirado) e as permissões do perfil.",
+          "Se o tenant estiver inativo/bloqueado, regularize o acesso antes de prosseguir.",
+          "Caso seja um usuário de cliente, valide as regras do tenant selecionado.",
+        ]
+      : [
+          "Seu tempo de acesso ao sistema pode ter expirado.",
+          "Para liberação, procure o administrador ou o setor de gestão de acesso da sua empresa para avaliação e reativação.",
+        ];
     return (
-      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
-        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
-          <h2 className="text-lg font-semibold">Sem acesso a este módulo</h2>
-          <p className="mt-2 text-sm text-white/60">
-            {accessError.message || "Você não tem permissão para visualizar itinerários."}
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => navigate(-1)}>
-              Voltar
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10 text-white">
+        <AlertStateCard
+          title="Alerta de Usuário"
+          text={isAdminContext ? "Acesso expirado, bloqueado ou sem permissão" : "Acesso expirado ou bloqueado"}
+          bullets={accessBullets}
+          actions={(
+            <>
+              <Button size="sm" onClick={handleLogout}>Sair</Button>
+              <Button size="sm" variant="secondary" onClick={handleLogout}>Voltar ao login</Button>
+            </>
+          )}
+        />
+      </div>
+    );
+  }
+
+  if (showNoVehiclesState) {
+    const vehicleBullets = isAdminContext
+      ? [
+          "Confirme se existe equipamento com sinal e se o veículo foi vinculado corretamente.",
+          "Verifique permissões do usuário e se o veículo está liberado para monitoramento no tenant selecionado.",
+          "Se necessário, realize o vínculo/atribuição do veículo ao usuário.",
+        ]
+      : [
+          "Apenas veículos vinculados/liberados ao seu usuário aparecem na lista.",
+          "Se não visualizar o veículo, verifique se foi transferido sinal do equipamento e se ocorreu o vínculo ao seu usuário pelo administrador do sistema.",
+        ];
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10 text-white">
+        <AlertStateCard
+          title="Alerta Vínculo de Veículo"
+          text={isAdminContext ? "Nenhum veículo disponível para este cliente/usuário" : "Nenhum veículo vinculado para monitoramento"}
+          bullets={vehicleBullets}
+          actions={isAdminContext ? (
+            <Button size="sm" variant="secondary" onClick={() => navigate("/equipamentos?link=unlinked")}>
+              Ir para vínculos
             </Button>
-            <Button size="sm" onClick={() => navigate("/home")}>
-              Trocar cliente
-            </Button>
-          </div>
-        </div>
+          ) : null}
+        />
       </div>
     );
   }
@@ -3341,7 +4021,11 @@ export default function Itineraries() {
                           />
                         </td>
                         <td className="px-4 py-3 font-semibold text-white">{item.name}</td>
-                        <td className="px-4 py-3">{clientNameById.get(String(item.clientId)) || item.clientId || "—"}</td>
+                        <td className="px-4 py-3">
+                          {clientNameById.get(item?.clientId ? String(item.clientId) : "global") ||
+                            item?.clientId ||
+                            "—"}
+                        </td>
                         <td className="px-4 py-3">{geofenceCount}</td>
                         <td className="px-4 py-3">{routeCount}</td>
                         <td className="px-4 py-3">{targetCount}</td>

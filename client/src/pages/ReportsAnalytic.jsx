@@ -765,10 +765,10 @@ export default function ReportsAnalytic() {
     async (event) => {
       event?.preventDefault?.();
       setFeedback(null);
-      if (!selectedVehicleId) {
-        setFormError("Selecione exatamente um veículo.");
-        return;
-      }
+    if (!selectedVehicleId || !selectedVehicle) {
+      setFormError("Selecione exatamente um veículo.");
+      return;
+    }
       if (!from || !to) {
         setFormError("Selecione o período completo.");
         return;
@@ -864,7 +864,7 @@ export default function ReportsAnalytic() {
 
   const resolveExportPayload = async () => {
     setFormError("");
-    if (!selectedVehicleId) {
+    if (!selectedVehicleId || !selectedVehicle) {
       setFormError("Selecione exatamente um veículo.");
       return null;
     }
@@ -1092,8 +1092,10 @@ export default function ReportsAnalytic() {
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <button
                   type="submit"
-                  disabled={loading || geocoding || !selectedVehicleId}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                  disabled={loading || geocoding || !selectedVehicleId || !selectedVehicle}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+                    loading ? "bg-red-500 hover:bg-red-600" : "bg-primary hover:bg-primary/90"
+                  }`}
                 >
                   {loading ? "Gerando…" : "Gerar relatório"}
                 </button>

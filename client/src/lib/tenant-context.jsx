@@ -50,6 +50,11 @@ const RECEIVER_TYPES = new Set([
   "GERENCIADORA DE RISCO",
   "COMPANHIA DE SEGURO",
 ]);
+const BUONNY_MATCH = /BUONNY/i;
+
+function isBuonnyClientName(name) {
+  return BUONNY_MATCH.test(String(name || ""));
+}
 
 function isValidCssColor(value) {
   if (!value) return false;
@@ -310,6 +315,8 @@ export function TenantProvider({ children }) {
   const apiUnavailableRef = useRef({ until: 0 });
   const permissionFetchRef = useRef(null);
   const bootPermissionLoggedRef = useRef(false);
+  const permissionAttemptRef = useRef(0);
+  const permissionTimeoutRef = useRef({ count: 0, ts: 0 });
 
   const logBoot = useCallback((label, details = {}, level = "info") => {
     const payload = { ...details };
@@ -549,11 +556,12 @@ export function TenantProvider({ children }) {
         });
       permissionRequestRef.current = { key, ts: now, promise: request, data: cached.data, errorTs: 0 };
       const payload = await request;
+      const cachedData = payload?.error ? cached.data ?? null : payload;
       permissionRequestRef.current = {
         key,
         ts: Date.now(),
         promise: null,
-        data: payload,
+        data: cachedData,
         errorTs: payload?.error ? Date.now() : 0,
       };
       return payload;
@@ -1207,6 +1215,22 @@ export function TenantProvider({ children }) {
   }, [activeMirror, activeMirrorOwnerClientId, mirrorContextMode, mirrorModeEnabled]);
 
   useEffect(() => {
+    if (mirrorContextMode !== "target") return;
+    if (activeMirrorOwnerClientId) return;
+    if (!permissionOwnerClientId) return;
+    if (Array.isArray(allowedMirrorOwnerIds) && !allowedMirrorOwnerIds.includes(String(permissionOwnerClientId))) {
+      return;
+    }
+    setActiveMirrorOwnerClientId(String(permissionOwnerClientId));
+  }, [
+    activeMirrorOwnerClientId,
+    allowedMirrorOwnerIds,
+    mirrorContextMode,
+    permissionOwnerClientId,
+    setActiveMirrorOwnerClientId,
+  ]);
+
+  useEffect(() => {
     contextRequestRef.current = {
       key: null,
       ts: 0,
@@ -1266,15 +1290,24 @@ export function TenantProvider({ children }) {
       }
       if (payload.mode !== "target") return;
       const owners = normaliseClients(payload.owners || [], user);
-      if (!owners.length) {
+      if (!owners.length || payload.mirrorModeEnabled === false) {
         setMirrorOwners([]);
         setActiveMirrorOwnerClientId(null);
         setStoredMirrorOwnerId(null);
-        logMirrorDebug("bootstrap:owners-empty", { mode: payload?.mode ?? null });
+        setMirrorContextMode("self");
+        logMirrorDebug("bootstrap:owners-empty", {
+          mode: payload?.mode ?? null,
+          mirrorModeEnabled: payload?.mirrorModeEnabled ?? null,
+        });
         return;
       }
       const storedOwnerId = getStoredMirrorOwnerId() ?? null;
-      const wantsAll = storedOwnerId && String(storedOwnerId) === "all";
+      const forceAllForBuonny = isBuonnyClientName(
+        payload?.targets?.[0]?.name
+        || user?.attributes?.companyName
+        || user?.name,
+      );
+      const wantsAll = (storedOwnerId && String(storedOwnerId) === "all") || forceAllForBuonny;
       const selectedOwnerId =
         owners.find((owner) => String(owner.id) === String(storedOwnerId))?.id ??
         (owners[0] ? owners[0].id : null);
@@ -1284,7 +1317,7 @@ export function TenantProvider({ children }) {
         setActiveMirrorOwnerClientId("all");
         setStoredMirrorOwnerId("all");
         setActiveMirror(null);
-        logMirrorDebug("bootstrap:owners-all", { count: owners.length });
+        logMirrorDebug("bootstrap:owners-all", { count: owners.length, forced: forceAllForBuonny });
         return;
       }
       if (selectedOwnerId) {
@@ -1557,10 +1590,11 @@ export function TenantProvider({ children }) {
             payload?.mirror?.ownerClientId ?? activeMirrorOwnerClientId ?? null,
           );
         } else {
+          // Evita travar a UI em "Carregando permissões..." quando o contexto não traz permissões.
           setPermissionLoading(false);
-          setPermissionLoaded(false);
-          setPermissionTenantId(null);
-          setPermissionOwnerClientId(null);
+          setPermissionLoaded(true);
+          setPermissionTenantId(tenantId ?? null);
+          setPermissionOwnerClientId(activeMirrorOwnerClientId ?? null);
         }
         lastContextSuccessRef.current = { key: contextKey, ts: Date.now() };
         if (contextSwitching && contextSwitchRef.current.key === contextKey) {
@@ -1584,6 +1618,10 @@ export function TenantProvider({ children }) {
             return;
           }
           console.warn("Falha ao carregar contexto do tenant", contextError);
+          setPermissionLoading(false);
+          setPermissionLoaded(true);
+          setPermissionTenantId(tenantId ?? null);
+          setPermissionOwnerClientId(activeMirrorOwnerClientId ?? null);
           if (markApiUnavailable(contextError)) {
             setPermissionLoading(false);
             if (contextSwitching && contextSwitchRef.current.key === contextKey) {
@@ -1682,17 +1720,24 @@ export function TenantProvider({ children }) {
       if (contextSwitching) {
         return;
       }
+      permissionAttemptRef.current = Date.now();
       const mirrorSnapshot = mirrorStateRef.current || {};
-      const permissionKey = `${mirrorSnapshot.mirrorContextMode ?? mirrorContextMode ?? "self"}:${mirrorSnapshot.activeMirrorOwnerClientId ?? activeMirrorOwnerClientId ?? "none"}:${tenantId ?? "self"}`;
+      const mirrorMode = mirrorSnapshot.mirrorContextMode ?? mirrorContextMode ?? "self";
+      const resolvedOwnerId = mirrorSnapshot.activeMirrorOwnerClientId ?? activeMirrorOwnerClientId ?? null;
+      const permissionKey = `${mirrorMode}:${resolvedOwnerId ?? "none"}:${tenantId ?? "self"}`;
       if (permissionFetchRef.current === permissionKey) {
         return;
       }
       const activeMirrorPermissionGroupId = activeMirror?.permissionGroupId ?? null;
+      const ownerMismatch =
+        mirrorMode === "target" &&
+        String(permissionOwnerClientId ?? "") !== String(resolvedOwnerId ?? "");
       if (permissionLoaded && String(permissionTenantId ?? "") === String(tenantId ?? "")) {
-        if (!activeMirrorPermissionGroupId) {
+        if (mirrorMode === "target" && ownerMismatch) {
+          // precisa recarregar quando o owner muda no modo target
+        } else if (!activeMirrorPermissionGroupId) {
           return;
-        }
-        if (String(permissionContext?.permissionGroupId ?? "") === String(activeMirrorPermissionGroupId)) {
+        } else if (String(permissionContext?.permissionGroupId ?? "") === String(activeMirrorPermissionGroupId)) {
           return;
         }
       }
@@ -1715,9 +1760,20 @@ export function TenantProvider({ children }) {
             stage: "refresh",
             status: payload?.status ?? null,
           });
+          const fallbackTenantId = tenantId ?? null;
+          const fallbackOwnerId = resolvedOwnerId ?? null;
+          const cachedPermission = permissionRequestRef.current?.data;
+          if (cachedPermission && !cachedPermission?.error && !cachedPermission?.aborted) {
+            applyPermissionContext(cachedPermission, fallbackTenantId, fallbackOwnerId);
+          } else {
+            setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
+            setPermissionLoaded(true);
+            setPermissionTenantId(fallbackTenantId);
+            setPermissionOwnerClientId(fallbackOwnerId);
+          }
           return;
         }
-        applyPermissionContext(payload, tenantId ?? null, activeMirrorOwnerClientId ?? null);
+        applyPermissionContext(payload, tenantId ?? null, resolvedOwnerId ?? null);
       } catch (permissionError) {
         if (cancelled || contextSwitchRef.current.id !== switchId) return;
         if (permissionError?.name === "AbortError" || permissionError?.code === "ERR_CANCELED") return;
@@ -1747,7 +1803,7 @@ export function TenantProvider({ children }) {
         setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
         setPermissionLoaded(true);
         setPermissionTenantId(tenantId ?? null);
-        setPermissionOwnerClientId(activeMirrorOwnerClientId ?? null);
+        setPermissionOwnerClientId(resolvedOwnerId ?? null);
       } finally {
         if (permissionFetchRef.current === permissionKey) {
           permissionFetchRef.current = null;
@@ -1786,6 +1842,7 @@ export function TenantProvider({ children }) {
     permissionLoading,
     permissionTenantId,
     permissionContext?.permissionGroupId,
+    permissionOwnerClientId,
     resetMirrorSelection,
     setTenantId,
     tenantId,
@@ -2026,6 +2083,9 @@ export function TenantProvider({ children }) {
   const retryPermissions = useCallback(
     (reason = "manual") => {
       logBoot("boot:permissions retry", { reason });
+      if (reason !== "auto-timeout") {
+        permissionTimeoutRef.current = { count: 0, ts: 0 };
+      }
       setPermissionError(null);
       setPermissionLoading(false);
       setPermissionLoaded(false);
@@ -2143,14 +2203,15 @@ export function TenantProvider({ children }) {
     const activeMirrorPermissionGroupId = activeMirror?.permissionGroupId ?? null;
     const permissionGroupMatches =
       mirrorContextMode === "target"
-        ? (activeMirrorPermissionGroupId
-          ? String(permissionContext?.permissionGroupId ?? "") === String(activeMirrorPermissionGroupId ?? "")
-          : true)
+        ? (!activeMirrorPermissionGroupId || !permissionContext?.permissionGroupId
+          ? true
+          : String(permissionContext?.permissionGroupId ?? "") === String(activeMirrorPermissionGroupId ?? ""))
         : true;
     const mirrorTargetReady = mirrorContextMode !== "target" || Boolean(activeMirrorOwnerClientId);
     const permissionOwnerMatches =
       mirrorContextMode === "target"
-        ? String(permissionOwnerClientId ?? "") === String(activeMirrorOwnerClientId ?? "")
+        ? !permissionOwnerClientId ||
+          String(permissionOwnerClientId ?? "") === String(activeMirrorOwnerClientId ?? "")
         : true;
     const permissionsReady =
       Boolean(user) &&
@@ -2296,23 +2357,40 @@ export function TenantProvider({ children }) {
     }
     if (permissionsReadyFlag) {
       if (permissionError) setPermissionError(null);
+      if (permissionTimeoutRef.current.count) {
+        permissionTimeoutRef.current = { count: 0, ts: 0 };
+      }
       return;
     }
     if (loading || initialising || contextSwitching) return;
     if (permissionLoading) return;
     if (permissionError) return;
+    if (!permissionAttemptRef.current) return;
     const timeoutError = buildBootError(
       "permissions",
       createTimeoutError("permissões", PERMISSION_READY_TIMEOUT_MS),
     );
     const timer = setTimeout(() => {
       if (!permissionsReadyFlag) {
+        if (permissionTimeoutRef.current.count < 1) {
+          permissionTimeoutRef.current = {
+            count: permissionTimeoutRef.current.count + 1,
+            ts: Date.now(),
+          };
+          retryPermissions?.("auto-timeout");
+          return;
+        }
         setPermissionError(timeoutError);
-        logBoot("boot:permissions timeout", {
-          tenantId: tenantId ?? null,
-          mirrorOwnerClientId: activeMirrorOwnerClientId ?? null,
-          mirrorContextMode: mirrorContextMode ?? null,
-        }, "warn");
+        logBoot(
+          "boot:permissions timeout",
+          {
+            tenantId: tenantId ?? null,
+            mirrorOwnerClientId: activeMirrorOwnerClientId ?? null,
+            mirrorContextMode: mirrorContextMode ?? null,
+            attempts: permissionTimeoutRef.current.count + 1,
+          },
+          "warn",
+        );
       }
     }, PERMISSION_READY_TIMEOUT_MS);
     return () => clearTimeout(timer);
@@ -2327,6 +2405,7 @@ export function TenantProvider({ children }) {
     permissionError,
     permissionLoading,
     permissionsReadyFlag,
+    retryPermissions,
     tenantId,
     token,
     user,

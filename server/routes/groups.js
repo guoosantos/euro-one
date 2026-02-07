@@ -2,9 +2,15 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
-import { authorizePermission, authorizePermissionOrEmpty, invalidatePresentationCache } from "../middleware/permissions.js";
+import {
+  authorizePermission,
+  authorizePermissionOrEmpty,
+  invalidatePresentationCache,
+  resolvePermissionContext,
+} from "../middleware/permissions.js";
 import { getClientById } from "../models/client.js";
 import { createGroup, deleteGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
+import { findPermissionExpansion } from "../utils/permission-scope.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { isAdminGeneralClient } from "../utils/admin-general.js";
 import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
@@ -55,6 +61,18 @@ async function isAdminGeneralUser(sessionUser) {
   if (!sessionUser?.clientId) return false;
   const client = await getClientById(sessionUser.clientId);
   return isAdminGeneralClient(client);
+}
+
+async function ensurePermissionScope(req, permissions) {
+  if (!permissions || typeof permissions !== "object") return;
+  if (await isAdminGeneralUser(req.user)) return;
+  const context = await resolvePermissionContext(req);
+  if (context?.isFull) return;
+  const allowedPermissions = context?.permissions || {};
+  const violation = findPermissionExpansion(permissions, allowedPermissions);
+  if (violation) {
+    throw createError(403, "Permissão insuficiente para conceder acesso fora do seu escopo");
+  }
 }
 
 function mergeGroups(primary = [], secondary = []) {
@@ -232,6 +250,9 @@ router.post(
       );
       nextAttributes.vehicleIds = scopedVehicleIds;
     }
+    if (nextAttributes.kind === "PERMISSION_GROUP") {
+      await ensurePermissionScope(req, nextAttributes.permissions);
+    }
 
     const group = createGroup({
       name,
@@ -311,6 +332,15 @@ router.put(
         updates.attributes.vehicleIds = normaliseVehicleIds(updates.attributes.vehicleIds).filter((vehicleId) =>
           allowedVehicleIds.has(String(vehicleId)),
         );
+      }
+    }
+    if (updates.attributes) {
+      const nextKind = updates.attributes.kind || existing.attributes?.kind;
+      if (
+        nextKind === "PERMISSION_GROUP"
+        && Object.prototype.hasOwnProperty.call(updates.attributes, "permissions")
+      ) {
+        await ensurePermissionScope(req, updates.attributes.permissions);
       }
     }
 

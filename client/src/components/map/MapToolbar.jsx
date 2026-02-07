@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-export default function MapToolbar({ map, className = "", children, showZoom = true }) {
+export default function MapToolbar({ map, className = "", children, showZoom = true, zoomControls = null }) {
   const [zoom, setZoom] = useState(map?.getZoom?.() ?? 0);
 
   useEffect(() => {
@@ -31,6 +31,7 @@ export default function MapToolbar({ map, className = "", children, showZoom = t
           >
             +
           </button>
+          {zoomControls}
           <button
             type="button"
             className="map-tool-button map-toolbar-zoom-button"

@@ -28,6 +28,7 @@ import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { importEuroXlsx } from "../services/euro-xlsx-import.js";
+import { ACCESS_REASONS } from "../utils/access-reasons.js";
 
 const router = express.Router();
 
@@ -688,11 +689,20 @@ function buildChipResponse(chip, { deviceMap, vehicleMap }) {
   };
 }
 
-function selectPrincipalDevice(devices = [], traccarById = new Map(), positionsByDeviceId = new Map()) {
+function selectPrincipalDevice(
+  devices = [],
+  traccarById = new Map(),
+  positionsByDeviceId = new Map(),
+  { preferMonitoring = true } = {},
+) {
+  const candidates = preferMonitoring
+    ? devices.filter((device) => device?.attributes?.gprsCommunication !== false)
+    : devices;
+  const pool = candidates.length ? candidates : devices;
   let selected = null;
   let latest = -Infinity;
 
-  devices.forEach((device) => {
+  pool.forEach((device) => {
     const traccarDevice = device?.traccarId ? traccarById.get(String(device.traccarId)) : null;
     const position = device?.traccarId ? positionsByDeviceId.get(String(device.traccarId)) : null;
     const referenceTime =
@@ -712,7 +722,7 @@ function selectPrincipalDevice(devices = [], traccarById = new Map(), positionsB
     }
   });
 
-  return selected || devices[0] || null;
+  return selected || pool[0] || null;
 }
 
 function buildVehicleResponse(vehicle, context) {
@@ -726,7 +736,9 @@ function buildVehicleResponse(vehicle, context) {
     (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
   );
 
-  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById, positionsByDeviceId);
+  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById, positionsByDeviceId, {
+    preferMonitoring: true,
+  });
   const traccarDevice = principalDevice?.traccarId ? traccarById.get(String(principalDevice.traccarId)) : null;
   const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
   const principalPosition = principalDevice?.traccarId
@@ -1074,6 +1086,8 @@ router.post(
       }
     }
 
+    const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication;
+    const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
     const cachedDevices = deps.getCachedTraccarResources("devices");
     let traccarDevice = cachedDevices.find((device) => {
       if (traccarId && String(device?.id) === String(traccarId)) {
@@ -1208,6 +1222,8 @@ router.post(
   async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication ?? req.query?.gprsCommunication;
+    const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
     const groupId = gprsCommunication ? await ensureClientTraccarGroup(clientId) : null;
 
     const traccarResponse = await deps.traccarProxy("get", "/devices", {
@@ -2392,16 +2408,13 @@ router.get("/technicians", async (req, res, next) => {
       throw createError(503, "Banco de dados indisponível");
     }
     const isAdmin = req.user?.role === "admin";
-    let mirrorOwnerIds = [];
     const isManager = req.user?.role === "manager";
     const includeDetails = isAdmin || isManager;
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: !isAdmin });
     const query = String(req.query?.query || "").trim();
     const { page, pageSize, start } = parsePagination(req.query);
 
     const where = {
       role: TECHNICIAN_ROLE,
-      ...(clientId ? { clientId: String(clientId) } : {}),
       ...(query
         ? {
             OR: [
@@ -2424,7 +2437,12 @@ router.get("/technicians", async (req, res, next) => {
     const items = technicians.map((tech) => {
       const attributes = tech.attributes || {};
       if (!includeDetails) {
-        return { id: tech.id, name: tech.name };
+        return {
+          id: tech.id,
+          name: tech.name,
+          city: attributes.city || null,
+          state: attributes.state || null,
+        };
       }
       return {
         id: tech.id,
@@ -2439,6 +2457,7 @@ router.get("/technicians", async (req, res, next) => {
         type: attributes.type || null,
         profile: attributes.profile || "Técnico Completo",
         addressSearch: attributes.addressSearch || null,
+        addressPlaceId: attributes.addressPlaceId ?? attributes.placeId ?? null,
         street: attributes.street || null,
         number: attributes.number || null,
         complement: attributes.complement || null,
@@ -2480,6 +2499,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
     const type = body.type ? String(body.type).trim() : "";
     const profile = body.profile ? String(body.profile).trim() : "Técnico Completo";
     const addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
+    const addressPlaceId = body.addressPlaceId ? String(body.addressPlaceId).trim() : "";
     const street = body.street ? String(body.street).trim() : "";
     const number = body.number ? String(body.number).trim() : "";
     const complement = body.complement ? String(body.complement).trim() : "";
@@ -2509,6 +2529,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         type,
         profile,
         addressSearch,
+        addressPlaceId,
         street,
         number,
         complement,
@@ -2535,6 +2556,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         type,
         profile,
         addressSearch,
+        addressPlaceId,
         street,
         number,
         complement,
@@ -2591,6 +2613,9 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
     if (Object.prototype.hasOwnProperty.call(body, "addressSearch")) {
       attributes.addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
     }
+    if (Object.prototype.hasOwnProperty.call(body, "addressPlaceId")) {
+      attributes.addressPlaceId = body.addressPlaceId ? String(body.addressPlaceId).trim() : "";
+    }
     if (Object.prototype.hasOwnProperty.call(body, "street")) {
       attributes.street = body.street ? String(body.street).trim() : "";
     }
@@ -2638,6 +2663,7 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
         type: attributes.type || null,
         profile: attributes.profile || "Técnico Completo",
         addressSearch: attributes.addressSearch || null,
+        addressPlaceId: attributes.addressPlaceId ?? attributes.placeId ?? null,
         street: attributes.street || null,
         number: attributes.number || null,
         complement: attributes.complement || null,
@@ -2791,6 +2817,7 @@ router.get(
   const startedAt = Date.now();
   let includeUnlinked = false;
   let onlyLinked = true;
+  let skipPositions = false;
   let clientId = null;
   try {
     clientId = req.tenant?.clientIdResolved ?? null;
@@ -2824,7 +2851,7 @@ router.get(
     }
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
-    const deviceMap = new Map(monitoringDevices.map((item) => [item.id, item]));
+    const deviceMap = new Map(devices.map((item) => [item.id, item]));
     let clientMap = new Map();
 
     if (isPrismaAvailable()) {
@@ -2859,46 +2886,55 @@ router.get(
     } else {
       onlyLinked = !includeUnlinked;
     }
+    if (req.query?.skipPositions !== undefined) {
+      const parsedSkip = normaliseBoolean(req.query?.skipPositions);
+      if (parsedSkip === null) {
+        return respondBadRequest(res, "skipPositions deve ser booleano (true/false).");
+      }
+      skipPositions = parsedSkip;
+    }
 
     const linkedVehicleIds = new Set(
-      monitoringDevices
+      devices
         .filter((device) => device?.vehicleId)
         .map((device) => String(device.vehicleId))
         .filter(Boolean),
     );
-    const knownDeviceIds = new Set(monitoringDevices.map((device) => String(device.id)).filter(Boolean));
+    const knownDeviceIds = new Set(devices.map((device) => String(device.id)).filter(Boolean));
 
     let positionsByDeviceId = new Map();
     let telemetryUnavailable = false;
-    const traccarIdsToQuery = Array.from(
-      new Set(
-        monitoringDevices
-          .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
-          .filter(Boolean),
-      ),
-    );
-
-    if (traccarIdsToQuery.length) {
-      try {
-        const latestPositions = await deps.fetchLatestPositionsWithFallback(traccarIdsToQuery, null);
-        positionsByDeviceId = new Map(
-          (Array.isArray(latestPositions) ? latestPositions : [])
-            .map((position) => {
-              const key = String(
-                position.deviceId || position.deviceid || position.device?.id || position.id || position?.uniqueId || "",
-              );
-              return key ? [key, position] : null;
-            })
+    if (!skipPositions) {
+      const traccarIdsToQuery = Array.from(
+        new Set(
+          monitoringDevices
+            .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
             .filter(Boolean),
-        );
-        console.info("[monitoring] posições para veículos", {
-          clientId: clientId || null,
-          requested: traccarIdsToQuery.length,
-          received: positionsByDeviceId.size,
-        });
-      } catch (positionsError) {
-        telemetryUnavailable = true;
-        logTelemetryWarning("vehicles-positions", positionsError);
+        ),
+      );
+
+      if (traccarIdsToQuery.length) {
+        try {
+          const latestPositions = await deps.fetchLatestPositionsWithFallback(traccarIdsToQuery, null);
+          positionsByDeviceId = new Map(
+            (Array.isArray(latestPositions) ? latestPositions : [])
+              .map((position) => {
+                const key = String(
+                  position.deviceId || position.deviceid || position.device?.id || position.id || position?.uniqueId || "",
+                );
+                return key ? [key, position] : null;
+              })
+              .filter(Boolean),
+          );
+          console.info("[monitoring] posições para veículos", {
+            clientId: clientId || null,
+            requested: traccarIdsToQuery.length,
+            received: positionsByDeviceId.size,
+          });
+        } catch (positionsError) {
+          telemetryUnavailable = true;
+          logTelemetryWarning("vehicles-positions", positionsError);
+        }
       }
     }
 
@@ -2975,6 +3011,9 @@ router.get(
     };
     if (accessibleOnly) {
       responsePayload.meta = { restricted: mirrorRestricted };
+      if (!query && total === 0) {
+        responsePayload.reason = ACCESS_REASONS.NO_VEHICLES_ASSIGNED;
+      }
     }
     res.json(responsePayload);
   } catch (error) {

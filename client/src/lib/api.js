@@ -126,7 +126,12 @@ export function resolveAuthorizationHeader() {
 }
 
 function friendlyErrorMessage(status, payload, statusText) {
-  const serverMessage = payload?.message || payload?.error || payload?.errorMessage || null;
+  const serverMessage =
+    payload?.message ||
+    payload?.error?.message ||
+    (typeof payload?.error === "string" ? payload.error : null) ||
+    payload?.errorMessage ||
+    null;
   if (serverMessage) return serverMessage;
   if (status === 401) return "Sessão expirada. Faça login novamente.";
   if (status === 403) return "Você não tem permissão para realizar esta ação.";
@@ -143,7 +148,6 @@ const MIRROR_READ_ALLOWLIST = [
   "/alerts",
   "/reports",
   "/events",
-  "/commands",
   "/devices",
   "/drivers",
   "/geofences",
@@ -168,6 +172,7 @@ const MIRROR_READ_ALLOWLIST = [
   "/core/technicians",
 ];
 const MIRROR_WRITE_ALLOWLIST = [];
+const MIRROR_READ_BLOCKLIST = ["/commands"];
 
 const DEDUPE_GET_PATHS = new Set([
   "/context",
@@ -248,6 +253,9 @@ function shouldAttemptAuthRefresh(status, payload, statusText) {
 function shouldAttachMirrorClientId(targetPath, method = "GET") {
   const pathname = resolvePathname(targetPath);
   const normalised = pathname.replace(/^\/api\//, "/");
+  if (MIRROR_READ_BLOCKLIST.some((prefix) => normalised.startsWith(prefix))) {
+    return false;
+  }
   const methodUpper = String(method || "GET").toUpperCase();
   if (methodUpper === "GET" || methodUpper === "HEAD") {
     return MIRROR_READ_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
@@ -269,7 +277,7 @@ function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClient
           [nextParams.clientId, nextParams.tenantId, nextParams.ownerClientId].some(
             (value) => value !== undefined && value !== null && String(value) === String(userClientId),
           )))) ||
-    (!isReadMethod && shouldAttach);
+    (!isReadMethod && (shouldAttach || mirrorOwnerClientId));
   if (shouldStripTarget) {
     if (Object.prototype.hasOwnProperty.call(nextParams, "clientId")) {
       delete nextParams.clientId;
@@ -286,6 +294,23 @@ function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClient
     nextParams.clientId = mirrorOwnerClientId;
   }
   return Object.keys(nextParams).length ? nextParams : undefined;
+}
+
+function stripWriteContextPayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (payload instanceof FormData || payload instanceof Blob || payload instanceof ArrayBuffer) {
+    return payload;
+  }
+  if (Array.isArray(payload)) return payload;
+  const next = { ...payload };
+  let changed = false;
+  ["clientId", "tenantId", "ownerClientId"].forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(next, key)) {
+      delete next[key];
+      changed = true;
+    }
+  });
+  return changed ? next : payload;
 }
 
 function buildUrl(path, params, { apiPrefix = true } = {}) {
@@ -359,11 +384,16 @@ async function request({
   }
 
   const methodUpper = method.toUpperCase();
+  const isReadMethod = methodUpper === "GET" || methodUpper === "HEAD";
   const storedSession = getStoredSession();
   const userClientId = storedSession?.user?.clientId ?? null;
   const mirrorOwnerClientId = skipMirrorClient ? null : resolveMirrorOwnerClientId(storedSession);
   // Em modo mirror, anexamos o clientId do OWNER apenas para rotas allowlisted de leitura.
+  const shouldAttachMirror =
+    !skipMirrorClient && mirrorOwnerClientId && shouldAttachMirrorClientId(url, methodUpper);
+  const shouldStripWriteContext = Boolean(!isReadMethod && mirrorOwnerClientId && !skipMirrorClient);
   const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId, method: methodUpper });
+  const requestData = shouldStripWriteContext ? stripWriteContextPayload(data) : data;
 
   const finalUrl = buildUrl(url, nextParams, { apiPrefix });
   if (methodUpper === "GET" && !dedupeBypass) {
@@ -380,7 +410,7 @@ async function request({
         method,
         url,
         params,
-        data,
+        data: requestData,
         headers,
         timeout,
         apiPrefix,
@@ -406,20 +436,11 @@ async function request({
   if (authorization && !resolvedHeaders.has("Authorization")) {
     resolvedHeaders.set("Authorization", authorization);
   }
-  if (
-    !skipMirrorClient &&
-    mirrorOwnerClientId &&
-    shouldAttachMirrorClientId(url, methodUpper) &&
-    !resolvedHeaders.has("X-Owner-Client-Id")
-  ) {
+  if (shouldAttachMirror && !resolvedHeaders.has("X-Owner-Client-Id")) {
     resolvedHeaders.set("X-Owner-Client-Id", mirrorOwnerClientId);
   }
   if (!resolvedHeaders.has("X-Mirror-Mode")) {
-    if (resolvedHeaders.has("X-Owner-Client-Id")) {
-      resolvedHeaders.set("X-Mirror-Mode", "target");
-    } else if (storedSession?.user?.mirrorContextMode !== "target") {
-      resolvedHeaders.set("X-Mirror-Mode", "self");
-    }
+    resolvedHeaders.set("X-Mirror-Mode", shouldAttachMirror ? "target" : "self");
   }
 
   const init = {
@@ -430,11 +451,11 @@ async function request({
     ...(methodUpper === "GET" ? { cache: "no-store" } : {}),
   };
 
-  if (data !== undefined && data !== null) {
-    if (data instanceof FormData || data instanceof Blob || data instanceof ArrayBuffer) {
-      init.body = data;
+  if (requestData !== undefined && requestData !== null) {
+    if (requestData instanceof FormData || requestData instanceof Blob || requestData instanceof ArrayBuffer) {
+      init.body = requestData;
     } else {
-      init.body = JSON.stringify(data);
+      init.body = JSON.stringify(requestData);
       if (!resolvedHeaders.has("Content-Type")) {
         resolvedHeaders.set("Content-Type", "application/json");
       }

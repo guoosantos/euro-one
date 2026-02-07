@@ -211,7 +211,7 @@ export default function Events() {
   const t = translateFn || ((value) => value);
   const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
-  const { vehicles } = useVehicles();
+  const { vehicles } = useVehicles({ includeTelemetry: false });
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
   const reportFilterPermission = usePermissionGate({
@@ -505,7 +505,13 @@ export default function Events() {
         eventType === "all"
           ? list
           : list.filter((event) => {
-              const eventTypeValue = event?.type || event?.attributes?.type || event?.event;
+              const eventTypeValue =
+                event?.normalizedEvent?.typeKey ||
+                event?.normalizedEvent?.eventType ||
+                event?.eventType ||
+                event?.type ||
+                event?.attributes?.type ||
+                event?.event;
               if (shouldFilterPowerDisconnected) {
                 return isPowerDisconnectedType(eventTypeValue);
               }
@@ -630,19 +636,52 @@ export default function Events() {
         positionFromId?.protocol ||
         positionFromId?.attributes?.protocol ||
         null;
+      const normalized = event?.normalizedEvent || {};
+      const normalizedMetrics = Array.isArray(normalized?.metrics) ? normalized.metrics : [];
+      const metricsByKey = new Map(normalizedMetrics.map((metric) => [metric.key, metric]));
+      const speedMetric = metricsByKey.get("speed");
+      const batteryMetric =
+        metricsByKey.get("batteryLevel") ||
+        metricsByKey.get("battery") ||
+        metricsByKey.get("power") ||
+        metricsByKey.get("vcc") ||
+        metricsByKey.get("vbat");
+      const ignitionMetric =
+        metricsByKey.get("ignitionState") ||
+        metricsByKey.get("engineWorking");
       const rawSeverity =
+        normalized?.severity ??
         event?.severity ??
         event?.attributes?.severity ??
         event?.criticality ??
         event?.attributes?.criticality ??
         null;
-      const severity = resolveEventSeverity(rawSeverity, event?.type || event?.attributes?.type || event?.event);
+      const severity = resolveEventSeverity(
+        rawSeverity,
+        event?.normalizedEvent?.rawType ||
+          event?.type ||
+          event?.attributes?.type ||
+          event?.event,
+      );
+      const typeLabel =
+        normalized?.title ||
+        event?.eventLabel ||
+        translateEventType(event?.type || event?.event || event?.attributes?.type, locale) ||
+        event?.type ||
+        event?.event ||
+        "Evento";
+      const description =
+        normalized?.description ||
+        event?.attributes?.message ||
+        event?.attributes?.description ||
+        event?.attributes?.type ||
+        "—";
       return {
         id: event?.id ?? `${event?.deviceId}-${event?.serverTime || event?.eventTime || event?.time}`,
         time: event?.serverTime || event?.deviceTime || event?.eventTime || event?.time,
         device: vehicleLabel,
-        type: event?.type || event?.attributes?.type || event?.event,
-        description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
+        type: typeLabel,
+        description,
         severity,
         protocol,
         address: cleanAddress(
@@ -655,8 +694,11 @@ export default function Events() {
             null,
         ),
         speed: position?.speed ?? event?.speed ?? null,
+        speedText: speedMetric?.text || null,
         ignition: event?.ignition ?? position?.ignition ?? null,
+        ignitionText: ignitionMetric?.text || null,
         battery: event?.batteryLevel ?? position?.batteryLevel ?? null,
+        batteryText: batteryMetric?.text || null,
         latitude,
         longitude,
       };
@@ -1338,7 +1380,7 @@ function renderColumnValue(columnId, row, locale, t) {
     case "device":
       return row.device || "—";
     case "type":
-      return translateEventType(row.type || "", locale, t, row.protocol, row) || "—";
+      return row.type || translateEventType(row.type || "", locale, t, row.protocol, row) || "—";
     case "description":
       return row.description || "—";
     case "severity":
@@ -1349,11 +1391,11 @@ function renderColumnValue(columnId, row, locale, t) {
       }
       return "—";
     case "speed":
-      return row.speed != null ? `${Number(row.speed).toFixed(1)} km/h` : "—";
+      return row.speedText || (row.speed != null ? `${Number(row.speed).toFixed(1)} km/h` : "—");
     case "ignition":
-      return row.ignition == null ? "—" : row.ignition ? "Ligada" : "Desligada";
+      return row.ignitionText || (row.ignition == null ? "—" : row.ignition ? "Ligada" : "Desligada");
     case "battery":
-      return row.battery != null ? `${Number(row.battery).toFixed(0)}%` : "—";
+      return row.batteryText || (row.battery != null ? `${Number(row.battery).toFixed(0)}%` : "—");
     case "latitude":
       return row.latitude != null ? Number(row.latitude).toFixed(5) : "—";
     case "longitude":

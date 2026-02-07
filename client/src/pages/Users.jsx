@@ -160,7 +160,8 @@ function resolveVehicleGroupIds(userAccess) {
 }
 
 export default function Users() {
-  const { role, tenants, tenantId, tenant, user, mirrorOwners, isMirrorReceiver, homeClient } = useTenant();
+  const { role, tenants, tenantId, tenant, user, mirrorOwners, isMirrorReceiver, homeClient, permissionContext } =
+    useTenant();
   const [users, setUsers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -284,6 +285,10 @@ export default function Users() {
   const allowedRoles = role === "admin" ? Object.keys(roleLabels) : ["user", "driver", "viewer"];
   const isManager = role === "manager";
   const isTenantAdmin = role === "tenant_admin";
+  const canManageOwnTenant = isTenantAdmin && String(selectedTenantId || "") === String(user?.clientId || "");
+  const canCreateUsers = usersPermission.isFull && (isAdminGeneral || canManageOwnTenant);
+  const canEditUsers = usersPermission.isFull && (isAdminGeneral || canManageOwnTenant);
+  const canDeleteUsers = usersPermission.isFull && (isAdminGeneral || canManageOwnTenant);
 
   const { groups, reload: reloadGroups, createGroup, updateGroup, deleteGroup } = useGroups({
     params: selectedTenantId ? { clientId: selectedTenantId } : {},
@@ -331,6 +336,34 @@ export default function Users() {
     () => groups.filter((entry) => entry.attributes?.kind === "PERMISSION_GROUP"),
     [groups],
   );
+  const permissionGroupLabelById = useMemo(() => {
+    const map = new Map();
+    permissionGroups.forEach((group) => {
+      if (!group?.id) return;
+      const suffix = group.attributes?.scope === "global" ? " (Global)" : "";
+      map.set(String(group.id), `${group.name}${suffix}`);
+    });
+    return map;
+  }, [permissionGroups]);
+  const resolveUserProfileLabel = useCallback(
+    (entry) => {
+      if (!entry) return "—";
+      const groupId = entry.attributes?.permissionGroupId;
+      if (groupId && permissionGroupLabelById.has(String(groupId))) {
+        return permissionGroupLabelById.get(String(groupId));
+      }
+      if (entry.role === "admin") {
+        return "Administrador (Global)";
+      }
+      return roleLabels[entry.role] || entry.role || "—";
+    },
+    [permissionGroupLabelById],
+  );
+  const scopedPermissionContext = useMemo(() => {
+    if (isAdminGeneral) return null;
+    if (permissionContext?.isFull) return null;
+    return permissionContext?.permissions || {};
+  }, [isAdminGeneral, permissionContext]);
 
   useEffect(() => {
     if (!selectedTenantId && managedTenants.length) {
@@ -420,7 +453,7 @@ export default function Users() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!canManageUsers) return;
+    if (!canEditUsers) return;
     const ipMode = form.attributes.userAccess.ipRestriction.mode;
     const ipValue = form.attributes.userAccess.ipRestriction.ip;
     const isIpValid = ipMode !== "single" || isValidIpAddress(ipValue);
@@ -917,15 +950,17 @@ export default function Users() {
                 <RefreshCw className="h-4 w-4" /> Atualizar
               </span>
             </button>
-            <button
-              type="button"
-              onClick={() => openUserDrawer()}
-              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Plus className="h-4 w-4" /> Novo usuário
-              </span>
-            </button>
+            {canCreateUsers && (
+              <button
+                type="button"
+                onClick={() => openUserDrawer()}
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Plus className="h-4 w-4" /> Novo usuário
+                </span>
+              </button>
+            )}
           </div>
         }
       />
@@ -1036,20 +1071,22 @@ export default function Users() {
                       <tr key={entry.id} className="hover:bg-white/5">
                         <td className="px-4 py-3 text-white">
                           <div className="font-semibold text-white">{entry.name}</div>
-                          <div className="text-xs text-white/60">{roleLabels[entry.role] || entry.role || "—"}</div>
+                          <div className="text-xs text-white/60">{resolveUserProfileLabel(entry)}</div>
                         </td>
                         <td className="px-4 py-3 text-white/70">{entry.email}</td>
                         <td className="px-4 py-3 text-white/70">{entry.username || "—"}</td>
                         <td className="px-4 py-3 text-white/70">{vehicleCount}</td>
                         <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openUserDrawer(entry)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
-                        >
-                          <Pencil className="h-3.5 w-3.5" /> Editar
-                        </button>
+                        {canEditUsers && (
+                          <button
+                            type="button"
+                            onClick={() => openUserDrawer(entry)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
+                          >
+                            <Pencil className="h-3.5 w-3.5" /> Editar
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openDetailsDrawer(entry)}
@@ -1057,7 +1094,7 @@ export default function Users() {
                         >
                           <Eye className="h-3.5 w-3.5" /> Detalhes
                         </button>
-                        {usersPermission.isFull && isAdminGeneral && (
+                        {canDeleteUsers && (
                           <button
                             type="button"
                             onClick={() => handleUserDelete(entry)}
@@ -1754,7 +1791,7 @@ export default function Users() {
             ))}
           </div>
 
-          {usersPermission.isFull && isAdminGeneral && detailsUser && (
+          {canDeleteUsers && detailsUser && (
             <button
               type="button"
               onClick={() => handleUserDelete(detailsUser)}
@@ -1775,11 +1812,7 @@ export default function Users() {
                   <span className="text-xs uppercase tracking-wide text-white/50">Perfil</span>
                   <span className="text-sm text-white/80">
                     {(() => {
-                      const group = permissionGroups.find(
-                        (entry) => entry.id === detailsUser.attributes?.permissionGroupId,
-                      );
-                      if (!group) return "—";
-                      return `${group.name}${group.attributes?.scope === "global" ? " (Global)" : ""}`;
+                      return resolveUserProfileLabel(detailsUser);
                     })()}
                   </span>
                 </div>
@@ -2078,6 +2111,8 @@ export default function Users() {
 
           <PermissionTreeEditor
             permissions={permissionForm.permissions}
+            scopePermissions={scopedPermissionContext}
+            allowBulkActions={isAdminGeneral}
             onChange={(nextPermissions) =>
               setPermissionForm((prev) => ({ ...prev, permissions: nextPermissions }))
             }

@@ -103,6 +103,7 @@ export const API_ROUTES = {
   geocode: {
     search: "geocode/search",
     reverse: "geocode/reverse",
+    lookup: "geocode/lookup",
   },
   traccarHealth: "health/traccar",
   traccar: {

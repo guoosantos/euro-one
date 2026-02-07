@@ -228,7 +228,7 @@ export async function authenticate(req, res, next) {
     });
   }
   try {
-    enforceUserAccess(req);
+    await enforceUserAccess(req);
   } catch (accessError) {
     return next(accessError);
   }

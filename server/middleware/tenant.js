@@ -6,6 +6,7 @@ import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
 import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
 import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
+import { ACCESS_REASONS } from "../utils/access-reasons.js";
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -97,14 +98,18 @@ function resolveMirrorContext({ user, ownerClientId, strict = true } = {}) {
     : null;
   if (allowedOwnerIds && allowedOwnerIds.size === 0) {
     if (strict) {
-      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`, {
+        reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+      });
     }
     return null;
   }
 
   if (allowedOwnerIds && String(ownerClientId) !== MIRROR_ALL_TOKEN && !allowedOwnerIds.has(String(ownerClientId))) {
     if (strict) {
-      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`, {
+        reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+      });
     }
     return null;
   }
@@ -403,7 +408,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
 
   const reason = explicitClientIds.length ? "not-linked" : "no-mirror-found";
   logDeniedAccess({ user, requestedClientId: resolvedRequested, reason });
-  throw createError(403, "Sem acesso");
+  throw createError(403, "Sem acesso", { reason: ACCESS_REASONS.FORBIDDEN_SCOPE });
 }
 
 export function resolveTenantMiddleware({ required = false } = {}) {

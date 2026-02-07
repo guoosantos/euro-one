@@ -5,16 +5,19 @@ import { randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { requireAdminGeneralAccess } from "../middleware/admin-general.js";
 import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { resolveTenant } from "../middleware/tenant.js";
 import { getDeviceById, listDevices } from "../models/device.js";
-import { getClientById } from "../models/client.js";
+import { listVehicles } from "../models/vehicle.js";
+import { getAdminGeneralClient, getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
+import { normalizeEventPayload } from "../services/event-normalizer.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
 import { listSignalEvents } from "../services/signal-events.js";
 import { listVehicleEmbarkHistory } from "../services/embark-history.js";
@@ -133,6 +136,24 @@ function resolveMirrorVehicleNotFoundMessage(req) {
   return req.tenant?.mirrorContext?.ownerClientId
     ? "Veículo não encontrado para este espelhamento"
     : "Veículo não encontrado";
+}
+
+function resolveAdminVehicleFallback(req, vehicleId, context) {
+  if (!vehicleId || req.user?.role !== "admin") return context;
+  const currentVehicles = Array.isArray(context?.vehicles) ? context.vehicles : [];
+  if (currentVehicles.some((item) => String(item?.id) === String(vehicleId))) return context;
+  const allVehicles = listVehicles({});
+  const matched = allVehicles.find((item) => String(item?.id) === String(vehicleId));
+  if (!matched) return context;
+  const ownerClientId = matched?.clientId ? String(matched.clientId) : null;
+  const ownerVehicles = ownerClientId ? listVehicles({ clientId: ownerClientId }) : [matched];
+  const ownerDevices = ownerClientId ? listDevices({ clientId: ownerClientId }) : listDevices({});
+  return {
+    ...context,
+    clientId: ownerClientId ?? context?.clientId ?? null,
+    vehicles: ownerVehicles,
+    devices: ownerDevices,
+  };
 }
 
 function resolveTraccarDeviceId(req, allowed = null) {
@@ -334,6 +355,13 @@ function findBuiltinCustomCommand(commandId) {
 
 function isUuid(value) {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function isAdminGeneralUser(req) {
+  if (!req.user || req.user.role !== "admin") return false;
+  const adminGeneralClient = await getAdminGeneralClient();
+  if (!adminGeneralClient) return false;
+  return String(req.user.clientId || "") === String(adminGeneralClient.id);
 }
 
 const commandFallbackModels = new Map();
@@ -2128,12 +2156,19 @@ function buildDeviceInfo(device, metadata, fallbackId) {
   const id = device?.traccarId ? String(device.traccarId) : device?.id ? String(device.id) : String(fallbackId || "");
   const uniqueId = metadata?.uniqueId || device?.uniqueId || null;
   const lastUpdate = metadata?.lastUpdate || null;
+  const protocol =
+    metadata?.protocol ||
+    device?.protocol ||
+    device?.attributes?.protocol ||
+    device?.attributes?.deviceProtocol ||
+    null;
   return {
     id,
     name: metadata?.name || device?.name || device?.uniqueId || id,
     uniqueId,
     status: metadata?.status || null,
     lastUpdate,
+    protocol,
   };
 }
 
@@ -2555,11 +2590,26 @@ async function handleEventsReport(req, res, next) {
       const eventRequiresHandling =
         configuredEvent?.requiresHandling ?? event?.eventRequiresHandling ?? event?.requiresHandling ?? false;
       const severity = configuredEvent?.severity || baseSeverity;
+      const eventPayload = {
+        ...event,
+        eventLabel,
+        eventSeverity: severity,
+        eventCategory,
+        eventRequiresHandling,
+        protocol,
+      };
+      const normalizedEvent = normalizeEventPayload({
+        event: eventPayload,
+        position: decoratedPosition || position,
+        protocol,
+        configuredEvent,
+      });
+      const alertEventPayload = normalizedEvent ? { ...eventPayload, normalizedEvent } : eventPayload;
 
       if (eventRequiresHandling) {
         upsertAlertFromEvent({
           clientId,
-          event,
+          event: alertEventPayload,
           configuredEvent: {
             label: eventLabel,
             severity,
@@ -2593,6 +2643,8 @@ async function handleEventsReport(req, res, next) {
         eventCategory,
         eventRequiresHandling,
         protocol,
+        normalizedEvent,
+        eventType: normalizedEvent?.typeKey ?? event?.eventType ?? null,
         resolved: Boolean(resolution),
         resolvedAt: resolution?.resolvedAt || null,
         resolvedBy: resolution?.resolvedBy || null,
@@ -3228,6 +3280,7 @@ router.post(
   "/commands/send-sms",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "advanced", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     const phone = String(req.body?.phone || "").trim();
@@ -3263,7 +3316,6 @@ router.post(
 router.post(
   "/commands/send",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
-  requireRole("manager", "admin"),
   async (req, res, next) => {
   try {
     const commandDispatchModel = ensureCommandPrismaModel("commandDispatch");
@@ -3277,11 +3329,33 @@ router.post(
       throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
+    const isAdminGeneral = await isAdminGeneralUser(req);
+    const directPayload = resolveDirectCustomPayload(req.body);
+    if (!isAdminGeneral) {
+      if (directPayload) {
+        throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+      }
+      const params = req.body?.params && typeof req.body.params === "object" ? req.body.params : {};
+      if (Object.keys(params).length > 0) {
+        throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+      }
+      if (req.body?.commandKey && req.body?.protocol) {
+        const protocolKey = normalizeProtocolKey(req.body.protocol);
+        const commands = getProtocolCommands(protocolKey) || [];
+        const match = commands.find((command) => command?.id === req.body.commandKey || command?.code === req.body.commandKey);
+        if (match?.parameters?.length) {
+          throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+        }
+        if (match?.type === "custom" || match?.code === "custom" || match?.id === "custom") {
+          throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+        }
+      }
+    }
+
     let commandPayload = null;
     let commandName = null;
     let commandKey = null;
 
-    const directPayload = resolveDirectCustomPayload(req.body);
     if (directPayload && !req.body?.customCommandId && !req.body?.commandKey) {
       commandPayload = directPayload;
       commandName = req.body?.commandName || req.body?.description || "Comando personalizado";
@@ -3297,6 +3371,19 @@ router.post(
       });
       if (!customCommand) {
         customCommand = findBuiltinCustomCommand(customCommandId);
+      }
+      if (!customCommand) {
+        const adminGeneralClient = await getAdminGeneralClient();
+        const adminGeneralClientId = adminGeneralClient?.id ?? null;
+        if (adminGeneralClientId && (!clientId || String(adminGeneralClientId) !== String(clientId))) {
+          customCommand = await customCommandModel.findFirst({
+            where: {
+              id: customCommandId,
+              clientId: adminGeneralClientId,
+              ...(req.user?.role === "admin" ? {} : { visible: true }),
+            },
+          });
+        }
       }
       if (!customCommand) {
         throw createError(404, "Comando personalizado não encontrado");
@@ -3900,9 +3987,15 @@ router.get(
     const includeHidden = String(req.query?.includeHidden || "").toLowerCase() === "true";
     let protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
     const deviceId = req.query?.deviceId ? String(req.query.deviceId).trim() : "";
-    const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);
+    const canSeeHidden = includeHidden && (await isAdminGeneralUser(req));
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     const prismaAvailable = isPrismaAvailable();
+    const adminGeneralClient = await getAdminGeneralClient();
+    const adminGeneralClientId = adminGeneralClient?.id ?? null;
+    const clientIds =
+      adminGeneralClientId && String(adminGeneralClientId) !== String(clientId)
+        ? [clientId, adminGeneralClientId]
+        : [clientId];
 
     if (!protocol && deviceId) {
       try {
@@ -3919,7 +4012,7 @@ router.get(
     const commands = prismaAvailable
       ? await customCommandModel.findMany({
           where: {
-            clientId,
+            clientId: clientIds.length > 1 ? { in: clientIds } : clientId,
             ...(canSeeHidden ? {} : { visible: true }),
             ...(protocol ? { protocol } : {}),
           },
@@ -3948,6 +4041,7 @@ router.post(
   "/commands/custom",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
@@ -4003,6 +4097,7 @@ router.put(
   "/commands/custom/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
@@ -4050,6 +4145,7 @@ router.patch(
   "/commands/custom/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
@@ -4095,6 +4191,7 @@ router.delete(
   "/commands/custom/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
@@ -4130,6 +4227,7 @@ router.post(
   "/commands",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     const allowed = resolveAllowedDeviceIds(req);
@@ -4160,6 +4258,7 @@ router.put(
   "/commands/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
     try {
       const data = await traccarProxy("put", `/commands/${req.params.id}`, { data: req.body, asAdmin: true });
@@ -4174,6 +4273,7 @@ router.delete(
   "/commands/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
     try {
       await traccarProxy("delete", `/commands/${req.params.id}`, { asAdmin: true });
@@ -4555,7 +4655,12 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     throw createError(400, "from/to são obrigatórios");
   }
 
-  const { clientId, vehicles, devices } = await resolveAccessibleDeviceContext(req);
+  const resolvedContext = resolveAdminVehicleFallback(
+    req,
+    vehicleId,
+    await resolveAccessibleDeviceContext(req),
+  );
+  const { clientId, vehicles, devices } = resolvedContext;
   const eventScope = normalizeReportEventScope(reportEventScope);
   const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
   if (!vehicle) {

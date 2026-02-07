@@ -1,11 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { CircleMarker, Marker, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
-import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, PanelTop, Play, Route, Save, SlidersHorizontal, Undo2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { divIcon } from "leaflet";
+import { Marker, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
+import {
+  Building2,
+  Clock3,
+  Download,
+  FileUp,
+  GripVertical,
+  LayoutGrid,
+  Layers,
+  List,
+  Square,
+  MapPin,
+  Play,
+  Save,
+  Signpost,
+  Star,
+  Undo2,
+  X,
+} from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
+import { formatSearchAddress } from "../lib/format-address.js";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import Button from "../ui/Button";
@@ -18,8 +37,13 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
-import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
-import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
+import {
+  DEFAULT_MAP_LAYER_KEY,
+  ENABLED_MAP_LAYERS,
+  MAP_LAYER_FALLBACK,
+  MAP_LAYER_STORAGE_KEYS,
+  getValidMapLayer,
+} from "../lib/mapLayers.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveMirrorHeaders } from "../lib/mirror-params.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -49,6 +73,52 @@ const GRAPH_HOPPER_URL = alignUrlProtocol(
 );
 const GRAPH_HOPPER_KEY = import.meta?.env?.VITE_GRAPHHOPPER_KEY || import.meta?.env?.VITE_GRAPH_HOPPER_KEY || "";
 const OSRM_BASE_URL = alignUrlProtocol(import.meta?.env?.VITE_OSRM_URL || "https://router.project-osrm.org");
+const FINAL_GEOCODE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const finalGeocodeCache = new Map();
+
+function getFinalGeocodeCache(key) {
+  if (!key) return null;
+  const cached = finalGeocodeCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+  finalGeocodeCache.delete(key);
+  return null;
+}
+
+function setFinalGeocodeCache(key, value, ttlMs = FINAL_GEOCODE_CACHE_TTL_MS) {
+  if (!key) return null;
+  finalGeocodeCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  return value;
+}
+
+function buildFinalGeocodeKeys({ placeId, lat, lng }) {
+  const keys = [];
+  if (placeId) keys.push(`place:${placeId}`);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    keys.push(`coords:${lat.toFixed(5)},${lng.toFixed(5)}`);
+  }
+  return keys;
+}
+
+async function lookupFinalGeocode({ lat, lng, placeId, signal }) {
+  const keys = buildFinalGeocodeKeys({ placeId, lat, lng });
+  for (const key of keys) {
+    const cached = getFinalGeocodeCache(key);
+    if (cached) return { ...cached, cached: true, source: "client-cache" };
+  }
+
+  const response = await api.get(API_ROUTES.geocode.lookup, {
+    params: { lat, lng, placeId },
+    signal,
+  });
+  const payload = response?.data;
+  if (payload && payload.status !== "fallback") {
+    keys.forEach((key) => setFinalGeocodeCache(key, payload));
+  }
+  return payload;
+}
 
 function isForbiddenError(error) {
   return Number(error?.response?.status ?? error?.status) === 403;
@@ -65,6 +135,12 @@ const emptyRoute = () => ({
 function uid(prefix = "wpt") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+const WAYPOINT_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function waypointLetter(index) {
+  if (index < WAYPOINT_LETTERS.length) return WAYPOINT_LETTERS[index];
+  return `#${index + 1}`;
 }
 
 function normaliseWaypoint(raw, fallbackLabel) {
@@ -173,6 +249,20 @@ function normalizeRoutingWaypoints(rawWaypoints) {
     .filter(Boolean);
 }
 
+function isValidLatLng(point) {
+  return Number.isFinite(point?.lat) && Number.isFinite(point?.lng);
+}
+
+function createRoutePinIcon({ label, tone = "stop" }) {
+  return divIcon({
+    className: `route-pin-icon route-pin-icon--${tone}`,
+    html: `<div class="route-pin"><span class="route-pin-label">${label}</span></div>`,
+    iconSize: [32, 40],
+    iconAnchor: [16, 38],
+    popupAnchor: [0, -32],
+  });
+}
+
 async function buildOsrmPath(waypoints) {
   const normalized = normalizeRoutingWaypoints(waypoints);
   if (normalized.length < 2) return [];
@@ -259,6 +349,197 @@ function normalizeRoutePoints(points) {
   return (Array.isArray(points) ? points : []).map(normalizeLatLngPair).filter(Boolean);
 }
 
+function serializeRouteSnapshot(route) {
+  if (!route) return "";
+  const safeRoute = withWaypoints(route);
+  return JSON.stringify({
+    id: safeRoute.id || null,
+    name: safeRoute.name || "",
+    mode: safeRoute.mode || "car",
+    points: normalizeRoutePoints(safeRoute.points || []),
+    waypoints: normalizeStopOrders(safeRoute.metadata?.waypoints || []),
+  });
+}
+
+function formatSearchLabel(value, fallback = "") {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string" || typeof value === "number") {
+    const formatted = formatSearchAddress(value);
+    return formatted && formatted !== "—" ? formatted : String(value);
+  }
+  if (typeof value === "object") {
+    const candidate = value.address && typeof value.address === "object" ? value.address : value;
+    const formatted = formatSearchAddress(candidate);
+    if (formatted && formatted !== "—") return formatted;
+    if (typeof value.label === "string") return value.label;
+    if (typeof value.concise === "string") return value.concise;
+    if (typeof value.address === "string") return value.address;
+  }
+  return fallback;
+}
+
+function extractAddressParts(item) {
+  if (!item || typeof item !== "object") return null;
+  const raw = item.raw && typeof item.raw === "object" ? item.raw : null;
+  const candidates = [
+    item.addressParts,
+    item.address_parts,
+    item.parts,
+    item.address,
+    raw?.addressParts,
+    raw?.address_parts,
+    raw?.parts,
+    raw?.address,
+  ];
+  return candidates.find((value) => value && typeof value === "object" && !Array.isArray(value)) || null;
+}
+
+function coalesceString(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null) {
+      const text = String(value).trim();
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function abbreviateStreet(value) {
+  if (!value) return "";
+  const cleaned = String(value).replace(/\s+/g, " ").trim();
+  const [first, ...rest] = cleaned.split(" ");
+  const match = [
+    [/^avenida\b/i, "Av."],
+    [/^av\.?\b/i, "Av."],
+    [/^rua\b/i, "R."],
+    [/^rodovia\b/i, "Rod."],
+    [/^estrada\b/i, "Est."],
+    [/^travessa\b/i, "Tv."],
+    [/^alameda\b/i, "Al."],
+    [/^largo\b/i, "Lg."],
+    [/^prac[aá]\b/i, "Pc."],
+  ].find(([regex]) => regex.test(first));
+  if (!match) return cleaned;
+  const [, abbreviation] = match;
+  return [abbreviation, rest.join(" ")].filter(Boolean).join(" ").trim();
+}
+
+function normalizeCep(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length !== 8) return "";
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+function resolveHouseNumber(parts, overrideNumber) {
+  const override = coalesceString(overrideNumber);
+  if (override) return override;
+  return coalesceString(
+    parts?.houseNumber,
+    parts?.house_number,
+    parts?.number,
+    parts?.numero,
+    parts?.house,
+    parts?.street_number,
+    parts?.streetNumber,
+  );
+}
+
+function formatAddressFromParts(parts = {}, overrideNumber = "") {
+  if (!parts || typeof parts !== "object") return "";
+  const street = abbreviateStreet(
+    coalesceString(parts.street, parts.road, parts.streetName, parts.route, parts.logradouro, parts.endereco),
+  );
+  const number = resolveHouseNumber(parts, overrideNumber) || (street ? "s/n" : "");
+  const neighbourhood = coalesceString(
+    parts.neighbourhood,
+    parts.neighborhood,
+    parts.suburb,
+    parts.quarter,
+    parts.bairro,
+    parts.district,
+    parts.city_district,
+  );
+  const city = coalesceString(parts.city, parts.town, parts.village, parts.municipality, parts.county, parts.cidade);
+  const state = coalesceString(parts.state_code, parts.stateCode, parts.state, parts.region, parts.uf, parts.estado);
+  const postalCode = normalizeCep(coalesceString(parts.postalCode, parts.postcode, parts.zipcode, parts.cep));
+
+  const head = [street, number].filter(Boolean).join(", ");
+  const cityState = [city, state].filter(Boolean).join("-");
+  let formatted = head;
+  if (neighbourhood) {
+    formatted = formatted ? `${formatted} - ${neighbourhood}` : neighbourhood;
+  }
+  if (cityState) {
+    formatted = formatted ? `${formatted} — ${cityState}` : cityState;
+  }
+  if (postalCode) {
+    formatted = formatted ? `${formatted}, ${postalCode}` : postalCode;
+  }
+  return formatted || "";
+}
+
+function formatSuggestionAddress(item) {
+  if (!item) return "";
+  const parts = extractAddressParts(item) || {};
+  const formatted = formatAddressFromParts(parts);
+  const fallback = formatSearchAddress(item?.raw?.address || item);
+  return formatted || fallback || "";
+}
+
+function resolveSuggestionIcon(item) {
+  const rawType = [
+    item?.type,
+    item?.class,
+    item?.category,
+    item?.raw?.type,
+    item?.raw?.class,
+    item?.raw?.category,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/(city|town|village|municipality|county|state|region|bairro|district)/.test(rawType)) {
+    return Building2;
+  }
+  if (/(road|street|highway|motorway|route|avenida|avenue|rua|rodovia|estrada)/.test(rawType)) {
+    return Signpost;
+  }
+  if (/(amenity|tourism|attraction|hotel|restaurant|shop|poi|place)/.test(rawType)) {
+    return Star;
+  }
+  return MapPin;
+}
+
+function highlightMatch(text, query) {
+  if (!text) return "";
+  const term = String(query || "").trim();
+  if (!term) return text;
+  const lower = text.toLowerCase();
+  const lowerTerm = term.toLowerCase();
+  if (!lower.includes(lowerTerm)) return text;
+
+  const parts = [];
+  let cursor = 0;
+  let index = lower.indexOf(lowerTerm, cursor);
+  while (index !== -1) {
+    if (index > cursor) {
+      parts.push(text.slice(cursor, index));
+    }
+    parts.push(
+      <span key={`${index}-${lowerTerm}`} className="route-search-highlight">
+        {text.slice(index, index + lowerTerm.length)}
+      </span>,
+    );
+    cursor = index + lowerTerm.length;
+    index = lower.indexOf(lowerTerm, cursor);
+  }
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+  return parts;
+}
+
 function MapClickHandler({ enabled, onAdd }) {
   useMapEvents({
     click(event) {
@@ -269,22 +550,63 @@ function MapClickHandler({ enabled, onAdd }) {
   return null;
 }
 
-function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey }) {
-  const [query, setQuery] = useState(value?.label || "");
+function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey, autoFocus = false, hideLabel = false, onFocus }) {
+  const [query, setQuery] = useState(() => formatSearchLabel(value?.label || value?.address || ""));
   const { suggestions, isSearching, clearSuggestions, searchRegion, error } = useGeocodeSearch();
   const [isFocused, setIsFocused] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [isResolving, setIsResolving] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState(null);
   const debounceRef = useRef(null);
+  const resolveRef = useRef(null);
   const containerRef = useRef(null);
-  const [portalStyle, setPortalStyle] = useState(null);
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
+  const trimmedQuery = query.trim();
+  const typedNumberMatch = trimmedQuery.match(/\b\d+\b/);
+  const typedNumber = typedNumberMatch ? typedNumberMatch[0] : "";
+  const hasTypedNumber = Boolean(typedNumber);
+  const orderedSuggestions = useMemo(() => {
+    if (!hasTypedNumber) return suggestions;
+    const scoreCandidate = (item) => {
+      const parts = extractAddressParts(item) || {};
+      const hasHouse = Boolean(resolveHouseNumber(parts, ""));
+      const label = formatSuggestionAddress(item).toLowerCase();
+      const numberMatch = typedNumber && label.includes(typedNumber);
+      return (hasHouse ? 2 : 0) + (numberMatch ? 1 : 0);
+    };
+    return [...suggestions].sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+  }, [hasTypedNumber, suggestions, typedNumber]);
+  const hasSuggestions = orderedSuggestions.length > 0;
+  const emptyMessage =
+    !isSearching && trimmedQuery.length >= 3 && !hasSuggestions && error?.message === "Nenhum resultado encontrado."
+      ? "Nenhum endereço encontrado"
+      : "";
+  const errorMessage =
+    error && error?.message !== "Nenhum resultado encontrado."
+      ? "Não foi possível buscar agora, tente novamente."
+      : "";
 
   useEffect(() => {
-    setQuery(value?.label || "");
-  }, [value?.id]);
+    if (isFocused) return;
+    setQuery(formatSearchLabel(value?.label || value?.formattedAddress || value?.address || ""));
+  }, [value?.address, value?.formattedAddress, value?.id, value?.label, isFocused]);
 
   useEffect(() => {
     clearSuggestions();
     setIsFocused(false);
+    setActiveIndex(-1);
   }, [clearSuggestions, resetKey]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => {
+      if (!inputRef.current) return;
+      inputRef.current.focus();
+      inputRef.current.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
 
   useEffect(() => {
     if (query && query.length >= 3) {
@@ -298,34 +620,57 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
     };
   }, [query, clearSuggestions, searchRegion]);
 
-  const showSuggestions = isFocused && (suggestions.length > 0 || isSearching);
+  const showSuggestions =
+    isFocused && trimmedQuery.length >= 3 && (hasSuggestions || isSearching || emptyMessage || errorMessage);
 
   useEffect(() => {
     if (!showSuggestions) {
-      setPortalStyle(null);
+      setDropdownStyle(null);
       return;
     }
     const updatePosition = () => {
       const element = containerRef.current;
       if (!element) return;
-      const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      setPortalStyle({
-        position: "fixed",
-        top: rect.bottom + 6,
-        left: rect.left,
-        width: rect.width,
-        zIndex: 1400,
-      });
+      const inputRect = element.getBoundingClientRect();
+      const panelElement =
+        element.closest(".route-waypoint-list") ||
+        element.closest(".route-waypoint-row") ||
+        element.closest(".floating-left-panel") ||
+        element.parentElement;
+      const panelRect = panelElement?.getBoundingClientRect?.() || null;
+      const inputWidth = inputRect.width || element.offsetWidth || 0;
+      const desiredWidth = inputWidth * 1.25;
+      let maxWidth = 560;
+      if (panelRect) {
+        const available = panelRect.right - inputRect.left - 12;
+        const panelMax = panelRect.width - 24;
+        maxWidth = Math.min(maxWidth, available, panelMax);
+      } else {
+        maxWidth = Math.min(maxWidth, window.innerWidth - inputRect.left - 16);
+      }
+      const width = Math.min(Math.max(inputWidth, desiredWidth), maxWidth);
+      setDropdownStyle({ width, left: inputRect.left, top: inputRect.bottom + 6 });
     };
+
     updatePosition();
     window.addEventListener("resize", updatePosition);
-    document.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("scroll", updatePosition, true);
     return () => {
       window.removeEventListener("resize", updatePosition);
-      document.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("scroll", updatePosition, true);
     };
   }, [showSuggestions]);
+
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [trimmedQuery, orderedSuggestions.length]);
+
+  useEffect(() => {
+    if (activeIndex < 0 || !listRef.current) return;
+    const activeItem = listRef.current.querySelector(`[data-index="${activeIndex}"]`);
+    if (!activeItem) return;
+    activeItem.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
 
   const parseManual = useCallback(() => {
     if (!query) return null;
@@ -337,22 +682,100 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
   }, [query]);
 
   const handleSelect = useCallback(
-    (candidate) => {
-      const payload = {
+    async (candidate) => {
+      if (!candidate) return;
+      if (resolveRef.current) {
+        resolveRef.current.abort();
+      }
+      const controller = new AbortController();
+      resolveRef.current = controller;
+
+      const candidateParts = extractAddressParts(candidate) || {};
+      let resolvedLabel =
+        formatSuggestionAddress(candidate) ||
+        formatSearchLabel(candidate?.raw?.address || candidate?.label || candidate?.concise || query, candidate?.label || query);
+      if (typedNumber && !resolvedLabel.includes(typedNumber)) {
+        const withTyped = formatAddressFromParts(candidateParts, typedNumber);
+        resolvedLabel = withTyped || query || resolvedLabel;
+      }
+      const basePayload = {
         id: value?.id || candidate.id || uid(),
         type: value?.type || "stop",
         lat: candidate.lat,
         lng: candidate.lng,
-        label: candidate.label || candidate.concise || query,
+        label: resolvedLabel,
+        formattedAddress: resolvedLabel,
         order: value?.order,
       };
-      onChange(payload);
-      setQuery(candidate.concise || payload.label || "");
+      onChange(basePayload);
+      setQuery(resolvedLabel || "");
       clearSuggestions();
       setIsFocused(false);
+
+      if (!Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lng)) return;
+      setIsResolving(true);
+      try {
+        const final = await lookupFinalGeocode({
+          lat: candidate.lat,
+          lng: candidate.lng,
+          placeId: candidate?.id,
+          signal: controller.signal,
+        });
+        if (!final || controller.signal.aborted) return;
+        if (final.status === "fallback") return;
+        const parts = final?.parts || extractAddressParts(final) || extractAddressParts(candidate) || null;
+        const hasProviderNumber = Boolean(resolveHouseNumber(parts || {}, ""));
+        const numberOverride = hasProviderNumber ? "" : typedNumber;
+        const formatted = parts ? formatAddressFromParts(parts, numberOverride) : "";
+        const finalLabel = formatted || final?.formattedAddress || resolvedLabel;
+        const nextPayload = {
+          ...basePayload,
+          ...final,
+          lat: Number(final?.lat ?? basePayload.lat),
+          lng: Number(final?.lng ?? basePayload.lng),
+          label: finalLabel,
+          formattedAddress: finalLabel,
+          addressParts: parts,
+          typedNumber: numberOverride || undefined,
+        };
+        onChange(nextPayload);
+      } catch (_error) {
+        // ignore final geocode errors (keeps base selection)
+      } finally {
+        setIsResolving(false);
+      }
     },
     [clearSuggestions, onChange, query, value?.id, value?.order, value?.type],
   );
+
+  const handleKeyDown = (event) => {
+    if (event.key === "ArrowDown") {
+      if (!hasSuggestions) return;
+      event.preventDefault();
+      setActiveIndex((prev) => {
+        const next = prev < 0 ? 0 : prev + 1;
+        return Math.min(next, orderedSuggestions.length - 1);
+      });
+    } else if (event.key === "ArrowUp") {
+      if (!hasSuggestions) return;
+      event.preventDefault();
+      setActiveIndex((prev) => {
+        if (prev <= 0) return -1;
+        return prev - 1;
+      });
+    } else if (event.key === "Enter") {
+      if (!hasSuggestions || activeIndex < 0) return;
+      event.preventDefault();
+      const selected = orderedSuggestions[activeIndex];
+      if (!selected) return;
+      handleSelect(selected);
+    } else if (event.key === "Escape") {
+      if (!showSuggestions) return;
+      event.preventDefault();
+      clearSuggestions();
+      setIsFocused(false);
+    }
+  };
 
   const handleBlur = () => {
     const manual = parseManual();
@@ -362,43 +785,75 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
   };
 
   const suggestionList = showSuggestions ? (
-    <div
-      className="rounded-xl border border-white/10 bg-neutral-900/95 p-2 shadow-lg"
-      style={portalStyle ?? undefined}
-    >
-      {isSearching && <p className="px-2 py-1 text-xs text-white/60">Buscando endereços...</p>}
-      <div className="max-h-64 overflow-auto">
-        {suggestions.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="block w-full rounded-lg px-2 py-1 text-left text-sm text-white hover:bg-white/5"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => handleSelect(item)}
-          >
-            <span className="block text-white">{item.concise || item.label}</span>
-            <span className="block text-[11px] text-white/60">{item.label}</span>
-          </button>
-        ))}
+    <div className="route-search-suggestions" style={dropdownStyle ?? undefined}>
+      <div ref={listRef} className="route-search-list" role="listbox">
+        {hasSuggestions ? (
+          orderedSuggestions.map((item, index) => {
+            const key = item.id || item.placeId || item.place_id || `${item.lat}-${item.lng}-${index}`;
+            const isActive = index === activeIndex;
+            const title = formatSuggestionAddress(item);
+            const Icon = resolveSuggestionIcon(item);
+            return (
+              <button
+                key={key}
+                type="button"
+                data-index={index}
+                className={`route-search-item ${isActive ? "is-active" : ""}`.trim()}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => handleSelect(item)}
+                role="option"
+                aria-selected={isActive}
+                title={title}
+              >
+                <span className="route-search-icon">
+                  <Icon size={16} />
+                </span>
+                <span className="route-search-content">
+                  <span className="route-search-title">{highlightMatch(title, trimmedQuery)}</span>
+                </span>
+              </button>
+            );
+          })
+        ) : isSearching ? (
+          <div className="route-search-state">
+            <span className="route-search-spinner" aria-hidden="true" />
+            <span>Carregando...</span>
+          </div>
+        ) : errorMessage ? (
+          <div className="route-search-state route-search-state--error">{errorMessage}</div>
+        ) : emptyMessage ? (
+          <div className="route-search-state">{emptyMessage}</div>
+        ) : null}
       </div>
     </div>
   ) : null;
+  const renderedSuggestions =
+    suggestionList && typeof document !== "undefined"
+      ? createPortal(suggestionList, document.body)
+      : suggestionList;
 
   return (
     <div ref={containerRef} className="relative">
-      <label className="text-xs font-semibold text-white/70">{label}</label>
+      {!hideLabel && <label className="text-xs font-semibold text-white/70">{label}</label>}
       <div className="relative">
         <input
+          ref={inputRef}
           className="mt-1 w-full truncate rounded-xl border border-white/10 bg-white/5 px-3 py-1 pr-7 text-xs text-white focus:border-primary focus:outline-none"
           placeholder={placeholder}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => {
+            setIsFocused(true);
+            onFocus?.();
+          }}
           onBlur={() => {
             setIsFocused(false);
             handleBlur();
           }}
+          onKeyDown={handleKeyDown}
           title={value?.label || query}
+          aria-label={hideLabel ? label || placeholder || "Endereço" : undefined}
         />
         {query ? (
           <button
@@ -417,12 +872,13 @@ function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey 
         ) : null}
       </div>
       {error && <p className="mt-1 text-xs text-red-400">{error.message}</p>}
-      {portalStyle && suggestionList ? createPortal(suggestionList, document.body) : suggestionList}
+      {isResolving && <p className="mt-1 text-[11px] text-white/60">Confirmando endereço completo...</p>}
+      {renderedSuggestions}
     </div>
   );
 }
 
-function ToolbarButton({ icon: Icon, active = false, title, className = "", ...props }) {
+function ToolbarButton({ icon: Icon, active = false, title, className = "", iconSize = 12, ...props }) {
   return (
     <button
       type="button"
@@ -430,7 +886,7 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
       title={title}
       {...props}
     >
-      <Icon size={16} />
+      <Icon size={iconSize} />
     </button>
   );
 }
@@ -584,28 +1040,34 @@ export default function RoutesPage() {
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
+  const [pendingFocusId, setPendingFocusId] = useState(null);
+  const [draggingStopId, setDraggingStopId] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
+  const [mapLayerMenuOpen, setMapLayerMenuOpen] = useState(false);
+  const mapLayerButtonRef = useRef(null);
   const [activePanel, setActivePanel] = useState("editor");
   const [editorMode, setEditorMode] = useState("manual");
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const [showRoutesPanel, setShowRoutesPanel] = useState(true);
   const [showEditorPanel, setShowEditorPanel] = useState(true);
-  const [showToolsPanel, setShowToolsPanel] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [autocompleteResetKey, setAutocompleteResetKey] = useState(0);
-  const addressSearch = useAddressSearchState({ mapPreferences });
+  const [addressValue, setAddressValue] = useState({ formattedAddress: "" });
   const [searchMarker, setSearchMarker] = useState(null);
   const mapInvalidateKey = useMemo(
-    () => `${showRoutesPanel}-${showEditorPanel}-${showToolsPanel}-${activePanel}-${editorMode}-${routesTopbarVisible}`,
-    [activePanel, editorMode, routesTopbarVisible, showEditorPanel, showRoutesPanel, showToolsPanel],
+    () => `${showRoutesPanel}-${showEditorPanel}-${activePanel}-${editorMode}-${routesTopbarVisible}`,
+    [activePanel, editorMode, routesTopbarVisible, showEditorPanel, showRoutesPanel],
   );
+  const mapLayerStorageKey = MAP_LAYER_STORAGE_KEYS.routes;
 
   const {
     vehicles,
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles();
+  } = useVehicles({ includeTelemetry: false });
   const { selectedVehicleId: vehicleId, selectedTelemetryDeviceId: deviceIdFromStore } = useVehicleSelection({
     syncQuery: true,
   });
@@ -631,6 +1093,38 @@ export default function RoutesPage() {
     return routes.filter((route) => route.name?.toLowerCase().includes(term));
   }, [routeFilter, routes]);
 
+  const mapLayer = useMemo(
+    () => ENABLED_MAP_LAYERS.find((layer) => layer.key === mapLayerKey) || MAP_LAYER_FALLBACK,
+    [mapLayerKey],
+  );
+
+  const mapLayerOptions = useMemo(() => {
+    const candidates = ENABLED_MAP_LAYERS.filter((layer) => layer?.url);
+    const pickedKeys = new Set();
+    const pick = (keys) =>
+      candidates.find((layer) => keys.some((key) => layer.key.includes(key))) || null;
+
+    const options = [
+      { id: "satellite", label: "Satélite", layer: pick(["google-satellite", "satellite", "hybrid", "google-hybrid"]) },
+      { id: "streets", label: "Ruas / Padrão", layer: pick(["google-road", "openstreetmap", "osm", "carto-light"]) },
+      { id: "terrain", label: "Terreno", layer: pick(["opentopomap", "topo", "terrain"]) },
+      { id: "dark", label: "Escuro", layer: pick(["carto-dark", "dark"]) },
+    ]
+      .filter((item) => item.layer)
+      .filter((item) => {
+        if (!item.layer) return false;
+        if (pickedKeys.has(item.layer.key)) return false;
+        pickedKeys.add(item.layer.key);
+        return true;
+      });
+
+    if (!options.length && candidates.length) {
+      return candidates.slice(0, 5).map((layer) => ({ id: layer.key, label: layer.label, layer }));
+    }
+
+    return options;
+  }, []);
+
   useEffect(() => {
     if (!historyForm.vehicleId && vehicleOptions.length === 1) {
       setHistoryForm((current) => ({ ...current, vehicleId: String(vehicleOptions[0].value) }));
@@ -644,13 +1138,55 @@ export default function RoutesPage() {
     }
   }, [historyForm.vehicleId, vehicleId]);
 
+  useEffect(() => {
+    try {
+      const storedLayer = localStorage.getItem(mapLayerStorageKey);
+      setMapLayerKey(getValidMapLayer(storedLayer));
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerStorageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(mapLayerStorageKey, mapLayerKey);
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerKey, mapLayerStorageKey]);
+
   const waypoints = useMemo(() => normalizeStopOrders(draftRoute.metadata?.waypoints || []), [draftRoute.metadata?.waypoints]);
   const { origin, destination, stops } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
+  const isDraftDirty = useMemo(
+    () => serializeRouteSnapshot(draftRoute) !== serializeRouteSnapshot(baselineRoute),
+    [baselineRoute, draftRoute],
+  );
+  const originPoint = useMemo(() => (isValidLatLng(origin) ? origin : null), [origin]);
+  const destinationPoint = useMemo(() => (isValidLatLng(destination) ? destination : null), [destination]);
+  const originIcon = useMemo(
+    () => (originPoint ? createRoutePinIcon({ label: "A", tone: "origin" }) : null),
+    [originPoint],
+  );
+  const destinationIcon = useMemo(
+    () => (destinationPoint ? createRoutePinIcon({ label: "B", tone: "destination" }) : null),
+    [destinationPoint],
+  );
+  const stopIcons = useMemo(
+    () =>
+      stops.map((_stop, index) =>
+        createRoutePinIcon({ label: waypointLetter(index + 2), tone: "stop" }),
+      ),
+    [stops],
+  );
+  const searchIcon = useMemo(
+    () => (searchMarker ? createRoutePinIcon({ label: "S", tone: "search" }) : null),
+    [searchMarker],
+  );
 
   const resetAutocomplete = useCallback(() => {
     setAutocompleteResetKey((current) => current + 1);
-    addressSearch?.resetSuggestions?.();
-  }, [addressSearch?.resetSuggestions]);
+    setAddressValue({ formattedAddress: "" });
+  }, []);
 
   const loadRoutes = useCallback(async ({ updateDraft = true } = {}) => {
     if (shouldWaitForMirror) {
@@ -697,8 +1233,18 @@ export default function RoutesPage() {
     setIsEditing(false);
     setEditingRouteId(null);
     setMapAddsStops(false);
+    setPendingFocusId(null);
+    setDraggingStopId(null);
+    setDragOverIndex(null);
     resetAutocomplete();
   }, [resetAutocomplete]);
+
+  const handleStartManualRoute = useCallback(() => {
+    handleNewRoute();
+    setEditorMode("manual");
+    setActivePanel("editor");
+    setShowEditorPanel(true);
+  }, [handleNewRoute]);
 
   const buildRoutePayload = useCallback(
     (routePayload = draftRoute) => {
@@ -793,10 +1339,14 @@ export default function RoutesPage() {
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
+    if (isDraftDirty) {
+      const confirmed = window.confirm("Deseja descartar alterações?");
+      if (!confirmed) return;
+    }
     setDraftRoute(baselineRoute);
     setMapAddsStops(false);
-  };
+  }, [baselineRoute, isDraftDirty]);
 
   const handleSelectRoute = (route) => {
     const normalized = withWaypoints(route);
@@ -851,19 +1401,27 @@ export default function RoutesPage() {
 
   useEffect(() => {
     if (activePanel === "routes" && !showRoutesPanel) {
-      setActivePanel(showEditorPanel ? "editor" : showToolsPanel ? "tools" : null);
+      setActivePanel(showEditorPanel ? "editor" : null);
     }
     if (activePanel === "editor" && !showEditorPanel) {
-      setActivePanel(showRoutesPanel ? "routes" : showToolsPanel ? "tools" : null);
+      setActivePanel(showRoutesPanel ? "routes" : null);
     }
-    if (activePanel === "tools" && !showToolsPanel) {
-      setActivePanel(showEditorPanel ? "editor" : showRoutesPanel ? "routes" : null);
-    }
-  }, [activePanel, showEditorPanel, showRoutesPanel, showToolsPanel]);
+  }, [activePanel, showEditorPanel, showRoutesPanel]);
 
   useEffect(() => {
     resetAutocomplete();
   }, [activePanel, editorMode, resetAutocomplete]);
+
+  useEffect(() => {
+    if (!mapLayerMenuOpen) return;
+    const handleClick = (event) => {
+      if (!mapLayerButtonRef.current) return;
+      if (mapLayerButtonRef.current.contains(event.target)) return;
+      setMapLayerMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [mapLayerMenuOpen]);
 
   const handlePanelToggle = useCallback(
     (panel) => {
@@ -911,17 +1469,94 @@ export default function RoutesPage() {
     });
   }, []);
 
+  const clearStop = useCallback(
+    (index, stopId) => {
+      updateWaypoint("stop", { id: stopId || uid(), type: "stop", lat: null, lng: null, label: "" }, index);
+    },
+    [updateWaypoint],
+  );
+
+  const reorderStops = useCallback((fromIndex, toIndex) => {
+    setDraftRoute((current) => {
+      const waypointsList = Array.isArray(current.metadata?.waypoints) ? current.metadata.waypoints : [];
+      const normalized = normalizeStopOrders(waypointsList);
+      const { origin: currentOrigin, destination: currentDestination, stops: currentStops } = splitWaypoints(normalized);
+      if (fromIndex === toIndex) return current;
+      if (fromIndex < 0 || fromIndex >= currentStops.length) return current;
+      if (toIndex < 0 || toIndex >= currentStops.length) return current;
+      const reordered = [...currentStops];
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+      const merged = normalizeStopOrders([currentOrigin, ...reordered, currentDestination].filter(Boolean));
+      return { ...current, metadata: { ...(current.metadata || {}), waypoints: merged } };
+    });
+  }, []);
+
   const handleAddStopFromMap = (coords) => {
     const [lat, lng] = coords;
-    updateWaypoint("stop", { lat, lng, label: `Parada (${lat.toFixed(4)}, ${lng.toFixed(4)})` }, stops.length);
+    updateWaypoint("stop", { id: uid(), type: "stop", lat, lng, label: `Destino (${lat.toFixed(4)}, ${lng.toFixed(4)})` }, stops.length);
   };
 
+  const handleAddStop = useCallback(() => {
+    const id = uid();
+    updateWaypoint("stop", { id, type: "stop", lat: null, lng: null, label: "" }, stops.length);
+    setPendingFocusId(id);
+  }, [stops.length, updateWaypoint]);
+
+  const handleStopDragStart = useCallback(
+    (stopId) => (event) => {
+      if (!stopId) return;
+      setDraggingStopId(stopId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(stopId));
+    },
+    [],
+  );
+
+  const handleStopDragEnd = useCallback(() => {
+    setDraggingStopId(null);
+    setDragOverIndex(null);
+  }, []);
+
+  const handleStopDragOver = useCallback(
+    (index) => (event) => {
+      event.preventDefault();
+      if (dragOverIndex !== index) {
+        setDragOverIndex(index);
+      }
+    },
+    [dragOverIndex],
+  );
+
+  const handleStopDrop = useCallback(
+    (index) => (event) => {
+      event.preventDefault();
+      const payloadId = draggingStopId || event.dataTransfer.getData("text/plain");
+      if (!payloadId) return;
+      const fromIndex = stops.findIndex((stop) => String(stop.id) === String(payloadId));
+      if (fromIndex < 0) {
+        setDraggingStopId(null);
+        setDragOverIndex(null);
+        return;
+      }
+      reorderStops(fromIndex, index);
+      setDraggingStopId(null);
+      setDragOverIndex(null);
+    },
+    [draggingStopId, reorderStops, stops],
+  );
+
   const buildRouteFromWaypoints = async () => {
-    const ordered = normalizeRoutingWaypoints([origin, ...stops, destination].filter(Boolean));
-    if (ordered.length < 2) {
-      showToast("Defina origem e destino para gerar a rota.", "warning");
+    if (!originPoint || !destinationPoint) {
+      showToast("Defina origem (A) e destino (B) para gerar a rota.", "warning");
       return;
     }
+    const invalidStops = stops.filter((stop) => !isValidLatLng(stop));
+    if (invalidStops.length) {
+      showToast("Preencha ou remova os destinos adicionais vazios.", "warning");
+      return;
+    }
+    const ordered = normalizeRoutingWaypoints([originPoint, destinationPoint, ...stops]);
     setIsRouting(true);
     try {
       let path = [];
@@ -950,7 +1585,6 @@ export default function RoutesPage() {
       };
       userActionRef.current = true;
       setDraftRoute(nextRoute);
-      handleExportSingle(nextRoute);
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Falha ao gerar rota.", "warning");
@@ -1015,7 +1649,6 @@ export default function RoutesPage() {
       userActionRef.current = true;
       setDraftRoute(historyRoute);
       const saved = await createRoute(historyRoute);
-      handleExportSingle(historyRoute);
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Não foi possível gerar a rota do histórico.", "warning");
@@ -1062,18 +1695,24 @@ export default function RoutesPage() {
     downloadKml("routes.kml", kml);
   };
 
+  const handleAddressChange = useCallback((value) => {
+    setAddressValue(value || { formattedAddress: "" });
+  }, []);
+
   const handleSelectAddress = useCallback(
     (payload) => {
       if (!payload) return;
+      setAddressValue(payload);
       const lat = Number(payload.lat);
       const lng = Number(payload.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       focusDevice({ lat, lng }, { zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
-      setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Endereço encontrado" });
+      setSearchMarker({ lat, lng, label: payload.formattedAddress || payload.label || "Endereço encontrado" });
     },
     [focusDevice],
   );
   const handleClearSearch = useCallback(() => {
+    setAddressValue({ formattedAddress: "" });
     setSearchMarker(null);
   }, []);
 
@@ -1095,19 +1734,13 @@ export default function RoutesPage() {
 
   const showEditorCard = showEditorPanel && activePanel === "editor";
   const showRoutesCard = showRoutesPanel && activePanel === "routes";
-  const showToolsCard = showToolsPanel;
-  const editorTitle =
-    editorMode === "history" ? "Modo histórico" : editorMode === "stops" ? "Modo paradas" : "Modo manual";
+  const showToolsCard = true;
+  const editorTitle = editorMode === "history" ? "Modo histórico" : "Modo manual";
   const editorModeLabel = isEditing ? "Editando rota" : "Nova rota";
 
   useEffect(() => {
     refreshMap();
   }, [mapInvalidateKey, refreshMap]);
-
-  useEffect(() => {
-    setRoutesTopbarVisible(false);
-    return () => setRoutesTopbarVisible(true);
-  }, [setRoutesTopbarVisible]);
 
   if (accessError) {
     return (
@@ -1136,7 +1769,7 @@ export default function RoutesPage() {
     );
   }
 
-  const baseLayer = DEFAULT_MAP_LAYER;
+  const baseLayer = mapLayer || MAP_LAYER_FALLBACK;
   const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileAttribution =
     baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
@@ -1168,19 +1801,12 @@ export default function RoutesPage() {
         >
           <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
           <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
-          {searchMarker && (
-            <>
-              <CircleMarker
-                center={[searchMarker.lat, searchMarker.lng]}
-                radius={9}
-                pathOptions={{ color: "#0ea5e9", fillColor: "#38bdf8", fillOpacity: 0.35, weight: 2 }}
-              />
-              <Marker position={[searchMarker.lat, searchMarker.lng]} icon={leafletDefaultIcon}>
-                <Tooltip direction="top" sticky>
-                  {searchMarker.label || "Endereço encontrado"}
-                </Tooltip>
-              </Marker>
-            </>
+          {searchMarker && searchIcon && (
+            <Marker position={[searchMarker.lat, searchMarker.lng]} icon={searchIcon}>
+              <Tooltip direction="top" sticky>
+                {searchMarker.label || "Endereço encontrado"}
+              </Tooltip>
+            </Marker>
           )}
           {normalizedRoutes
             .filter((route) => route.points.length && (!draftRoute.id || route.id !== draftRoute.id))
@@ -1190,15 +1816,17 @@ export default function RoutesPage() {
           {normalizedDraftPoints.length ? (
             <Polyline positions={normalizedDraftPoints} pathOptions={{ color: "#22d3ee", weight: 5 }} />
           ) : null}
-          {origin ? (
-            <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
+          {originPoint && originIcon ? (
+            <Marker position={[originPoint.lat, originPoint.lng]} icon={originIcon} />
           ) : null}
-          {destination ? (
-            <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: "#f97316", fillColor: "#f97316" }} />
+          {destinationPoint && destinationIcon ? (
+            <Marker position={[destinationPoint.lat, destinationPoint.lng]} icon={destinationIcon} />
           ) : null}
-          {stops.map((stop) => (
-            <Marker key={stop.id} position={[stop.lat, stop.lng]} icon={leafletDefaultIcon} />
-          ))}
+          {stops.map((stop, index) =>
+            isValidLatLng(stop) ? (
+              <Marker key={stop.id} position={[stop.lat, stop.lng]} icon={stopIcons[index]} />
+            ) : null,
+          )}
         </AppMap>
       </div>
 
@@ -1208,42 +1836,46 @@ export default function RoutesPage() {
             <SidebarCard className="w-[640px] max-w-[calc(100vw-2rem)] md:w-[700px] lg:w-[740px]">
               <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-1">
                 <div className="flex min-w-[280px] flex-1 items-center gap-2">
-                  <AddressSearchInput
-                    state={addressSearch}
+                  <AddressAutocomplete
+                    label={null}
+                    value={addressValue}
+                    onChange={handleAddressChange}
                     onSelect={handleSelectAddress}
                     onClear={handleClearSearch}
                     variant="toolbar"
                     portalSuggestions
                     containerClassName="flex-1 min-w-0"
                     placeholder="Buscar endereço rápido"
+                    mapPreferences={mapPreferences}
                   />
                   <div className="flex shrink-0 items-center gap-1">
                     <ToolbarButton
-                      icon={SlidersHorizontal}
-                      title="Ferramentas"
-                      active={activePanel === "tools"}
-                      onClick={() => handlePanelToggle("tools")}
-                    />
-                    <ToolbarButton
-                      icon={Route}
-                      title="Editor"
-                      active={activePanel === "editor"}
-                      onClick={() => handlePanelToggle("editor")}
-                    />
-                    <ToolbarButton
                       icon={List}
                       title="Minhas rotas"
+                      iconSize={18}
                       active={activePanel === "routes"}
                       onClick={() => handlePanelToggle("routes")}
+                    />
+                    <ToolbarButton
+                      icon={Clock3}
+                      title="Criar rotas por histórico"
+                      iconSize={18}
+                      active={activePanel === "editor" && editorMode === "history"}
+                      onClick={() => {
+                        setEditorMode("history");
+                        setActivePanel("editor");
+                        setShowEditorPanel(true);
+                        resetAutocomplete();
+                      }}
                     />
                   </div>
                 </div>
                 <div className="flex min-w-max shrink-0 items-center gap-2">
-                  <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
-                  <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
-                  <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />
-                  <ToolbarButton icon={Save} title="Salvar rota" onClick={handleSave} disabled={saving} />
-                  <ToolbarButton icon={Undo2} title="Cancelar alterações" onClick={handleCancel} />
+                  <ToolbarButton icon={Square} title="Nova rota" iconSize={18} onClick={handleStartManualRoute} />
+                  <ToolbarButton icon={FileUp} title="Importar KML" iconSize={18} onClick={() => fileInputRef.current?.click()} />
+                  <ToolbarButton icon={Download} title="Exportar KML" iconSize={18} onClick={handleExportKml} />
+                  <ToolbarButton icon={Save} title="Salvar rota" iconSize={18} onClick={handleSave} disabled={saving} />
+                  <ToolbarButton icon={Undo2} title="Cancelar alterações" iconSize={18} onClick={handleCancel} disabled={!isDraftDirty} />
                 </div>
               </div>
             </SidebarCard>
@@ -1349,7 +1981,12 @@ export default function RoutesPage() {
                       </div>
                     )}
 
-                    <Button type="submit" disabled={loadingHistory || !historyDeviceId} icon={Clock3}>
+                    <Button
+                      type="submit"
+                      disabled={loadingHistory || !historyDeviceId}
+                      icon={Clock3}
+                      variant={loadingHistory ? "danger" : "primary"}
+                    >
                       {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
                     </Button>
                   </form>
@@ -1381,69 +2018,111 @@ export default function RoutesPage() {
                       className="map-compact-input"
                     />
 
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <WaypointInput
-                        label="Origem"
-                        placeholder="Endereço ou lat,long"
-                        value={origin}
-                        onChange={(value) => updateWaypoint("origin", value)}
-                        onClear={() => removeWaypoint("origin")}
-                        resetKey={autocompleteResetKey}
-                      />
-                      <WaypointInput
-                        label="Destino"
-                        placeholder="Endereço ou lat,long"
-                        value={destination}
-                        onChange={(value) => updateWaypoint("destination", value)}
-                        onClear={() => removeWaypoint("destination")}
-                        resetKey={autocompleteResetKey}
-                      />
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-white">Pontos da rota</p>
+                      <div className="route-waypoint-list">
+                        <div className="route-waypoint-row">
+                          <span className="route-waypoint-marker">A</span>
+                          <div className="route-waypoint-body">
+                            <WaypointInput
+                              label="Origem"
+                              hideLabel
+                              placeholder="Digite um endereço..."
+                              value={origin}
+                              onChange={(value) => updateWaypoint("origin", value)}
+                              onClear={() => removeWaypoint("origin")}
+                              resetKey={autocompleteResetKey}
+                            />
+                          </div>
+                        </div>
+                        <div className="route-waypoint-row">
+                          <span className="route-waypoint-marker">B</span>
+                          <div className="route-waypoint-body">
+                            <WaypointInput
+                              label="Destino"
+                              hideLabel
+                              placeholder="Digite um endereço..."
+                              value={destination}
+                              onChange={(value) => updateWaypoint("destination", value)}
+                              onClear={() => removeWaypoint("destination")}
+                              resetKey={autocompleteResetKey}
+                            />
+                          </div>
+                        </div>
+                        {stops.map((stop, index) => {
+                          const letter = waypointLetter(index + 2);
+                          const isDragging = String(draggingStopId) === String(stop.id);
+                          const isOver = dragOverIndex === index;
+                          return (
+                            <div
+                              key={stop.id}
+                              className={`route-waypoint-row ${isOver ? "is-over" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
+                              onDragOver={handleStopDragOver(index)}
+                              onDrop={handleStopDrop(index)}
+                            >
+                              <span className="route-waypoint-marker">{letter}</span>
+                              <div className="route-waypoint-body">
+                                <WaypointInput
+                                  label={`Destino ${letter}`}
+                                  hideLabel
+                                  placeholder="Digite um endereço..."
+                                  value={{ ...stop, order: index }}
+                                  onChange={(value) => updateWaypoint("stop", value, index)}
+                                  onClear={() => clearStop(index, stop.id)}
+                                  resetKey={autocompleteResetKey}
+                                  autoFocus={pendingFocusId === stop.id}
+                                  onFocus={() => {
+                                    if (pendingFocusId === stop.id) {
+                                      setPendingFocusId(null);
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div className="route-waypoint-actions">
+                                <button
+                                  type="button"
+                                  className="route-waypoint-handle"
+                                  draggable
+                                  onDragStart={handleStopDragStart(stop.id)}
+                                  onDragEnd={handleStopDragEnd}
+                                  title="Arrastar para reordenar"
+                                >
+                                  <GripVertical size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="route-waypoint-remove"
+                                  onClick={() => removeStop(index)}
+                                  title="Remover destino"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button type="button" className="route-waypoint-add" onClick={handleAddStop}>
+                        + Adicionar destino
+                      </button>
+                      <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
+                        <input
+                          type="checkbox"
+                          className="rounded border-white/30 bg-transparent"
+                          checked={mapAddsStops}
+                          onChange={(event) => setMapAddsStops(event.target.checked)}
+                        />
+                        Clique no mapa para adicionar destinos.
+                      </label>
                     </div>
 
-                    {editorMode === "stops" && (
-                      <>
-                        <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
-                            >
-                              Adicionar parada
-                            </Button>
-                          </div>
-                          {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
-                          {stops.map((stop, index) => (
-                            <div key={stop.id} className="flex items-center gap-2">
-                              <WaypointInput
-                                label={`Parada ${index + 1}`}
-                                placeholder="Endereço ou lat,long"
-                                value={{ ...stop, order: index }}
-                                onChange={(value) => updateWaypoint("stop", value, index)}
-                                onClear={() => removeStop(index)}
-                                resetKey={autocompleteResetKey}
-                              />
-                              <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
-                                Remover
-                              </Button>
-                            </div>
-                          ))}
-                          <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
-                            <input
-                              type="checkbox"
-                              className="rounded border-white/30 bg-transparent"
-                              checked={mapAddsStops}
-                              onChange={(event) => setMapAddsStops(event.target.checked)}
-                            />
-                            Clique no mapa para adicionar paradas.
-                          </label>
-                        </div>
-                      </>
-                    )}
-
                     <div className="flex flex-wrap gap-3">
-                      <Button onClick={buildRouteFromWaypoints} disabled={isRouting} icon={Play}>
+                      <Button
+                        onClick={buildRouteFromWaypoints}
+                        disabled={isRouting}
+                        icon={Play}
+                        variant={isRouting ? "danger" : "primary"}
+                      >
                         {isRouting ? "Gerando rota..." : "Gerar rota"}
                       </Button>
                     </div>
@@ -1454,7 +2133,51 @@ export default function RoutesPage() {
           )}
         </div>
 
-        <MapToolbar className="floating-toolbar pointer-events-auto" map={mapInstance}>
+        <MapToolbar
+          className="floating-toolbar pointer-events-auto"
+          map={mapInstance}
+          zoomControls={
+            <div ref={mapLayerButtonRef} className="map-layer-control">
+              <button
+                type="button"
+                className={`map-tool-button map-toolbar-zoom-button ${mapLayerMenuOpen ? "is-active" : ""}`.trim()}
+                onClick={() => setMapLayerMenuOpen((open) => !open)}
+                title="Selecionar mapa"
+                aria-label="Selecionar mapa"
+              >
+                <Layers style={{ width: 16, height: 16 }} />
+              </button>
+              {mapLayerMenuOpen && (
+                <div className="map-layer-popover">
+                  <p className="map-layer-popover-title">Selecionar mapa</p>
+                  <div className="map-layer-options">
+                    {mapLayerOptions.map((option) => {
+                      const isActive = option.layer?.key === mapLayer?.key;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`map-layer-option ${isActive ? "is-active" : ""}`.trim()}
+                          onClick={() => {
+                            if (option.layer?.key) {
+                              setMapLayerKey(option.layer.key);
+                            }
+                            setMapLayerMenuOpen(false);
+                          }}
+                        >
+                          <span className="map-layer-option-label">{option.label}</span>
+                          {option.layer?.description ? (
+                            <span className="map-layer-option-subtitle">{option.layer.description}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          }
+        >
           <div className="relative">
             <ToolbarButton
               icon={LayoutGrid}
@@ -1465,56 +2188,32 @@ export default function RoutesPage() {
             {layoutMenuOpen && (
               <div className="layout-popover right-14 top-0">
                 <label className="layout-toggle">
-                  <input type="checkbox" checked={showToolsPanel} onChange={() => setShowToolsPanel((value) => !value)} />
-                  <span>Ferramentas</span>
+                  <input
+                    type="checkbox"
+                    checked={routesTopbarVisible}
+                    onChange={() => setRoutesTopbarVisible(!routesTopbarVisible)}
+                  />
+                  <span>Mostrar Topbar</span>
                 </label>
                 <label className="layout-toggle">
-                  <input type="checkbox" checked={showEditorPanel} onChange={() => setShowEditorPanel((value) => !value)} />
+                  <input
+                    type="checkbox"
+                    checked={showEditorPanel}
+                    onChange={() => setShowEditorPanel((value) => !value)}
+                  />
                   <span>Editor</span>
                 </label>
                 <label className="layout-toggle">
-                  <input type="checkbox" checked={showRoutesPanel} onChange={() => setShowRoutesPanel((value) => !value)} />
+                  <input
+                    type="checkbox"
+                    checked={showRoutesPanel}
+                    onChange={() => setShowRoutesPanel((value) => !value)}
+                  />
                   <span>Minhas rotas</span>
                 </label>
               </div>
             )}
           </div>
-          <ToolbarButton
-            icon={PanelTop}
-            title={routesTopbarVisible ? "Ocultar topbar" : "Mostrar topbar"}
-            className={!routesTopbarVisible ? "is-active" : ""}
-            onClick={() => setRoutesTopbarVisible(!routesTopbarVisible)}
-          />
-          <ToolbarButton
-            icon={Route}
-            title="Criar rota manual"
-            active={activePanel === "editor" && editorMode === "manual"}
-            onClick={() => {
-              setActivePanel((current) => (current === "editor" && editorMode === "manual" ? null : "editor"));
-              setEditorMode("manual");
-              resetAutocomplete();
-            }}
-          />
-          <ToolbarButton
-            icon={Clock3}
-            title="Criar rota por histórico"
-            active={activePanel === "editor" && editorMode === "history"}
-            onClick={() => {
-              setActivePanel((current) => (current === "editor" && editorMode === "history" ? null : "editor"));
-              setEditorMode("history");
-              resetAutocomplete();
-            }}
-          />
-          <ToolbarButton
-            icon={MapPin}
-            title="Criar rota com paradas"
-            active={activePanel === "editor" && editorMode === "stops"}
-            onClick={() => {
-              setActivePanel((current) => (current === "editor" && editorMode === "stops" ? null : "editor"));
-              setEditorMode("stops");
-              resetAutocomplete();
-            }}
-          />
         </MapToolbar>
       </div>
 
@@ -1525,7 +2224,7 @@ export default function RoutesPage() {
         </span>
         {mapAddsStops && (
           <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
-            Clique no mapa para adicionar paradas
+            Clique no mapa para adicionar destinos
           </span>
         )}
         {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}

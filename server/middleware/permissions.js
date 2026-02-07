@@ -6,6 +6,7 @@ import { getClientById } from "../models/client.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { getGroupById } from "../models/group.js";
 import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
+import { ACCESS_REASONS } from "../utils/access-reasons.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
@@ -545,7 +546,9 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
           requireFull,
           permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
         });
-        return next(createError(403, "Sem permissão para acessar este recurso"));
+        return next(createError(403, "Sem permissão para acessar este recurso", {
+          reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+        }));
       }
 
       if (requireFull && resolved.access !== "full") {
@@ -561,7 +564,9 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
           requireFull,
           permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
         });
-        return next(createError(403, "Acesso restrito para esta operação"));
+        return next(createError(403, "Acesso restrito para esta operação", {
+          reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+        }));
       }
 
       return next();
@@ -608,7 +613,9 @@ export function authorizeAnyPermission({ permissions = [], requireFull = false }
           })),
           permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
         });
-        return next(createError(403, "Sem permissão para acessar este recurso"));
+        return next(createError(403, "Sem permissão para acessar este recurso", {
+          reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+        }));
       }
 
       return next();
@@ -663,7 +670,9 @@ export function authorizePermissionOrEmpty({
         return res.status(200).json(payload ?? { data: [], total: 0 });
       }
 
-      return next(createError(403, "Sem permissão para acessar este recurso"));
+      return next(createError(403, "Sem permissão para acessar este recurso", {
+        reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+      }));
     } catch (error) {
       return next(error);
     }

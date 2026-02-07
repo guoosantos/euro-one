@@ -111,8 +111,9 @@ function normaliseGeofences(payload) {
   return list.map((item) => normaliseGeofence(item)).filter(Boolean);
 }
 
-export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
+export function useGeofences({ autoRefreshMs = 60_000, clientId } = {}) {
   const { tenantId, user } = useTenant();
+  const resolvedClientId = clientId !== undefined ? clientId : tenantId;
   const [geofences, setGeofences] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -128,7 +129,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       setLoading(true);
       setError(null);
       const { data, error: requestError, aborted, status, forbidden } = await safeApi.get(API_ROUTES.geofences, {
-        params: tenantId ? { clientId: tenantId } : undefined,
+        params: resolvedClientId ? { clientId: resolvedClientId } : undefined,
       });
       if (aborted || cancelled) return;
 
@@ -185,7 +186,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [autoRefreshMs, tenantId, version, autoRefreshPaused]);
+  }, [autoRefreshMs, resolvedClientId, version, autoRefreshPaused]);
 
   const refresh = useCallback(() => {
     setAutoRefreshPaused(false);
@@ -197,28 +198,28 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     async (payload) => {
       const { data, error, aborted } = await safeApi.post(API_ROUTES.geofences, {
         ...payload,
-        clientId: payload?.clientId ?? tenantId ?? user?.clientId ?? null,
+        clientId: payload?.clientId ?? resolvedClientId ?? tenantId ?? user?.clientId ?? null,
       });
       if (aborted) return null;
       if (error) throw error;
       refresh();
       return data?.geofence ?? data ?? null;
     },
-    [refresh, tenantId, user?.clientId],
+    [refresh, resolvedClientId, tenantId, user?.clientId],
   );
 
   const updateGeofence = useCallback(
     async (id, payload) => {
       const { data, error, aborted } = await safeApi.put(`${API_ROUTES.geofences}/${id}`, {
         ...payload,
-        clientId: payload?.clientId ?? tenantId ?? user?.clientId ?? null,
+        clientId: payload?.clientId ?? resolvedClientId ?? tenantId ?? user?.clientId ?? null,
       });
       if (aborted) return null;
       if (error) throw error;
       refresh();
       return data?.geofence ?? data ?? null;
     },
-    [refresh, tenantId, user?.clientId],
+    [refresh, resolvedClientId, tenantId, user?.clientId],
   );
 
   const deleteGeofence = useCallback(

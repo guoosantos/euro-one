@@ -7268,6 +7268,14 @@
         "active": true,
         "category": "Logística",
         "requiresHandling": false
+      },
+      "powerCut,powerCut": {
+        "displayName": "Evento desconhecido (powerCut,powerCut)",
+        "customName": "Evento desconhecido (powerCut,powerCut)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
       }
     }
   },
@@ -7316,6 +7324,14 @@
       "commandResult": {
         "displayName": "Evento desconhecido (commandResult)",
         "customName": "Evento desconhecido (commandResult)",
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
+        "requiresHandling": false
+      },
+      "deviceOffline": {
+        "displayName": "Evento desconhecido (deviceOffline)",
+        "customName": "Evento desconhecido (deviceOffline)",
         "severity": "warning",
         "active": true,
         "category": "Segurança",
@@ -13615,6 +13631,22 @@
         "severity": "warning",
         "active": true,
         "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceOnline": {
+        "displayName": "Evento desconhecido (deviceOnline)",
+        "customName": "Evento desconhecido (deviceOnline)",
+        "severity": "warning",
+        "active": true,
+        "category": "Logística",
+        "requiresHandling": false
+      },
+      "deviceOffline": {
+        "displayName": "Evento desconhecido (deviceOffline)",
+        "customName": "Evento desconhecido (deviceOffline)",
+        "severity": "warning",
+        "active": true,
+        "category": "Segurança",
         "requiresHandling": false
       }
     },

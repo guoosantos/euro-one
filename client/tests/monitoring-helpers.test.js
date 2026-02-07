@@ -12,6 +12,8 @@ import {
   minutesSince,
   pickCoordinate,
   pickSpeed,
+  resolveVehicleDisplayName,
+  resolveVehicleInfo,
 } from "../src/lib/monitoring-helpers.js";
 
 test("getDeviceKey normaliza vários identificadores", () => {
@@ -81,4 +83,22 @@ test("matchesAnyTenant aceita tenants alternativos do espelhamento", () => {
   assert.equal(matchesAnyTenant(entry, ["owner-1"]), true);
   assert.equal(matchesAnyTenant(entry, ["target-1", "owner-1"]), true);
   assert.equal(matchesAnyTenant(entry, []), true);
+});
+
+test("resolveVehicleDisplayName prioriza marca+modelo e evita duplicar marca", () => {
+  const info = resolveVehicleInfo({ vehicle: { brand: "Scania", model: "R450" } });
+  assert.equal(resolveVehicleDisplayName(info), "Scania R450");
+
+  const duplicated = resolveVehicleInfo({ vehicle: { brand: "Scania", model: "Scania R450" } });
+  assert.equal(resolveVehicleDisplayName(duplicated), "Scania R450");
+});
+
+test("resolveVehicleDisplayName usa descrição quando modelo é código interno", () => {
+  const info = resolveVehicleInfo({ vehicle: { model: "A6C2", description: "Scania R450" } });
+  assert.equal(resolveVehicleDisplayName(info), "Scania R450");
+});
+
+test("resolveVehicleDisplayName ignora código interno sem fallback", () => {
+  const info = resolveVehicleInfo({ vehicle: { model: "A6C2" } });
+  assert.equal(resolveVehicleDisplayName(info), "—");
 });

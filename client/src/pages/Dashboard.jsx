@@ -419,7 +419,7 @@ export default function Dashboard() {
                 <Button variant="ghost" size="sm" onClick={resetLayout} className="border border-white/10">
                   Redefinir layout
                 </Button>
-                <Button onClick={handleQuickReport} disabled={generatingReport}>
+                <Button onClick={handleQuickReport} disabled={generatingReport} variant={generatingReport ? "danger" : "primary"}>
                   {generatingReport ? "Gerando…" : "Gerar últimas 24h"}
                 </Button>
               </div>

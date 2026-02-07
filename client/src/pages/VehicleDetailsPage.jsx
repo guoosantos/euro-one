@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Button from "../ui/Button";
 import { CoreApi } from "../lib/coreApi.js";
+import api from "../lib/api.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 import safeApi from "../lib/safe-api.js";
@@ -231,6 +232,10 @@ export default function VehicleDetailsPage() {
   const [chips, setChips] = useState([]);
   const [vehicleAttributes, setVehicleAttributes] = useState([]);
   const [clients, setClients] = useState([]);
+  const [serviceOrders, setServiceOrders] = useState([]);
+  const [serviceOrdersLoading, setServiceOrdersLoading] = useState(false);
+  const [serviceOrdersError, setServiceOrdersError] = useState(null);
+  const [serviceOrdersPage, setServiceOrdersPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -244,18 +249,57 @@ export default function VehicleDetailsPage() {
   const [lastPositionAddress, setLastPositionAddress] = useState(null);
   const [lastPositionLoading, setLastPositionLoading] = useState(false);
   const geocodeCacheRef = useRef(new Map());
+  const serviceOrdersPageSize = 6;
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const isMirrorContextActive = Boolean(user?.activeMirrorOwnerClientId);
 
-  const trackedDeviceIds = useMemo(() => {
+  const linkedDeviceCandidates = useMemo(() => {
     if (!vehicle) return [];
-    const list = Array.isArray(vehicle.devices) ? vehicle.devices : [];
-    return list
-      .map((item) => toDeviceKey(item.traccarId ?? item.id ?? item.uniqueId))
-      .filter(Boolean);
-  }, [vehicle]);
+    const vehicleId = vehicle?.id ? String(vehicle.id) : null;
+    const deduped = new Map();
+
+    const pushDevice = (device) => {
+      if (!device) return;
+      const key = toDeviceKey(device.traccarId ?? device.id ?? device.uniqueId);
+      if (!key || deduped.has(key)) return;
+      deduped.set(key, { ...device, __deviceKey: key });
+    };
+
+    if (vehicleId && Array.isArray(devices)) {
+      devices.forEach((device) => {
+        if (device?.vehicleId && String(device.vehicleId) === vehicleId) {
+          pushDevice(device);
+        }
+      });
+    }
+
+    if (vehicle?.deviceId && Array.isArray(devices)) {
+      const byId = devices.find((device) => String(device?.id) === String(vehicle.deviceId));
+      pushDevice(byId);
+    }
+
+    if (Array.isArray(vehicle?.devices)) {
+      vehicle.devices.forEach(pushDevice);
+    }
+    if (vehicle?.device) {
+      pushDevice(vehicle.device);
+    }
+    if (vehicle?.primaryDevice) {
+      pushDevice(vehicle.primaryDevice);
+    }
+
+    return Array.from(deduped.values());
+  }, [devices, vehicle]);
+
+  const trackedDeviceIds = useMemo(
+    () =>
+      linkedDeviceCandidates
+        .map((item) => item.__deviceKey || toDeviceKey(item.traccarId ?? item.id ?? item.uniqueId))
+        .filter(Boolean),
+    [linkedDeviceCandidates],
+  );
 
   const { getDevicePosition, getDeviceStatus, getDeviceLastSeen, getDeviceCoordinates } = useTraccarDevices({
     deviceIds: trackedDeviceIds,
@@ -305,6 +349,16 @@ export default function VehicleDetailsPage() {
     return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
   }, [lastPositionInfo.timestamp]);
 
+  const formatServiceOrderDate = useCallback((value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  }, []);
+
   useEffect(() => {
     const { lat, lng } = lastPositionInfo;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -350,8 +404,7 @@ export default function VehicleDetailsPage() {
   }, [lastPositionInfo]);
 
   const linkedDevices = useMemo(() => {
-    const list = Array.isArray(vehicle?.devices) ? vehicle.devices : [];
-    return list
+    return linkedDeviceCandidates
       .map((device) => {
         const position = getDevicePosition(device) || {};
         const lastSeen = getDeviceLastSeen(device, position);
@@ -364,7 +417,7 @@ export default function VehicleDetailsPage() {
         const bTime = b.lastUpdate ? new Date(b.lastUpdate).getTime() : 0;
         return bTime - aTime;
       });
-  }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, vehicle]);
+  }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, linkedDeviceCandidates]);
 
   useEffect(() => {
     if (!linkedDevices.length) {
@@ -508,6 +561,7 @@ export default function VehicleDetailsPage() {
     try {
       const params = resolvedClientId ? { clientId: resolvedClientId } : {};
       params.accessible = true;
+      params.skipPositions = true;
       if (isAdmin) {
         params.includeUnlinked = true;
       } else {
@@ -611,6 +665,28 @@ export default function VehicleDetailsPage() {
     loadData();
   }, [resolvedClientId, id]);
 
+  const loadServiceOrders = useCallback(async () => {
+    if (!vehicle?.id) return;
+    setServiceOrdersLoading(true);
+    setServiceOrdersError(null);
+    try {
+      const params = {
+        vehicleId: vehicle.id,
+        clientId: resolvedClientId || vehicle.clientId || undefined,
+      };
+      const response = await api.get("core/service-orders", { params });
+      const list = Array.isArray(response?.data?.items) ? response.data.items : [];
+      setServiceOrders(list);
+      setServiceOrdersPage(1);
+    } catch (requestError) {
+      console.error("Falha ao carregar ordens de serviço do veículo", requestError);
+      setServiceOrders([]);
+      setServiceOrdersError(new Error("Não foi possível carregar as ordens de serviço."));
+    } finally {
+      setServiceOrdersLoading(false);
+    }
+  }, [resolvedClientId, vehicle?.clientId, vehicle?.id]);
+
   const handleSaveVehicle = async (payload) => {
     if (!vehicle) return;
     const clientId = payload.clientId || vehicle.clientId || resolvedClientId;
@@ -703,6 +779,30 @@ export default function VehicleDetailsPage() {
     }
     return baseTabs;
   }, [isAdmin]);
+
+  const sortedServiceOrders = useMemo(() => {
+    if (!Array.isArray(serviceOrders)) return [];
+    return [...serviceOrders].sort((a, b) => {
+      const aDate = new Date(a?.startAt || a?.createdAt || a?.updatedAt || 0).getTime();
+      const bDate = new Date(b?.startAt || b?.createdAt || b?.updatedAt || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [serviceOrders]);
+
+  const pagedServiceOrders = useMemo(() => {
+    const start = (serviceOrdersPage - 1) * serviceOrdersPageSize;
+    return sortedServiceOrders.slice(start, start + serviceOrdersPageSize);
+  }, [serviceOrdersPage, serviceOrdersPageSize, sortedServiceOrders]);
+
+  const serviceOrdersPageCount = useMemo(() => {
+    if (!sortedServiceOrders.length) return 1;
+    return Math.ceil(sortedServiceOrders.length / serviceOrdersPageSize);
+  }, [serviceOrdersPageSize, sortedServiceOrders.length]);
+
+  useEffect(() => {
+    if (activeTab !== "os") return;
+    loadServiceOrders();
+  }, [activeTab, loadServiceOrders]);
 
   return (
     <div className="space-y-6">
@@ -1045,8 +1145,101 @@ export default function VehicleDetailsPage() {
           )}
 
           {activeTab === "os" && (
-            <DataCard>
-              <EmptyState title="Nenhuma ordem de serviço registrada." subtitle="Crie uma nova OS para este veículo." />
+            <DataCard className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-white">Ordens de Serviço</h2>
+                <button
+                  type="button"
+                  onClick={loadServiceOrders}
+                  className="rounded-xl bg-white/10 px-3 py-2 text-xs text-white/70 transition hover:bg-white/15"
+                >
+                  Atualizar
+                </button>
+              </div>
+
+              {serviceOrdersError && (
+                <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                  {serviceOrdersError.message}
+                </div>
+              )}
+
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <DataTable>
+                  <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+                    <tr className="text-left">
+                      <th className="px-4 py-3">OS</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Técnico</th>
+                      <th className="px-4 py-3">Data</th>
+                      <th className="px-4 py-3">Endereço</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {serviceOrdersLoading && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-sm text-white/60">
+                          Carregando ordens de serviço...
+                        </td>
+                      </tr>
+                    )}
+                    {!serviceOrdersLoading && pagedServiceOrders.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6">
+                          <EmptyState
+                            title="Nenhuma ordem de serviço registrada."
+                            subtitle="Crie uma nova OS para este veículo."
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    {!serviceOrdersLoading &&
+                      pagedServiceOrders.map((order) => (
+                        <tr key={order.id} className="hover:bg-white/5">
+                          <td className="px-4 py-3">
+                            <Link
+                              to={`/services/${order.id}`}
+                              className="text-sm text-sky-200 hover:text-sky-100"
+                            >
+                              {order.osInternalId || order.id?.slice(0, 8)}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-white/80">{order.status || "—"}</td>
+                          <td className="px-4 py-3 text-sm text-white/70">{order.technicianName || "—"}</td>
+                          <td className="px-4 py-3 text-sm text-white/70">
+                            {formatServiceOrderDate(order.startAt || order.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-white/70">{order.address || "—"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </DataTable>
+              </div>
+
+              {serviceOrdersPageCount > 1 && (
+                <div className="flex items-center justify-between text-xs text-white/60">
+                  <span>
+                    Página {serviceOrdersPage} de {serviceOrdersPageCount}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setServiceOrdersPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={serviceOrdersPage <= 1}
+                      className="rounded-lg border border-white/10 px-3 py-1 text-white/70 transition hover:border-white/30 disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setServiceOrdersPage((prev) => Math.min(prev + 1, serviceOrdersPageCount))}
+                      disabled={serviceOrdersPage >= serviceOrdersPageCount}
+                      className="rounded-lg border border-white/10 px-3 py-1 text-white/70 transition hover:border-white/30 disabled:opacity-50"
+                    >
+                      Próxima
+                    </button>
+                  </div>
+                </div>
+              )}
             </DataCard>
           )}
 

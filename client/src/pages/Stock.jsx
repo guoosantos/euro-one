@@ -15,7 +15,6 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
@@ -226,8 +225,8 @@ export default function Stock() {
     longitude: "",
     notes: "",
   });
-  const mapSearchState = useAddressSearchState({ initialValue: "" });
-  const transferAddressState = useAddressSearchState({ initialValue: "" });
+  const [mapAddressValue, setMapAddressValue] = useState({ formattedAddress: "" });
+  const [transferAddressValue, setTransferAddressValue] = useState({ formattedAddress: "" });
   const [generalAddressResetKey, setGeneralAddressResetKey] = useState(0);
   const [generalAddressSelection, setGeneralAddressSelection] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
@@ -580,7 +579,7 @@ export default function Stock() {
       destinationTechnicianId: "",
       destinationType: prev.destinationType || "client",
     }));
-    transferAddressState.setQuery("");
+    setTransferAddressValue({ formattedAddress: "" });
     setTransferSearch({ model: "", deviceId: "", client: "" });
     setTransferDrawerOpen(true);
   };
@@ -609,23 +608,28 @@ export default function Stock() {
     setTransferDrawerOpen(false);
   };
 
-  const handleSelectRegion = (option) => {
-    if (!option) return;
-    if (!Number.isFinite(option.lat) || !Number.isFinite(option.lng)) return;
+  const handleSelectRegion = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setMapAddressValue(nextValue);
+    if (!Number.isFinite(nextValue.lat) || !Number.isFinite(nextValue.lng)) {
+      setRegionTarget(null);
+      return;
+    }
     setRegionTarget({
-      lat: option.lat,
-      lng: option.lng,
-      label: option.label || option.concise,
+      lat: nextValue.lat,
+      lng: nextValue.lng,
+      label: nextValue.formattedAddress || "Local encontrado",
     });
   };
 
-  const handleSelectTransferAddress = (option) => {
-    if (!option) return;
+  const handleSelectTransferAddress = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setTransferAddressValue(nextValue);
     setTransferForm((prev) => ({
       ...prev,
-      address: option.label || option.concise || prev.address,
-      latitude: option.lat ?? prev.latitude,
-      longitude: option.lng ?? prev.longitude,
+      address: nextValue.formattedAddress || "",
+      latitude: nextValue.lat ?? "",
+      longitude: nextValue.lng ?? "",
     }));
   };
 
@@ -667,8 +671,8 @@ export default function Stock() {
       latitude: technician.latitude ?? prev.latitude,
       longitude: technician.longitude ?? prev.longitude,
     }));
-    transferAddressState.setQuery(resolvedAddress || "");
-  }, [technicianOptions, transferAddressState, transferForm.destinationTechnicianId, transferForm.destinationType]);
+    setTransferAddressValue({ formattedAddress: resolvedAddress || "" });
+  }, [technicianOptions, transferForm.destinationTechnicianId, transferForm.destinationType]);
 
   const handleDeleteDevice = async (device) => {
     if (!device?.id) return;
@@ -1008,8 +1012,10 @@ export default function Stock() {
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-white">Busca por região</h2>
             <div className="flex flex-wrap gap-3">
-              <AddressSearchInput
-                state={mapSearchState}
+              <AddressAutocomplete
+                label={null}
+                value={mapAddressValue}
+                onChange={handleSelectRegion}
                 onSelect={handleSelectRegion}
                 placeholder="Buscar endereço"
                 variant="toolbar"
@@ -1295,8 +1301,10 @@ export default function Stock() {
           </div>
           <div className="space-y-2">
             <span className="text-xs text-white/60">Endereço da transferência</span>
-            <AddressSearchInput
-              state={transferAddressState}
+            <AddressAutocomplete
+              label={null}
+              value={transferAddressValue}
+              onChange={handleSelectTransferAddress}
               onSelect={handleSelectTransferAddress}
               placeholder="Buscar endereço"
               variant="toolbar"
