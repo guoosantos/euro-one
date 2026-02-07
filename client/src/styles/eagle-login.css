@@ -1,16 +1,16 @@
 :root {
-  --eagle-bg: #0a0c12;
-  --eagle-card: rgba(255, 255, 255, 0.06);
-  --eagle-card-strong: rgba(255, 255, 255, 0.1);
-  --eagle-stroke: rgba(255, 255, 255, 0.12);
-  --eagle-text: rgba(255, 255, 255, 0.92);
-  --eagle-muted: rgba(255, 255, 255, 0.62);
-  --eagle-muted-2: rgba(255, 255, 255, 0.45);
-  --eagle-field: rgba(255, 255, 255, 0.06);
-  --eagle-field-focus: rgba(255, 255, 255, 0.1);
+  --eagle-bg: #070b10;
+  --eagle-card: rgba(12, 20, 31, 0.6);
+  --eagle-card-strong: rgba(16, 27, 41, 0.8);
+  --eagle-stroke: rgba(28, 42, 59, 0.8);
+  --eagle-text: rgba(230, 237, 243, 0.92);
+  --eagle-muted: rgba(169, 180, 194, 0.7);
+  --eagle-muted-2: rgba(126, 138, 154, 0.6);
+  --eagle-field: var(--field-bg);
+  --eagle-field-focus: var(--field-bg-focus);
   --eagle-shadow: 0 20px 70px rgba(0, 0, 0, 0.55);
-  --eagle-brand: #2ea7ff;
-  --eagle-brand-2: #7c5cff;
+  --eagle-brand: #3ba6ff;
+  --eagle-brand-2: #4cc3ff;
   --eagle-ok: #37d67a;
   --eagle-radius: 16px;
   --eagle-radius-2: 20px;
@@ -49,9 +49,9 @@
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(1000px 600px at 20% 15%, rgba(46, 167, 255, 0.2), transparent 60%),
-    radial-gradient(900px 520px at 85% 20%, rgba(124, 92, 255, 0.18), transparent 60%),
-    radial-gradient(700px 450px at 50% 90%, rgba(46, 167, 255, 0.1), transparent 60%),
+    radial-gradient(1000px 600px at 20% 15%, rgba(59, 166, 255, 0.2), transparent 60%),
+    radial-gradient(900px 520px at 85% 20%, rgba(19, 34, 53, 0.35), transparent 60%),
+    radial-gradient(700px 450px at 50% 90%, rgba(76, 195, 255, 0.1), transparent 60%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 40%);
   pointer-events: none;
 }
@@ -93,8 +93,8 @@
   position: absolute;
   inset: -2px;
   background:
-    radial-gradient(420px 200px at 25% 0%, rgba(46, 167, 255, 0.22), transparent 60%),
-    radial-gradient(420px 200px at 80% 0%, rgba(124, 92, 255, 0.18), transparent 55%);
+    radial-gradient(420px 200px at 25% 0%, rgba(59, 166, 255, 0.22), transparent 60%),
+    radial-gradient(420px 200px at 80% 0%, rgba(76, 195, 255, 0.18), transparent 55%);
   opacity: 0.9;
   pointer-events: none;
 }
