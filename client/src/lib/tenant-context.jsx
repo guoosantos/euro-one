@@ -24,10 +24,65 @@ import { useEagleLoaderStore } from "./eagle-loader-store.js";
 
 const TenantContext = createContext(null);
 const MIRROR_OWNER_STORAGE_KEY = "euro-one.mirror.owner-client-id";
+const PERMISSION_SNAPSHOT_STORAGE_KEY = "euro-one.permission.bootstrap-snapshot";
 const BOOT_TIMEOUT_MS = 10000;
 const SWITCH_TIMEOUT_MS = 10000;
 const CONTEXT_REFRESH_TIMEOUT_MS = 12000;
 const PERMISSION_READY_TIMEOUT_MS = 12000;
+const PERMISSION_SNAPSHOT_MAX_AGE_MS = 5 * 60 * 1000;
+
+function clearStoredPermissionSnapshot() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.removeItem(PERMISSION_SNAPSHOT_STORAGE_KEY);
+    window.sessionStorage?.removeItem(PERMISSION_SNAPSHOT_STORAGE_KEY);
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
+function getStoredPermissionSnapshot(userId) {
+  if (typeof window === "undefined" || !userId) return null;
+  try {
+    const raw =
+      window.sessionStorage?.getItem(PERMISSION_SNAPSHOT_STORAGE_KEY) ||
+      window.localStorage?.getItem(PERMISSION_SNAPSHOT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const savedAt = Number(parsed?.savedAt || 0);
+    if (!savedAt || Date.now() - savedAt > PERMISSION_SNAPSHOT_MAX_AGE_MS) {
+      clearStoredPermissionSnapshot();
+      return null;
+    }
+    if (String(parsed?.userId ?? "") !== String(userId)) {
+      return null;
+    }
+    const context = parsed?.permissionContext;
+    if (!context || typeof context !== "object") return null;
+    return {
+      permissionContext: {
+        permissions: context.permissions && typeof context.permissions === "object" ? context.permissions : null,
+        isFull: Boolean(context.isFull),
+        permissionGroupId: context.permissionGroupId ?? null,
+      },
+      permissionTenantId: parsed?.permissionTenantId ?? null,
+      permissionOwnerClientId: parsed?.permissionOwnerClientId ?? null,
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function setStoredPermissionSnapshot(snapshot) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = JSON.stringify(snapshot);
+    window.localStorage?.setItem(PERMISSION_SNAPSHOT_STORAGE_KEY, raw);
+    window.sessionStorage?.setItem(PERMISSION_SNAPSHOT_STORAGE_KEY, raw);
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
 
 function createTimeoutError(stage, timeoutMs) {
   const error = new Error(`Tempo limite ao carregar ${stage}.`);
@@ -291,6 +346,11 @@ export function TenantProvider({ children }) {
   const storedActiveMirrorOwnerClientId =
     getStoredMirrorOwnerId() ?? stored?.user?.activeMirrorOwnerClientId ?? null;
   const storedMirrorContextMode = stored?.user?.mirrorContextMode ?? null;
+  const storedPermissionSnapshot = useMemo(
+    () => getStoredPermissionSnapshot(storedUserId),
+    [storedUserId],
+  );
+  const hasWarmPermissionSnapshot = Boolean(stored?.token && stored?.user && storedPermissionSnapshot);
 
   const [tenantId, setTenantIdState] = useState(
     hasStoredTenantId ? storedTenantId : stored?.user?.clientId ?? null,
@@ -307,17 +367,23 @@ export function TenantProvider({ children }) {
   const [mirrorModeEnabled, setMirrorModeEnabled] = useState(null);
   const [mirrorContextMode, setMirrorContextMode] = useState(storedMirrorContextMode);
   const [loading, setLoading] = useState(false);
-  const [initialising, setInitialising] = useState(true);
+  const [initialising, setInitialising] = useState(!hasWarmPermissionSnapshot);
   const [error, setError] = useState(null);
-  const [permissionContext, setPermissionContext] = useState({
-    permissions: null,
-    isFull: false,
-    permissionGroupId: null,
-  });
-  const [permissionOwnerClientId, setPermissionOwnerClientId] = useState(null);
+  const [permissionContext, setPermissionContext] = useState(
+    storedPermissionSnapshot?.permissionContext || {
+      permissions: null,
+      isFull: false,
+      permissionGroupId: null,
+    },
+  );
+  const [permissionOwnerClientId, setPermissionOwnerClientId] = useState(
+    storedPermissionSnapshot?.permissionOwnerClientId ?? null,
+  );
   const [permissionLoading, setPermissionLoading] = useState(false);
-  const [permissionTenantId, setPermissionTenantId] = useState(null);
-  const [permissionLoaded, setPermissionLoaded] = useState(false);
+  const [permissionTenantId, setPermissionTenantId] = useState(
+    storedPermissionSnapshot?.permissionTenantId ?? null,
+  );
+  const [permissionLoaded, setPermissionLoaded] = useState(hasWarmPermissionSnapshot);
   const [permissionError, setPermissionError] = useState(null);
   const [accessScopeLoaded, setAccessScopeLoaded] = useState(false);
   const [allowedClientIds, setAllowedClientIds] = useState(null);
@@ -569,15 +635,29 @@ export function TenantProvider({ children }) {
     const fallbackTenantId = currentUser?.clientId ?? null;
     const isGlobalAdminTenant = isAdmin && (resolvedTenantId === null || resolvedTenantId === undefined);
     const effectiveTenantId = isGlobalAdminTenant ? null : (resolvedTenantId ?? fallbackTenantId ?? null);
-    setPermissionContext({
+    const nextPermissionContext = {
       permissions,
       isFull: Boolean(payload?.isFull || payload?.level === "full"),
       permissionGroupId: payload?.permissionGroupId ?? null,
+    };
+    setPermissionContext({
+      permissions: nextPermissionContext.permissions,
+      isFull: nextPermissionContext.isFull,
+      permissionGroupId: nextPermissionContext.permissionGroupId,
     });
     setPermissionTenantId(effectiveTenantId);
     setPermissionOwnerClientId(ownerClientId ?? null);
     setPermissionLoaded(true);
     setPermissionLoading(false);
+    if (currentUser?.id) {
+      setStoredPermissionSnapshot({
+        userId: currentUser.id,
+        savedAt: Date.now(),
+        permissionContext: nextPermissionContext,
+        permissionTenantId: effectiveTenantId,
+        permissionOwnerClientId: ownerClientId ?? null,
+      });
+    }
   }, []);
 
   const applyAccessScope = useCallback((payload) => {
@@ -1439,9 +1519,13 @@ export function TenantProvider({ children }) {
         }
         setStoredSession({ token, user: nextUser });
 
-        setPermissionLoading(true);
-        setPermissionLoaded(false);
-        setPermissionTenantId(null);
+        if (!permissionLoadedRef.current) {
+          setPermissionLoading(true);
+          setPermissionLoaded(false);
+          setPermissionTenantId(null);
+        } else {
+          setPermissionLoading(false);
+        }
         const bootstrapResponse = await fetchBootstrap({
           clientId: resolvedClientId ?? tenantIdRef.current ?? null,
           force: true,
@@ -2294,6 +2378,7 @@ export function TenantProvider({ children }) {
         setPermissionTenantId(null);
         setPermissionOwnerClientId(null);
         setPermissionLoading(false);
+        clearStoredPermissionSnapshot();
         return;
       }
       setPermissionLoading(true);
@@ -2365,6 +2450,7 @@ export function TenantProvider({ children }) {
       setPermissionTenantId(null);
       setPermissionOwnerClientId(null);
       setPermissionLoading(false);
+      clearStoredPermissionSnapshot();
       return () => {
         cancelled = true;
       };
@@ -2431,6 +2517,7 @@ export function TenantProvider({ children }) {
       setPermissionLoading(false);
       setPermissionLoaded(false);
       setPermissionError(null);
+      clearStoredPermissionSnapshot();
       setLoading(false);
       setInitialising(false);
     });
@@ -2682,6 +2769,7 @@ export function TenantProvider({ children }) {
         errorTs: 0,
       };
       bootPermissionLoggedRef.current = false;
+      clearStoredPermissionSnapshot();
     },
     [logBoot],
   );
@@ -2722,6 +2810,7 @@ export function TenantProvider({ children }) {
       setPermissionLoading(false);
       setPermissionLoaded(false);
       setPermissionError(null);
+      clearStoredPermissionSnapshot();
     }
   }, []);
 
