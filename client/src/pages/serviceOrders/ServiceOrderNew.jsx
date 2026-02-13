@@ -791,6 +791,7 @@ export default function ServiceOrderNew() {
             <VehicleSelector
               label="Buscar veículo"
               placeholder="Busque por placa ou nome"
+              allowUnlinked
               onChange={(vehicleId, vehicle) => {
                 setField("vehicleId", vehicleId || "");
                 setField("vehiclePlate", vehicle?.plate || "");

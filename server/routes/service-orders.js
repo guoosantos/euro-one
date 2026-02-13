@@ -234,7 +234,6 @@ async function listServiceOrders({ where }) {
       vehicle: { select: { id: true, plate: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
-    take: 500,
   });
 }
 
@@ -354,13 +353,36 @@ router.get(
         : { in: mirrorVehicleIds.map(String) };
     }
 
+    const requestedPage = Number.parseInt(req.query?.page, 10);
+    const requestedPageSize = Number.parseInt(req.query?.pageSize ?? req.query?.limit, 10);
+    const usePagination =
+      Number.isFinite(requestedPage) || Number.isFinite(requestedPageSize);
+
     const items = await listServiceOrders({ where });
     const filteredItems =
       Array.isArray(mirrorVehicleIds) && mirrorVehicleIds.length
         ? items.filter((item) => item?.vehicleId && mirrorVehicleIds.includes(String(item.vehicleId)))
         : items;
+    const totalItems = filteredItems.length;
+    const pageSize = usePagination
+      ? Math.min(500, Math.max(1, requestedPageSize || 50))
+      : Math.max(totalItems, 1);
+    const totalPages = usePagination ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
+    const page = usePagination ? Math.min(Math.max(1, requestedPage || 1), totalPages) : 1;
+    const startIndex = usePagination ? (page - 1) * pageSize : 0;
+    const pageItems = usePagination
+      ? filteredItems.slice(startIndex, startIndex + pageSize)
+      : filteredItems;
 
-    return res.json({ ok: true, items: filteredItems });
+    return res.json({
+      ok: true,
+      items: pageItems,
+      page,
+      pageSize,
+      totalItems,
+      totalPages,
+      pagination: { page, pageSize, totalItems, totalPages },
+    });
   } catch (error) {
     if (error?.status && error.status < 500) {
       return res.status(error.status).json({

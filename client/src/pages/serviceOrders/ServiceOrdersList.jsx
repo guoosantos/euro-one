@@ -9,6 +9,7 @@ import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
 import AutocompleteSelect from "../../components/ui/AutocompleteSelect.jsx";
 import DataState from "../../ui/DataState.jsx";
+import DataTablePagination from "../../ui/DataTablePagination.jsx";
 import api from "../../lib/api.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
 import { usePermissionGate, usePermissions } from "../../lib/permissions/permission-gate.js";
@@ -37,6 +38,8 @@ const TYPE_CHIPS = [
   { key: "REMANEJAMENTO", label: "REMANEJAMENTO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-remanejamento" } },
   { key: "REINSTALACAO", label: "REINSTALAÇÃO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-reinstall" } },
 ];
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const DEFAULT_PAGE_SIZE = 50;
 
 function formatDate(value) {
   if (!value) return "—";
@@ -96,6 +99,8 @@ export default function ServiceOrdersList() {
   const { confirmDelete } = useConfirmDialog();
   const { toast, showToast } = usePageToast();
   const [activeType, setActiveType] = useState("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const retryCooldownRef = useRef(0);
 
   useEffect(() => {
@@ -121,13 +126,13 @@ export default function ServiceOrdersList() {
     setLoading(true);
     setError(null);
     setActionError(null);
-    const params = new URLSearchParams();
+    const params = {};
     try {
-      if (status) params.set("status", status);
-      if (q) params.set("q", q);
-      if (from) params.set("from", new Date(from).toISOString());
-      if (to) params.set("to", new Date(to).toISOString());
-      if (clientId) params.set("clientId", clientId);
+      if (status) params.status = status;
+      if (q) params.q = q;
+      if (from) params.from = new Date(from).toISOString();
+      if (to) params.to = new Date(to).toISOString();
+      if (clientId) params.clientId = clientId;
 
       const response = await api.get("core/service-orders", { params });
       setItems(response?.data?.items || []);
@@ -141,7 +146,7 @@ export default function ServiceOrdersList() {
         return;
       }
       console.error("Falha ao buscar ordens de serviço", {
-        params: Object.fromEntries(params.entries()),
+        params,
         status: statusCode,
         error,
       });
@@ -201,6 +206,8 @@ export default function ServiceOrdersList() {
         if (fromDate && parsed < fromDate) return false;
         if (toDate && parsed > toDate) return false;
       }
+      if (status && String(item?.status || "") !== String(status)) return false;
+      if (clientId && String(item?.clientId || "") !== String(clientId)) return false;
       if (!term) return true;
       const values = [
         item.osInternalId,
@@ -213,7 +220,7 @@ export default function ServiceOrdersList() {
       ];
       return values.some((value) => String(value || "").toLowerCase().includes(term));
     });
-  }, [items, q, from, to]);
+  }, [clientId, from, items, q, status, to]);
 
   const counts = useMemo(() => {
     const nextCounts = TYPE_CHIPS.reduce(
@@ -277,6 +284,23 @@ export default function ServiceOrdersList() {
     if (activeType === "ALL") return baseFiltered;
     return baseFiltered.filter((item) => normalizeType(item.type) === activeType);
   }, [activeType, baseFiltered]);
+
+  const totalFiltered = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedItems = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, pageSize, safeCurrentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeType, clientId, from, pageSize, q, status, to]);
+
+  useEffect(() => {
+    if (currentPage <= totalPages) return;
+    setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   const clientOptions = useMemo(() => {
     if (!hasAdminAccess) {
@@ -415,129 +439,145 @@ export default function ServiceOrdersList() {
           Sem acesso aos tipos de ordem de serviço.
         </div>
       ) : (
-        <DataTable className="w-full" tableClassName="min-w-[1100px] w-full">
-          <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
-            <tr className="text-left">
-              <th className="w-32 px-4 py-3">OS</th>
-              <th className="w-24 px-4 py-3">Placa</th>
-              <th className="w-48 px-4 py-3">Responsável</th>
-              <th className="w-32 px-4 py-3">Técnico</th>
-              <th className="px-4 py-3">Equipamentos</th>
-              <th className="w-36 px-4 py-3">Data</th>
-              <th className="w-28 px-4 py-3">Status</th>
-              <th className="w-20 px-4 py-3 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {loading && (
-              <tr>
-                <td colSpan={8} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={8} />
-                </td>
+        <>
+          <DataTable className="w-full" tableClassName="min-w-[1100px] w-full">
+            <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+              <tr className="text-left">
+                <th className="w-32 px-4 py-3">OS</th>
+                <th className="w-24 px-4 py-3">Placa</th>
+                <th className="w-48 px-4 py-3">Responsável</th>
+                <th className="w-32 px-4 py-3">Técnico</th>
+                <th className="px-4 py-3">Equipamentos</th>
+                <th className="w-36 px-4 py-3">Data</th>
+                <th className="w-28 px-4 py-3">Status</th>
+                <th className="w-20 px-4 py-3 text-right">Ações</th>
               </tr>
-            )}
-            {!loading && error && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8">
-                  <DataState
-                    tone="error"
-                    state="error"
-                    title="Não foi possível carregar ordens de serviço"
-                    description={error.message}
-                  />
-                </td>
-              </tr>
-            )}
-            {!loading && !error && actionError && (
-              <tr>
-                <td colSpan={8} className="px-4 py-4">
-                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                    {actionError}
-                  </div>
-                </td>
-              </tr>
-            )}
-            {!loading && !error && filtered.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8">
-                  <EmptyState
-                    title="Nenhuma ordem de serviço encontrada com os filtros atuais."
-                    subtitle="Crie uma nova OS para iniciar o fluxo."
-                    action={
-                      <Link
-                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                        to="/services/new"
-                      >
-                        Criar OS
-                      </Link>
-                    }
-                  />
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              filtered.map((item) => (
-                <tr key={item.id} className="border-t border-white/10 hover:bg-white/5">
-                  <td className="px-4 py-3 font-medium text-white">
-                    {item.osInternalId || item.id.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-3 truncate">{item.vehicle?.plate || "—"}</td>
-                  <td className="px-4 py-3">
-                    <div className="truncate text-white">{item.responsibleName || "—"}</div>
-                    <div className="truncate text-xs text-white/50">{item.responsiblePhone || ""}</div>
-                  </td>
-                  <td className="px-4 py-3 truncate">{item.technicianName || "—"}</td>
-                  <td className="px-4 py-3">
-                    {(() => {
-                      const labels = buildEquipmentLabels(item).filter(Boolean);
-                      if (!labels.length) return "—";
-                      return (
-                        <div className="flex flex-wrap gap-1">
-                          {labels.map((label, index) => (
-                            <span
-                              key={`${label}-${index}`}
-                              className="max-w-[220px] truncate rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/80"
-                            >
-                              {label}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-4 py-3">{formatDate(item.startAt)}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                      {item.status || "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {listPermission.isFull ? (
-                      <div className="inline-flex items-center justify-end gap-2">
-                        <Link
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
-                          to={`/services/${item.id}`}
-                          aria-label="Editar OS"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(item)}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
-                          aria-label="Excluir OS"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-white/50">—</span>
-                    )}
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6">
+                    <SkeletonTable rows={6} columns={8} />
                   </td>
                 </tr>
-              ))}
-          </tbody>
-        </DataTable>
+              )}
+              {!loading && error && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8">
+                    <DataState
+                      tone="error"
+                      state="error"
+                      title="Não foi possível carregar ordens de serviço"
+                      description={error.message}
+                    />
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && actionError && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-4">
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                      {actionError}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8">
+                    <EmptyState
+                      title="Nenhuma ordem de serviço encontrada com os filtros atuais."
+                      subtitle="Crie uma nova OS para iniciar o fluxo."
+                      action={
+                        <Link
+                          className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                          to="/services/new"
+                        >
+                          Criar OS
+                        </Link>
+                      }
+                    />
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                paginatedItems.map((item) => (
+                  <tr key={item.id} className="border-t border-white/10 hover:bg-white/5">
+                    <td className="px-4 py-3 font-medium text-white">
+                      {item.osInternalId || item.id.slice(0, 8)}
+                    </td>
+                    <td className="px-4 py-3 truncate">{item.vehicle?.plate || "—"}</td>
+                    <td className="px-4 py-3">
+                      <div className="truncate text-white">{item.responsibleName || "—"}</div>
+                      <div className="truncate text-xs text-white/50">{item.responsiblePhone || ""}</div>
+                    </td>
+                    <td className="px-4 py-3 truncate">{item.technicianName || "—"}</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const labels = buildEquipmentLabels(item).filter(Boolean);
+                        if (!labels.length) return "—";
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {labels.map((label, index) => (
+                              <span
+                                key={`${label}-${index}`}
+                                className="max-w-[220px] truncate rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/80"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">{formatDate(item.startAt)}</td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                        {item.status || "—"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {listPermission.isFull ? (
+                        <div className="inline-flex items-center justify-end gap-2">
+                          <Link
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+                            to={`/services/${item.id}`}
+                            aria-label="Editar OS"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
+                            aria-label="Excluir OS"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-white/50">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </DataTable>
+          <DataTablePagination
+            pageSize={pageSize}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            onPageSizeChange={(value) => {
+              const next = Number(value);
+              setPageSize(Number.isFinite(next) && next > 0 ? next : DEFAULT_PAGE_SIZE);
+              setCurrentPage(1);
+            }}
+            currentPage={safeCurrentPage}
+            totalPages={totalPages}
+            totalItems={totalFiltered}
+            onPageChange={setCurrentPage}
+            disabled={loading || Boolean(error) || totalFiltered === 0}
+          />
+        </>
       )}
       <PageToast toast={toast} />
     </div>

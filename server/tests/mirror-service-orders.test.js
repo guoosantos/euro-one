@@ -41,14 +41,15 @@ function buildMirror({ ownerClientId, targetClientId, vehicleIds }) {
   return mirror;
 }
 
-async function callServiceOrders({ ownerClientId, token }) {
+async function callServiceOrders({ ownerClientId, token, query = {} }) {
   const app = express();
   app.use(express.json());
   app.use("/api/core", serviceOrderRoutes);
   app.use(errorHandler);
+  const search = new URLSearchParams({ clientId: ownerClientId, ...query });
 
   const response = await requestApp(app, {
-    url: `/api/core/service-orders?clientId=${ownerClientId}`,
+    url: `/api/core/service-orders?${search.toString()}`,
     headers: { Authorization: `Bearer ${token}` },
   });
   const payload = await response.json();
@@ -116,4 +117,37 @@ test("GET /api/core/service-orders retorna vazio quando espelho não tem veícul
 
   assert.equal(status, 200);
   assert.deepEqual(payload.items, []);
+});
+
+test("GET /api/core/service-orders pagina resultados quando page/pageSize são informados", async () => {
+  const ownerClientId = `owner-service-page-${randomUUID()}`;
+  const receiverClientId = `receiver-service-page-${randomUUID()}`;
+  const allowedVehicleId = `veh-${randomUUID()}`;
+  buildMirror({ ownerClientId, targetClientId: receiverClientId, vehicleIds: [allowedVehicleId] });
+
+  __setServiceOrderRouteMocks({
+    listServiceOrders: async () => [
+      { id: "os-1", vehicleId: allowedVehicleId, clientId: ownerClientId },
+      { id: "os-2", vehicleId: allowedVehicleId, clientId: ownerClientId },
+      { id: "os-3", vehicleId: allowedVehicleId, clientId: ownerClientId },
+      { id: "os-4", vehicleId: allowedVehicleId, clientId: ownerClientId },
+      { id: "os-5", vehicleId: allowedVehicleId, clientId: ownerClientId },
+    ],
+  });
+
+  const token = signSession({ id: "user-service-page", role: "user", clientId: receiverClientId });
+  const { status, payload } = await callServiceOrders({
+    ownerClientId,
+    token,
+    query: { page: "2", pageSize: "2" },
+  });
+
+  assert.equal(status, 200);
+  assert.equal(payload.totalItems, 5);
+  assert.equal(payload.totalPages, 3);
+  assert.equal(payload.page, 2);
+  assert.equal(payload.pageSize, 2);
+  assert.equal(payload.items.length, 2);
+  assert.equal(payload.items[0].id, "os-3");
+  assert.equal(payload.items[1].id, "os-4");
 });
