@@ -27,6 +27,7 @@ async function request(
     timeout = 20_000,
     apiPrefix = true,
     headers,
+    skipMirrorClient = false,
     responseType,
     suppressForbidden = false,
     forbiddenFallbackData = null,
@@ -60,6 +61,7 @@ async function request(
       timeout,
       apiPrefix,
       headers,
+      skipMirrorClient,
       responseType,
     });
     return { data: response?.data ?? null, error: null, status: response?.status ?? null, response };

@@ -67,15 +67,6 @@ export default function useTasks(params = {}, { enabled = true, tenantIdOverride
 
     let cancelled = false;
 
-    const canMirrorQuery = mirrorContextMode === "target" && Boolean(mirrorOwnerClientId);
-    const hasClientId = Boolean(resolvedParams.clientId);
-    if (!hasClientId && !canMirrorQuery) {
-      setTasks([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
 

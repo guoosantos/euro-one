@@ -5,6 +5,7 @@ import { latLngBounds } from "leaflet";
 import {
   Download,
   Eye,
+  Layers,
   Map as MapIcon,
   Pencil,
   Plus,
@@ -20,22 +21,62 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useVehicles from "../lib/hooks/useVehicles.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
-import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../lib/mapLayers.js";
+import { CoreApi } from "../lib/coreApi.js";
+import { isAdminGeneralClientName, normalizeAdminClientName } from "../lib/admin-general.js";
+import {
+  DEFAULT_MAP_LAYER_KEY,
+  ENABLED_MAP_LAYERS,
+  MAP_LAYER_FALLBACK,
+  MAP_LAYER_STORAGE_KEYS,
+} from "../lib/mapLayers.js";
 import { canInteractWithMap } from "../lib/map/mapSafety.js";
 import { resolveMirrorHeaders } from "../lib/mirror-params.js";
-import { useTenant } from "../lib/tenant-context.jsx";
+import { setStoredMirrorOwnerId, useTenant } from "../lib/tenant-context.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
+import { useTranslation } from "../lib/i18n.js";
+import { translateItineraryStatusLabel } from "../lib/itinerary-status.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
+import Select from "../ui/Select";
 import LTextArea from "../ui/LTextArea.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
-import DataState from "../ui/DataState.jsx";
+import AlertStateCard from "../ui/AlertStateCard.jsx";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import { ACCESS_REASONS, isBlockingAccessReason, isNoVehiclesReason, resolveAccessReason } from "../lib/access-reasons.js";
 
 const HISTORY_PAGE_SIZE = 10;
 const HISTORY_POLL_INTERVAL_MS = 8000;
 const HISTORY_MAX_POLL_ATTEMPTS = 6;
+const HISTORY_REFRESH_INTERVAL_MS = 30000;
+const CLIENT_SCOPE_ALL = "all";
+const ADMIN_SCOPE_STORAGE_KEY = "euro-one.admin.scope";
+const ADMIN_SCOPE_ALL = "all";
+const ADMIN_SCOPE_EURO = "euro";
+const ADMIN_ALL_OPTION_ID = "all";
+const ADMIN_GENERAL_OPTION_ID = "euro";
+
+function readAdminScope() {
+  if (typeof window === "undefined") return ADMIN_SCOPE_ALL;
+  try {
+    return window.localStorage?.getItem(ADMIN_SCOPE_STORAGE_KEY) || ADMIN_SCOPE_ALL;
+  } catch (error) {
+    return ADMIN_SCOPE_ALL;
+  }
+}
+
+function persistAdminScope(value) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!value) {
+      window.localStorage?.removeItem(ADMIN_SCOPE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage?.setItem(ADMIN_SCOPE_STORAGE_KEY, value);
+  } catch (error) {
+    // ignore storage errors
+  }
+}
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "—";
@@ -82,6 +123,7 @@ function resolveXdmStatusLabel(detail) {
 function resolveEquipmentStatusLabel(detail) {
   const pipelineStatus = resolveXdmStatusLabel(detail).toUpperCase();
   if (pipelineStatus.startsWith("SEM EMBARQUE")) return "Sem embarque";
+  if (pipelineStatus.startsWith("CONCLU")) return "Equipamento atualizou";
   if (pipelineStatus.startsWith("EMBARCADO")) return "Equipamento atualizou";
   if (pipelineStatus.startsWith("FALHOU (ENVIO)")) return "Falha no envio para o equipamento";
   if (pipelineStatus.startsWith("FALHOU (EQUIPAMENTO)")) return "Falha na atualização do equipamento";
@@ -94,6 +136,7 @@ function resolveCentralStatusLabel(detail) {
   const pipelineStatus = resolveXdmStatusLabel(detail).toUpperCase();
   if (pipelineStatus.startsWith("SEM EMBARQUE")) return "Sem embarque";
   if (pipelineStatus.startsWith("ENVIADO")) return "Central aguardando confirmação";
+  if (pipelineStatus.startsWith("CONCLU")) return "Central confirmou";
   if (pipelineStatus.startsWith("PENDENTE") || pipelineStatus.startsWith("EMBARCADO")) return "Central confirmou";
   if (pipelineStatus.startsWith("FALHOU (ENVIO)")) return "Falha no envio da Central";
   if (pipelineStatus.startsWith("FALHOU (EQUIPAMENTO)")) return "Falha após confirmação da Central";
@@ -105,8 +148,8 @@ function resolveCentralStatusLabel(detail) {
 function resolveItinerarySyncLabel(itinerary) {
   const raw = String(itinerary?.syncStatus || itinerary?.xdmSyncStatus || itinerary?.statusLabel || "").toUpperCase();
   if (!raw) return "SEM STATUS";
-  if (raw === "OK") return "EMBARCADO";
-  if (raw === "PENDING") return "PENDENTE";
+  const translated = translateItineraryStatusLabel(raw, { style: "upper", fallback: raw });
+  if (translated !== raw) return translated;
   if (raw === "FAILED") return "FALHOU (ENVIO)";
   if (raw === "ERROR") return "ERRO";
   return raw;
@@ -123,8 +166,89 @@ function resolveSelectionValidation({ hasVehicles, hasItineraries }) {
   return "Selecione ao menos 1 itinerário.";
 }
 
+function resolveLocalHistoryStatus(entry) {
+  const rawStatus = String(entry?.statusLabel || entry?.statusCode || entry?.status || "").toLowerCase();
+  if (rawStatus.includes("falh")) {
+    return { statusCode: "ERROR", statusLabel: "FALHOU (ENVIO)" };
+  }
+  if (rawStatus.includes("deploy")) {
+    return { statusCode: "DEPLOYED", statusLabel: translateItineraryStatusLabel("DEPLOYED", { style: "upper" }) };
+  }
+  if (rawStatus.includes("enviado") || rawStatus.includes("queued")) {
+    return { statusCode: "QUEUED", statusLabel: "ENVIADO" };
+  }
+  if (rawStatus.includes("pend")) {
+    return { statusCode: entry?.statusCode || "PENDENTE", statusLabel: "PENDENTE" };
+  }
+  const fallback = entry?.statusLabel || entry?.status || null;
+  const translated = translateItineraryStatusLabel(fallback, { style: "upper", fallback });
+  return { statusCode: entry?.statusCode || entry?.status || "SYNCING", statusLabel: translated };
+}
+
+function buildHistoryEntryId(entry) {
+  return (
+    entry?.id ||
+    entry?.deploymentId ||
+    `${entry?.itineraryId || "it"}:${entry?.vehicleId || "veh"}:${entry?.sentAt || entry?.at || Date.now()}`
+  );
+}
+
+function resolveHistorySortTime(entry) {
+  const candidate =
+    entry?.sentAt ||
+    entry?.deviceConfirmedAt ||
+    entry?.receivedAt ||
+    entry?.at ||
+    entry?.updatedAt ||
+    entry?.createdAt ||
+    null;
+  const time = candidate ? new Date(candidate).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortHistoryEntries(list = []) {
+  return [...list].sort((a, b) => resolveHistorySortTime(b) - resolveHistorySortTime(a));
+}
+
+function normalizeLocalHistoryEntries(entries = []) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => {
+      if (!entry) return null;
+      const { statusCode, statusLabel } = resolveLocalHistoryStatus(entry);
+      const id = buildHistoryEntryId(entry);
+      return {
+        ...entry,
+        id,
+        statusCode,
+        statusLabel: statusLabel || entry?.statusLabel || null,
+        action: entry?.action || "EMBARK",
+        actionLabel: entry?.actionLabel || "Embarcado itinerário",
+        message: entry?.message || entry?.result || null,
+        details: entry?.details || entry?.result || null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeHistoryEntries(current = [], incoming = []) {
+  const merged = [];
+  const seen = new Set();
+  const append = (entry) => {
+    const key = buildHistoryEntryId(entry);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(entry);
+  };
+  incoming.forEach(append);
+  current.forEach(append);
+  return merged;
+}
+
 function resolveStatusBadgeClass(label) {
-  const normalized = String(label || "").toLowerCase();
+  const normalized = String(
+    translateItineraryStatusLabel(label, { style: "upper", fallback: label || "" }) || "",
+  ).toLowerCase();
   if (normalized.includes("falh") || normalized.includes("erro")) return "border-red-500/40 bg-red-500/15 text-red-100";
   if (normalized.includes("pendente") || normalized.includes("enviado")) {
     return "border-amber-500/40 bg-amber-500/15 text-amber-100";
@@ -142,8 +266,9 @@ function resolveApiError(error, fallback) {
   const status = error?.status || response?.status || null;
   const serverMessage = payload?.error || payload?.message || payload?.errorMessage || null;
   const baseMessage = serverMessage || error?.message || fallback;
-  if (!status) return baseMessage;
-  return `${baseMessage} (HTTP ${status})`;
+  const safeMessage = resolveSafeErrorMessage(baseMessage, fallback) || fallback;
+  if (!status) return safeMessage;
+  return `${safeMessage} (HTTP ${status})`;
 }
 
 function isForbiddenError(error) {
@@ -170,9 +295,87 @@ function resolveEmbarkErrorMessage(error) {
   return resolveApiError(error, "Não foi possível concluir a operação.");
 }
 
+function isTechnicalMessage(message) {
+  if (!message) return false;
+  const text = String(message).toLowerCase();
+  return (
+    text.includes("error") ||
+    text.includes("exception") ||
+    text.includes("stack") ||
+    text.includes("trace") ||
+    text.includes("methodnotallowed") ||
+    text.includes("node_modules") ||
+    text.includes(" at ") ||
+    text.includes("linha") ||
+    text.includes("line ") ||
+    text.includes("file") ||
+    text.includes("src/") ||
+    text.includes("dist/")
+  );
+}
+
+function resolveSafeErrorMessage(message, fallback) {
+  if (!message) return null;
+  const normalized = String(message).trim();
+  if (!normalized) return null;
+  if (normalized.length > 180 || isTechnicalMessage(normalized)) return fallback;
+  return normalized;
+}
+
 function normalizeIdList(list = []) {
   if (!Array.isArray(list)) return [];
   return Array.from(new Set(list.map((item) => String(item)).filter(Boolean)));
+}
+
+function resolveEntityClientId(entity) {
+  if (!entity) return null;
+  return entity.clientId ?? entity.tenantId ?? entity?.client?.id ?? null;
+}
+
+function buildClientScopedBatches({ vehicleIds, itineraryIds, vehicleClientById, itineraryClientById }) {
+  const globalItineraryIds = [];
+  const itineraryByClient = new Map();
+
+  itineraryIds.forEach((id) => {
+    const clientId = itineraryClientById.get(String(id)) || null;
+    if (!clientId) {
+      globalItineraryIds.push(String(id));
+      return;
+    }
+    const key = String(clientId);
+    if (!itineraryByClient.has(key)) {
+      itineraryByClient.set(key, []);
+    }
+    itineraryByClient.get(key).push(String(id));
+  });
+
+  const vehiclesByClient = new Map();
+  const missingVehicles = [];
+  vehicleIds.forEach((id) => {
+    const clientId = vehicleClientById.get(String(id)) || null;
+    if (!clientId) {
+      missingVehicles.push(String(id));
+      return;
+    }
+    const key = String(clientId);
+    if (!vehiclesByClient.has(key)) {
+      vehiclesByClient.set(key, []);
+    }
+    vehiclesByClient.get(key).push(String(id));
+  });
+
+  const batches = [];
+  const missingItineraryClients = [];
+  vehiclesByClient.forEach((ids, clientId) => {
+    const itinerariesForClient = [...(itineraryByClient.get(clientId) || []), ...globalItineraryIds];
+    if (!itinerariesForClient.length) {
+      missingItineraryClients.push(clientId);
+      return;
+    }
+    batches.push({ clientId, vehicleIds: ids, itineraryIds: itinerariesForClient });
+  });
+
+  return { batches, missingVehicles, missingItineraryClients };
 }
 
 function resolveTechnicalDetails(error) {
@@ -411,12 +614,16 @@ function buildItineraryItemDetails(itinerary, geofences, routes) {
 
 function MapFitBounds({ items }) {
   const map = useMap();
+  const bounds = useMemo(() => collectGeometryBounds(items), [items]);
+  const boundsKey = useMemo(() => (bounds && bounds.isValid() ? bounds.toBBoxString() : ""), [bounds]);
+  const lastKeyRef = useRef("");
   useEffect(() => {
     if (!map || !canInteractWithMap(map)) return;
-    const bounds = collectGeometryBounds(items);
     if (!bounds || !bounds.isValid()) return;
+    if (boundsKey && lastKeyRef.current === boundsKey) return;
     map.fitBounds(bounds, { padding: [24, 24] });
-  }, [map, items]);
+    lastKeyRef.current = boundsKey;
+  }, [map, bounds, boundsKey]);
   return null;
 }
 
@@ -429,17 +636,19 @@ function MapGeometryLayer({ item }) {
       <Circle
         center={geometry.center}
         radius={geometry.radiusMeters}
+        interactive={false}
         pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 2 }}
       />
     );
   }
   if (Array.isArray(geometry.points) && geometry.points.length) {
     if (geometry.isRoute) {
-      return <Polyline positions={geometry.points} pathOptions={{ color, weight: 3 }} />;
+      return <Polyline positions={geometry.points} pathOptions={{ color, weight: 3 }} interactive={false} />;
     }
     return (
       <Polygon
         positions={geometry.points}
+        interactive={false}
         pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 2 }}
       />
     );
@@ -447,12 +656,26 @@ function MapGeometryLayer({ item }) {
   return null;
 }
 
-function MapPreviewModal({ open, title, items = [], onClose }) {
-  const mapLayer = useMemo(() => resolveSatelliteLayer(), []);
+function MapPreviewModal({ open, title, items = [], onClose, mapLayer: providedMapLayer, mapLabel }) {
+  const mapLayer = useMemo(() => providedMapLayer || resolveSatelliteLayer(), [providedMapLayer]);
   const [mapReady, setMapReady] = useState(false);
   const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
   const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
   const fallbackReason = tileConfig.isReady ? null : tileConfig.reason || "Configuração de mapa incompleta";
+  const headerLabel = mapLabel || mapLayer?.label || "Mapa";
+  const handleMapReady = useCallback((event) => {
+    setMapReady(true);
+    const map = event?.target;
+    if (!map) return;
+    map.invalidateSize?.();
+    map.dragging?.enable();
+    map.scrollWheelZoom?.enable();
+    map.touchZoom?.enable();
+    map.doubleClickZoom?.enable();
+    map.boxZoom?.enable();
+    map.keyboard?.enable();
+    map.tap?.enable?.();
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -478,7 +701,7 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
       <div className="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Mapa satélite</p>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Mapa {headerLabel}</p>
             <h3 className="text-lg font-semibold text-white">{title}</h3>
           </div>
           <button
@@ -492,9 +715,9 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
         </div>
         <div className="h-[420px] w-full">
           {items.length ? (
-            <div className="relative h-full w-full">
+            <div className="relative h-full w-full pointer-events-auto">
               {!mapReady && !fallbackReason && tileConfig.isReady && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70 pointer-events-none">
                   Carregando mapa…
                 </div>
               )}
@@ -502,17 +725,17 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
                 <MapFallback reason={fallbackReason} />
               ) : (
                 <MapErrorBoundary fallback={<MapFallback reason="Erro ao carregar o mapa." />}>
-                  <MapContainer
-                    center={initialCenter}
-                    zoom={DEFAULT_MAP_ZOOM}
-                    scrollWheelZoom
-                    dragging
-                    touchZoom
-                    doubleClickZoom
-                    keyboard
-                    className="h-full w-full"
-                    whenReady={() => setMapReady(true)}
-                  >
+                    <MapContainer
+                      center={initialCenter}
+                      zoom={DEFAULT_MAP_ZOOM}
+                      scrollWheelZoom
+                      dragging
+                      touchZoom
+                      doubleClickZoom
+                      keyboard
+                      className="h-full w-full pointer-events-auto"
+                      whenReady={handleMapReady}
+                    >
                     {tileConfig.isReady && (
                       <TileLayer
                         url={tileConfig.tileUrl}
@@ -540,12 +763,39 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
   );
 }
 
-function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, onOpenMap }) {
-  const mapLayer = useMemo(() => resolveSatelliteLayer(), []);
+function ItineraryDetailModal({
+  open,
+  itinerary,
+  items,
+  onClose,
+  onExportKml,
+  onOpenMap,
+  mapLayer: providedMapLayer,
+  mapLabel,
+}) {
+  const mapLayer = useMemo(() => providedMapLayer || resolveSatelliteLayer(), [providedMapLayer]);
   const [mapReady, setMapReady] = useState(false);
   const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
   const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
   const fallbackReason = tileConfig.isReady ? null : tileConfig.reason || "Configuração de mapa incompleta";
+  const headerLabel = mapLabel || mapLayer?.label || "Mapa";
+  const syncErrorMessage = resolveSafeErrorMessage(
+    itinerary?.xdmLastSyncError,
+    "Falhou no momento de enviar para a central.",
+  );
+  const handleMapReady = useCallback((event) => {
+    setMapReady(true);
+    const map = event?.target;
+    if (!map) return;
+    map.invalidateSize?.();
+    map.dragging?.enable();
+    map.scrollWheelZoom?.enable();
+    map.touchZoom?.enable();
+    map.doubleClickZoom?.enable();
+    map.boxZoom?.enable();
+    map.keyboard?.enable();
+    map.tap?.enable?.();
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -594,7 +844,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
         <div className="grid gap-4 overflow-y-auto px-6 py-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-white">Mapa satélite</p>
+              <p className="text-sm font-semibold text-white">Mapa {headerLabel}</p>
               <span className="text-xs text-white/60">{items.length} itens</span>
             </div>
             <div className="h-[360px] overflow-hidden rounded-xl border border-white/10">
@@ -618,7 +868,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
                         doubleClickZoom
                         keyboard
                         className="h-full w-full pointer-events-auto"
-                        whenReady={() => setMapReady(true)}
+                        whenReady={handleMapReady}
                       >
                         {tileConfig.isReady && (
                           <TileLayer
@@ -649,9 +899,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
               <p className="text-base font-semibold text-white">
                 {resolveItinerarySyncLabel(itinerary)}
               </p>
-              {itinerary.xdmLastSyncError && (
-                <p className="mt-2 text-xs text-red-200">{itinerary.xdmLastSyncError}</p>
-              )}
+              {syncErrorMessage && <p className="mt-2 text-xs text-red-200">{syncErrorMessage}</p>}
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
               <p className="text-sm font-semibold text-white">Cercas / Rotas / Alvos / Entrada</p>
@@ -668,7 +916,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       <Button size="xs" variant="ghost" onClick={() => onOpenMap?.(item)} icon={MapIcon}>
-                        Ver no mapa (Satélite)
+                        Ver no mapa ({headerLabel})
                       </Button>
                     </div>
                   </div>
@@ -691,6 +939,11 @@ function ItineraryModal({
   onSave,
   onDelete,
   canManage = true,
+  clientOptions = [],
+  clientId = null,
+  onClientChange,
+  clientLabel = null,
+  clientEditable = true,
   form,
   onChange,
   postSavePrompt,
@@ -822,6 +1075,30 @@ function ItineraryModal({
         <div className="max-h-[70vh] flex-1 overflow-y-auto px-6 py-5">
           {activeTab === "detalhes" && (
             <div className="space-y-4">
+              {(clientLabel || clientOptions.length > 0) && (
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Cliente *</p>
+                  {clientEditable && clientOptions.length > 1 ? (
+                    <Select
+                      value={clientId ?? ""}
+                      onChange={(event) => onClientChange?.(event.target.value)}
+                      className="map-compact-input"
+                    >
+                      {clientOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+                      {clientLabel ||
+                        clientOptions.find((option) => option.value === String(clientId))?.label ||
+                        "—"}
+                    </div>
+                  )}
+                </div>
+              )}
               <Input
                 placeholder="Nome do itinerário"
                 value={form.name}
@@ -1130,7 +1407,6 @@ function ItineraryModal({
               cleanupDeleteGeozones={disembarkState.cleanupDeleteGeozones}
               onCleanupDeleteGeozonesChange={disembarkState.onCleanupDeleteGeozonesChange}
               resultSummary={disembarkState.resultSummary}
-              technicalDetails={disembarkState.technicalDetails}
               activeTab={disembarkTab}
               onTabChange={setDisembarkTab}
               showSummary={false}
@@ -1147,9 +1423,19 @@ function ItineraryModal({
                 {saving ? "Salvando..." : "Salvar"}
               </Button>
               {activeTab === "embarcar" ? (
-                <Button size="sm" onClick={onEmbarkSubmit} disabled={embarkState.sending || !canEmbark}>
-                  {embarkState.sending ? "Embarcando..." : "Embarcar"}
-                </Button>
+                embarkTab === "vehicles" ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setEmbarkTab("itineraries")}
+                    disabled={embarkState.selectedVehicleIds.length === 0}
+                  >
+                    Próximo
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={onEmbarkSubmit} disabled={embarkState.sending || !canEmbark}>
+                    {embarkState.sending ? "Embarcando..." : "Embarcar"}
+                  </Button>
+                )
               ) : (
                 <Button size="sm" onClick={onDisembarkSubmit} disabled={disembarkState.sending || !canDisembark}>
                   {disembarkState.sending ? "Desembarcando..." : "Desembarcar"}
@@ -1187,7 +1473,6 @@ function EmbarkContent({
   showSummary = true,
   embedded = false,
   validationMessage,
-  technicalDetails,
 }) {
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
@@ -1424,12 +1709,6 @@ function EmbarkContent({
         {showSummary && resultSummary && (
           <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
             <p>{resultSummary}</p>
-            {technicalDetails && (
-              <details className="text-[11px] text-white/70">
-                <summary className="cursor-pointer text-white/80">Ver detalhes técnicos</summary>
-                <pre className="mt-2 whitespace-pre-wrap text-white/60">{technicalDetails}</pre>
-              </details>
-            )}
           </div>
         )}
       </div>
@@ -1456,7 +1735,6 @@ function EmbarkModal({
   sending,
   onSubmit,
   resultSummary,
-  technicalDetails,
 }) {
   const [activeTab, setActiveTab] = useState("vehicles");
   const hasVehicles = selectedVehicleIds.length > 0;
@@ -1508,16 +1786,21 @@ function EmbarkModal({
           onToggleItinerary={onToggleItinerary}
           onRemoveVehicle={onRemoveVehicle}
           resultSummary={resultSummary}
-          technicalDetails={technicalDetails}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           validationMessage={validationMessage}
         />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
-          <Button onClick={() => onSubmit()} disabled={sending || !canSubmit}>
-            {sending ? "Embarcando..." : "Embarcar"}
-          </Button>
+          {activeTab === "vehicles" ? (
+            <Button onClick={() => setActiveTab("itineraries")} disabled={!hasVehicles}>
+              Próximo
+            </Button>
+          ) : (
+            <Button onClick={() => onSubmit()} disabled={sending || !canSubmit}>
+              {sending ? "Embarcando..." : "Embarcar"}
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -1546,7 +1829,6 @@ function DisembarkContent({
   showSummary = true,
   embedded = false,
   validationMessage,
-  technicalDetails,
 }) {
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
@@ -1798,12 +2080,6 @@ function DisembarkContent({
         {showSummary && resultSummary && (
           <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
             <p>{resultSummary}</p>
-            {technicalDetails && (
-              <details className="text-[11px] text-white/70">
-                <summary className="cursor-pointer text-white/80">Ver detalhes técnicos</summary>
-                <pre className="mt-2 whitespace-pre-wrap text-white/60">{technicalDetails}</pre>
-              </details>
-            )}
           </div>
         )}
       </div>
@@ -1832,7 +2108,6 @@ function DisembarkModal({
   sending,
   onSubmit,
   resultSummary,
-  technicalDetails,
 }) {
   const [activeTab, setActiveTab] = useState("vehicles");
   const hasVehicles = selectedVehicleIds.length > 0;
@@ -1886,7 +2161,6 @@ function DisembarkModal({
           cleanupDeleteGeozones={cleanupDeleteGeozones}
           onCleanupDeleteGeozonesChange={onCleanupDeleteGeozonesChange}
           resultSummary={resultSummary}
-          technicalDetails={technicalDetails}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           validationMessage={validationMessage}
@@ -1904,25 +2178,439 @@ function DisembarkModal({
 
 export default function Itineraries() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
-  const { tenants, tenantId, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const {
+    tenants,
+    tenantId,
+    tenantScope,
+    switchClientAndReset,
+    hasAdminAccess,
+    canSwitchTenant,
+    homeClientId,
+    homeClient,
+    mirrorContextMode,
+    mirrorModeEnabled,
+    activeMirror,
+    activeMirrorOwnerClientId,
+    mirrorOwners,
+    mirrorAllowAll,
+    role,
+    isReadOnly,
+    isGlobalAdmin,
+    isTenantAdmin,
+    isMirrorReceiver,
+    user,
+    logout,
+    contextSwitching,
+  } = useTenant();
   const itineraryPermission = usePermissionGate({ menuKey: "fleet", pageKey: "itineraries" });
   const canManageItineraries = itineraryPermission.isFull;
+  const [adminScope, setAdminScope] = useState(() => readAdminScope());
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
-  const effectiveClientId = useMemo(() => {
-    if (tenantId) return tenantId;
-    if (mirrorContextMode === "target") {
-      return mirrorOwnerClientId || null;
+  const isMirrorTarget = mirrorContextMode === "target";
+  const mirrorAllSelected = isMirrorTarget && String(mirrorOwnerClientId ?? "") === "all";
+  const mirrorSelectedClientId =
+    isMirrorTarget && !mirrorAllSelected && mirrorOwnerClientId
+      ? String(mirrorOwnerClientId)
+      : null;
+  const mirrorOwnerIds = useMemo(() => {
+    if (!Array.isArray(mirrorOwners)) return new Set();
+    return new Set(mirrorOwners.map((owner) => String(owner.id)));
+  }, [mirrorOwners]);
+  const isMirrorSelectable = isMirrorReceiver && Array.isArray(mirrorOwners) && mirrorOwners.length > 0;
+  const isAdminContext = isGlobalAdmin || isMirrorReceiver;
+  const canSelectClient = isAdminContext || isTenantAdmin || role === "manager";
+  const allowMirrorAll = isMirrorReceiver && mirrorAllowAll !== false;
+  const useMirrorOwnerOptions = isMirrorReceiver && Array.isArray(mirrorOwners) && mirrorOwners.length > 0;
+  const selectValueRaw = mirrorContextMode === "target"
+    ? (activeMirrorOwnerClientId
+        ? String(activeMirrorOwnerClientId)
+        : (isMirrorSelectable ? "all" : String(homeClientId ?? tenantId ?? "")))
+    : String(tenantId ?? "");
+  const adminGeneralOption = useMemo(() => {
+    if (!hasAdminAccess) return null;
+    const candidate = homeClient && isAdminGeneralClientName(homeClient?.name) ? homeClient : null;
+    if (!candidate) return null;
+    return {
+      value: ADMIN_GENERAL_OPTION_ID,
+      label: normalizeAdminClientName(candidate.name) || "EURO ONE",
+    };
+  }, [hasAdminAccess, homeClient]);
+  const selectValue = useMemo(() => {
+    if (!hasAdminAccess) return selectValueRaw;
+    if (tenantId !== null && tenantId !== undefined && String(tenantId) !== "") {
+      return String(tenantId);
     }
-    return null;
-  }, [mirrorContextMode, mirrorOwnerClientId, tenantId]);
+    if (adminScope === ADMIN_SCOPE_EURO && adminGeneralOption) {
+      return ADMIN_GENERAL_OPTION_ID;
+    }
+    return ADMIN_ALL_OPTION_ID;
+  }, [adminGeneralOption, adminScope, hasAdminAccess, selectValueRaw, tenantId]);
+  const ownedTenants = useMemo(() => {
+    if (hasAdminAccess) return [];
+    let base = tenants.filter((item) => !mirrorOwnerIds.has(String(item.id)));
+    if (homeClient && homeClientId && !base.some((item) => String(item.id) === String(homeClientId))) {
+      base = [homeClient, ...base];
+    }
+    if (isMirrorSelectable && homeClientId) {
+      base = base.filter((item) => String(item.id) !== String(homeClientId));
+    }
+    return base;
+  }, [hasAdminAccess, homeClient, homeClientId, isMirrorSelectable, mirrorOwnerIds, tenants]);
+  const mirroredTenants = useMemo(() => {
+    if (hasAdminAccess) return [];
+    return Array.isArray(mirrorOwners) ? mirrorOwners : [];
+  }, [hasAdminAccess, mirrorOwners]);
+  const allClientsLabel = t("topbar.allClients") || "Todos os clientes";
+  const mirrorAllLabel = t("topbar.mirrorAll") || "Todos os espelhados";
+  const mirroredSuffix = t("topbar.mirroredSuffix") || "espelhado";
+  const tenantOptions = useMemo(() => {
+    if (hasAdminAccess) {
+      const options = [{ value: ADMIN_ALL_OPTION_ID, label: allClientsLabel }];
+      if (adminGeneralOption) {
+        options.push(adminGeneralOption);
+      }
+      options.push(...tenants.map((item) => ({ value: String(item.id ?? ""), label: item.name })));
+      return options;
+    }
+    const options = [];
+    if (ownedTenants.length > 0) {
+      options.push(...ownedTenants.map((item) => ({ value: String(item.id ?? ""), label: item.name })));
+    }
+    if (isMirrorSelectable && mirroredTenants.length > 0) {
+      options.push({ value: "all", label: mirrorAllLabel });
+      options.push(
+        ...mirroredTenants.map((item) => ({
+          value: String(item.id ?? ""),
+          label: `${item.name} (${mirroredSuffix})`,
+        })),
+      );
+    }
+    return options;
+  }, [
+    adminGeneralOption,
+    allClientsLabel,
+    hasAdminAccess,
+    isMirrorSelectable,
+    mirrorAllLabel,
+    mirroredSuffix,
+    mirroredTenants,
+    ownedTenants,
+    tenants,
+  ]);
+  const clientOptions = useMemo(
+    () =>
+      tenantOptions
+        .map((option) => ({
+          value: String(option.value ?? ""),
+          label: option.label || String(option.value ?? ""),
+        }))
+        .filter((option) => option.value),
+    [tenantOptions],
+  );
+  const selectedClientId = selectValue;
+  const showClientSelect = canSwitchTenant && clientOptions.length > 1;
+  const handleClientChange = useCallback((nextValue) => {
+    const nextId = nextValue || null;
+    if (hasAdminAccess) {
+      if (nextId === ADMIN_ALL_OPTION_ID) {
+        setAdminScope(ADMIN_SCOPE_ALL);
+        persistAdminScope(ADMIN_SCOPE_ALL);
+        setStoredMirrorOwnerId(null);
+        switchClientAndReset({
+          nextTenantId: null,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
+      if (nextId === ADMIN_GENERAL_OPTION_ID) {
+        setAdminScope(ADMIN_SCOPE_EURO);
+        persistAdminScope(ADMIN_SCOPE_EURO);
+        setStoredMirrorOwnerId(null);
+        switchClientAndReset({
+          nextTenantId: homeClientId ?? null,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
+      setAdminScope(ADMIN_SCOPE_ALL);
+      persistAdminScope(ADMIN_SCOPE_ALL);
+      setStoredMirrorOwnerId(null);
+      switchClientAndReset({
+        nextTenantId: nextId,
+        nextOwnerClientId: null,
+        nextMirrorMode: "self",
+      });
+      return;
+    }
+    if (isMirrorSelectable) {
+      if (nextId === "all") {
+        setStoredMirrorOwnerId("all");
+        switchClientAndReset({
+          nextTenantId: homeClientId ?? tenantId,
+          nextOwnerClientId: "all",
+          nextMirrorMode: "target",
+        });
+        return;
+      }
+      if (!nextId || String(nextId) === String(homeClientId ?? "")) {
+        switchClientAndReset({
+          nextTenantId: nextId,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
+      if (mirrorOwnerIds.has(String(nextId))) {
+        setStoredMirrorOwnerId(String(nextId));
+        switchClientAndReset({
+          nextTenantId: nextId,
+          nextOwnerClientId: String(nextId),
+          nextMirrorMode: "target",
+        });
+        return;
+      }
+      switchClientAndReset({
+        nextTenantId: nextId,
+        nextOwnerClientId: null,
+        nextMirrorMode: "self",
+      });
+      return;
+    }
+    switchClientAndReset({ nextTenantId: nextId, nextOwnerClientId: null });
+  }, [
+    hasAdminAccess,
+    homeClientId,
+    isMirrorSelectable,
+    mirrorOwnerIds,
+    switchClientAndReset,
+    tenantId,
+  ]);
+  useEffect(() => {
+    if (!hasAdminAccess) return;
+    setAdminScope(readAdminScope());
+  }, [hasAdminAccess, tenantId]);
+  const topbarClientId = useMemo(() => {
+    const normalized = String(selectedClientId ?? "");
+    if (!normalized) return clientOptions[0]?.value ?? "";
+    const exists = clientOptions.some((option) => option.value === normalized);
+    return exists ? normalized : clientOptions[0]?.value ?? normalized;
+  }, [clientOptions, selectedClientId]);
+  const baseClientId = useMemo(() => {
+    if (tenantId) return tenantId;
+    if (mirrorOwnerClientId && String(mirrorOwnerClientId) !== "all") {
+      return String(mirrorOwnerClientId);
+    }
+    return user?.clientId || null;
+  }, [mirrorOwnerClientId, tenantId, user?.clientId]);
+  const isAllTenantsScope = mirrorAllSelected || (!isMirrorTarget && tenantScope === "ALL");
+  const effectiveClientId = useMemo(() => {
+    if (isAllTenantsScope) return null;
+    if (mirrorSelectedClientId) return mirrorSelectedClientId;
+    return baseClientId || null;
+  }, [baseClientId, isAllTenantsScope, mirrorSelectedClientId]);
+  const adminGeneralEditorOption = useMemo(() => {
+    if (!hasAdminAccess) return null;
+    if (!homeClientId) return null;
+    const candidate = homeClient && isAdminGeneralClientName(homeClient?.name) ? homeClient : null;
+    if (!candidate) return null;
+    return {
+      value: String(homeClientId),
+      label: normalizeAdminClientName(candidate.name) || "EURO ONE",
+    };
+  }, [hasAdminAccess, homeClient, homeClientId]);
+  const editorClientOptions = useMemo(() => {
+    if (!canSelectClient) return [];
+    if (useMirrorOwnerOptions) {
+      const owners = Array.isArray(mirrorOwners) ? mirrorOwners : [];
+      const options = owners
+        .map((entry) => ({
+          value: String(entry.id),
+          label: entry.name || String(entry.id),
+        }))
+        .filter((option) => option.value);
+      const base = allowMirrorAll
+        ? [{ value: CLIENT_SCOPE_ALL, label: "Todos os espelhados" }, ...options]
+        : options;
+      if (adminGeneralEditorOption && !base.some((option) => option.value === adminGeneralEditorOption.value)) {
+        return [adminGeneralEditorOption, ...base];
+      }
+      return base;
+    }
+    const list = Array.isArray(tenants) ? tenants : [];
+    const options = list
+      .map((entry) => ({
+        value: String(entry.id),
+        label: entry.name || String(entry.id),
+      }))
+      .filter((option) => option.value);
+    if (isGlobalAdmin) {
+      const base = [{ value: CLIENT_SCOPE_ALL, label: "Todos os clientes" }, ...options];
+      if (adminGeneralEditorOption && !base.some((option) => option.value === adminGeneralEditorOption.value)) {
+        return [base[0], adminGeneralEditorOption, ...base.slice(1)];
+      }
+      return base;
+    }
+    if (adminGeneralEditorOption && !options.some((option) => option.value === adminGeneralEditorOption.value)) {
+      return [adminGeneralEditorOption, ...options];
+    }
+    return options;
+  }, [
+    adminGeneralEditorOption,
+    allowMirrorAll,
+    canSelectClient,
+    isGlobalAdmin,
+    mirrorOwners,
+    tenants,
+    useMirrorOwnerOptions,
+  ]);
   const mirrorHeaders = useMemo(
     () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
     [mirrorModeEnabled, mirrorOwnerClientId],
   );
   const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
-  const { vehicles } = useVehicles();
-  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const tenantIds = useMemo(() => {
+    if (isMirrorTarget) {
+      if (!Array.isArray(mirrorOwners)) return [];
+      return Array.from(new Set(mirrorOwners.map((item) => item?.id).filter(Boolean).map(String)));
+    }
+    if (!Array.isArray(tenants)) return [];
+    const ids = new Set(tenants.map((item) => item?.id).filter(Boolean).map(String));
+    if (hasAdminAccess && homeClientId) {
+      ids.add(String(homeClientId));
+    }
+    return Array.from(ids);
+  }, [hasAdminAccess, homeClientId, isMirrorTarget, mirrorOwners, tenants]);
+  const {
+    vehicles: rawVehicles,
+    loading: vehiclesLoading,
+    error: vehiclesError,
+    reason: vehiclesReason,
+    accessReason: vehiclesAccessReason,
+  } = useVehicles({ enabled: !isAllTenantsScope, includeTelemetry: false, accessible: !isGlobalAdmin });
+  const baseVehicles = useMemo(() => {
+    const list = Array.isArray(rawVehicles) ? rawVehicles : [];
+    if (!effectiveClientId || isMirrorTarget) return list;
+    return list.filter((vehicle) =>
+      String(vehicle?.clientId ?? vehicle?.tenantId ?? "") === String(effectiveClientId),
+    );
+  }, [effectiveClientId, isMirrorTarget, rawVehicles]);
+  const {
+    accessibleVehicles,
+    isRestricted,
+    reason: accessListReason,
+    accessReason: mirrorAccessReason,
+  } = useVehicleAccess();
+  const [allTenantsVehicles, setAllTenantsVehicles] = useState({
+    loading: false,
+    items: [],
+    error: null,
+  });
+  useEffect(() => {
+    let active = true;
+
+    const loadAllTenantVehicles = async () => {
+      if (!isAllTenantsScope || shouldWaitForMirror) {
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+      if (!tenantIds.length) {
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+      if (active) {
+        setAllTenantsVehicles((prev) => ({ ...prev, loading: true, error: null }));
+      }
+      try {
+        const results = await Promise.allSettled(
+          tenantIds.map(async (clientId) => {
+            const params = { clientId, skipPositions: true };
+            if (!isGlobalAdmin) {
+              params.accessible = true;
+            }
+            const headers = mirrorAllSelected
+              ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: clientId, mirrorContextMode })
+              : mirrorHeaders;
+            const list = await CoreApi.listVehicles({
+              params,
+              headers,
+            });
+            return (Array.isArray(list) ? list : []).map((vehicle) => ({
+              ...vehicle,
+              clientId: resolveEntityClientId(vehicle) ?? clientId,
+            }));
+          }),
+        );
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && Array.isArray(result.value)) {
+            merged.push(...result.value);
+          }
+        });
+        const deduped = new Map();
+        merged.forEach((vehicle) => {
+          const key = `${resolveEntityClientId(vehicle) || "unknown"}:${vehicle?.id ?? vehicle?.vehicleId ?? ""}`;
+          if (!deduped.has(key)) deduped.set(key, vehicle);
+        });
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: Array.from(deduped.values()), error: null });
+        }
+      } catch (error) {
+        if (active) {
+          setAllTenantsVehicles({ loading: false, items: [], error });
+        }
+      }
+    };
+
+    void loadAllTenantVehicles();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    isAllTenantsScope,
+    isGlobalAdmin,
+    mirrorAllSelected,
+    mirrorContextMode,
+    mirrorHeaders,
+    mirrorModeEnabled,
+    shouldWaitForMirror,
+    tenantIds,
+  ]);
+  const vehicles = useMemo(() => {
+    if (!isGlobalAdmin && isRestricted && accessibleVehicles.length) {
+      return accessibleVehicles;
+    }
+    if (isAllTenantsScope) {
+      if (effectiveClientId) {
+        return allTenantsVehicles.items.filter(
+          (vehicle) =>
+            String(vehicle?.clientId ?? vehicle?.tenantId ?? "") === String(effectiveClientId),
+        );
+      }
+      return allTenantsVehicles.items;
+    }
+    if (isMirrorTarget && accessibleVehicles.length) {
+      return accessibleVehicles;
+    }
+    return baseVehicles;
+  }, [
+    accessibleVehicles,
+    allTenantsVehicles.items,
+    baseVehicles,
+    effectiveClientId,
+    isAllTenantsScope,
+    isGlobalAdmin,
+    isMirrorTarget,
+    isRestricted,
+  ]);
   const { confirmDelete } = useConfirmDialog();
   const [routes, setRoutes] = useState([]);
   const [itineraries, setItineraries] = useState([]);
@@ -1936,6 +2624,7 @@ export default function Itineraries() {
   const [editorTab, setEditorTab] = useState("detalhes");
   const [activeTab, setActiveTab] = useState("embarcado");
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editorClientId, setEditorClientId] = useState(null);
   const [embarkOpen, setEmbarkOpen] = useState(false);
   const [disembarkOpen, setDisembarkOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1951,18 +2640,6 @@ export default function Itineraries() {
   const [editorEmbarkVehicleQuery, setEditorEmbarkVehicleQuery] = useState("");
   const [editorEmbarkItineraryQuery, setEditorEmbarkItineraryQuery] = useState("");
 
-  if (isRestricted && !accessLoading && accessibleVehicles.length === 0) {
-    return (
-      <div className="flex min-h-[calc(100vh-180px)] w-full items-center justify-center">
-        <DataState
-          tone="muted"
-          state="info"
-          title="Sem veículos espelhados ativos"
-          description="Você ainda não possui veículos espelhados ativos. Assim que um cliente espelhar, eles aparecerão aqui."
-        />
-      </div>
-    );
-  }
   const [selectedEditorEmbarkVehicleIds, setSelectedEditorEmbarkVehicleIds] = useState([]);
   const [selectedEditorEmbarkItineraryIds, setSelectedEditorEmbarkItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
@@ -1997,6 +2674,7 @@ export default function Itineraries() {
   const [postSavePrompt, setPostSavePrompt] = useState(null);
   const [embarkDetails, setEmbarkDetails] = useState([]);
   const [embarkDetailsLoading, setEmbarkDetailsLoading] = useState(false);
+  const [embarkDetailsError, setEmbarkDetailsError] = useState(null);
   const [embarkDetailsQuery, setEmbarkDetailsQuery] = useState("");
   const [selectedEmbarkDetailVehicleId, setSelectedEmbarkDetailVehicleId] = useState(null);
   const [vehicleHistory, setVehicleHistory] = useState([]);
@@ -2005,18 +2683,177 @@ export default function Itineraries() {
   const [mapPreview, setMapPreview] = useState(null);
   const [detailModalData, setDetailModalData] = useState(null);
   const [selectedVehicleHistoryId, setSelectedVehicleHistoryId] = useState(null);
+  const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
+  const [mapLayerMenuOpen, setMapLayerMenuOpen] = useState(false);
+  const mapLayerButtonRef = useRef(null);
+  const mapLayerStorageKey = MAP_LAYER_STORAGE_KEYS.itineraries;
 
-  const clientNameById = useMemo(
-    () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
-    [tenants],
+  const clientNameById = useMemo(() => {
+    const map = new Map();
+    (tenants || []).forEach((client) => {
+      if (!client?.id) return;
+      map.set(String(client.id), client.name || String(client.id));
+    });
+    (mirrorOwners || []).forEach((client) => {
+      if (!client?.id) return;
+      if (!map.has(String(client.id))) {
+        map.set(String(client.id), client.name || String(client.id));
+      }
+    });
+    map.set("global", useMirrorOwnerOptions ? "Todos os espelhados" : "Todos os clientes");
+    return map;
+  }, [mirrorOwners, tenants, useMirrorOwnerOptions]);
+  const editorClientLabel = useMemo(() => {
+    if (!editorClientId) return null;
+    if (String(editorClientId) === CLIENT_SCOPE_ALL) {
+      return useMirrorOwnerOptions ? "Todos os espelhados" : "Todos os clientes";
+    }
+    const fromOptions = editorClientOptions.find((option) => option.value === String(editorClientId))?.label;
+    if (fromOptions) return fromOptions;
+    const named = clientNameById.get(String(editorClientId));
+    if (named) return named;
+    return String(editorClientId);
+  }, [clientNameById, editorClientId, editorClientOptions, useMirrorOwnerOptions]);
+  const vehicleClientById = useMemo(
+    () =>
+      new Map(
+        vehicles.map((vehicle) => [String(vehicle?.id ?? vehicle?.vehicleId ?? ""), resolveEntityClientId(vehicle)]),
+      ),
+    [vehicles],
+  );
+  const itineraryClientById = useMemo(
+    () => new Map(itineraries.map((item) => [String(item.id), resolveEntityClientId(item)])),
+    [itineraries],
+  );
+  const itineraryById = useMemo(
+    () => new Map(itineraries.map((item) => [String(item.id), item])),
+    [itineraries],
+  );
+  const routeClientById = useMemo(
+    () => new Map(routes.map((route) => [String(route.id), resolveEntityClientId(route)])),
+    [routes],
+  );
+  const geofenceClientById = useMemo(
+    () => new Map(geofences.map((geo) => [String(geo.id), resolveEntityClientId(geo)])),
+    [geofences],
   );
   const targetGeofences = useMemo(() => geofences.filter((geo) => geo.isTarget), [geofences]);
+  const targetClientById = useMemo(
+    () => new Map(targetGeofences.map((target) => [String(target.id), resolveEntityClientId(target)])),
+    [targetGeofences],
+  );
+  const resolveItemClientId = useCallback((item) => {
+    if (!item) return null;
+    const key = String(item.id ?? "");
+    if (!key) return null;
+    if (item.type === "route") return routeClientById.get(key) ?? null;
+    if (item.type === "geofence") return geofenceClientById.get(key) ?? null;
+    if (item.type === "target") return targetClientById.get(key) ?? null;
+    return null;
+  }, [geofenceClientById, routeClientById, targetClientById]);
+  const isItineraryCompatibleWithClient = useCallback((itinerary, clientId) => {
+    if (!itinerary || !clientId) return true;
+    const items = Array.isArray(itinerary.items) ? itinerary.items : [];
+    if (!items.length) return true;
+    const target = String(clientId);
+    return items.every((item) => {
+      const itemClientId = resolveItemClientId(item);
+      if (!itemClientId) return true;
+      return String(itemClientId) === target;
+    });
+  }, [resolveItemClientId]);
+  const editorScopeClientId = useMemo(() => {
+    if (!editorClientId) return null;
+    const normalized = String(editorClientId);
+    if (!normalized || normalized === CLIENT_SCOPE_ALL) return null;
+    return normalized;
+  }, [editorClientId]);
+  const editorGeofences = useMemo(() => {
+    if (!editorScopeClientId) return geofences;
+    return geofences.filter(
+      (geo) => String(resolveEntityClientId(geo) || "") === editorScopeClientId,
+    );
+  }, [editorScopeClientId, geofences]);
+  const editorTargetGeofences = useMemo(() => {
+    if (!editorScopeClientId) return targetGeofences;
+    return targetGeofences.filter(
+      (target) => String(resolveEntityClientId(target) || "") === editorScopeClientId,
+    );
+  }, [editorScopeClientId, targetGeofences]);
+  const editorRoutes = useMemo(() => {
+    if (!editorScopeClientId) return routes;
+    return routes.filter(
+      (route) => String(resolveEntityClientId(route) || "") === editorScopeClientId,
+    );
+  }, [editorScopeClientId, routes]);
+  const mapLayer = useMemo(
+    () => ENABLED_MAP_LAYERS.find((layer) => layer.key === mapLayerKey) || MAP_LAYER_FALLBACK,
+    [mapLayerKey],
+  );
+  const mapLayerOptions = useMemo(() => {
+    const candidates = ENABLED_MAP_LAYERS.filter((layer) => layer?.url);
+    const pickedKeys = new Set();
+    const pick = (keys) => candidates.find((layer) => keys.some((key) => layer.key.includes(key))) || null;
+
+    const options = [
+      { id: "satellite", label: "Satélite", layer: pick(["google-satellite", "satellite"]) },
+      { id: "streets", label: "Ruas", layer: pick(["google-road", "openstreetmap", "osm", "carto-light"]) },
+      { id: "hybrid", label: "Híbrido", layer: pick(["google-hybrid", "hybrid"]) },
+    ]
+      .filter((item) => item.layer)
+      .filter((item) => {
+        if (!item.layer) return false;
+        if (pickedKeys.has(item.layer.key)) return false;
+        pickedKeys.add(item.layer.key);
+        return true;
+      });
+
+    if (!options.length && candidates.length) {
+      return candidates.slice(0, 3).map((layer) => ({ id: layer.key, label: layer.label, layer }));
+    }
+
+    return options;
+  }, []);
+  const mapLayerLabel = useMemo(() => {
+    const match = mapLayerOptions.find((option) => option.layer?.key === mapLayer?.key);
+    return match?.label || mapLayer?.label || "Mapa";
+  }, [mapLayer, mapLayerOptions]);
 
   useEffect(() => () => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(mapLayerStorageKey);
+      if (stored && ENABLED_MAP_LAYERS.some((layer) => layer.key === stored)) {
+        setMapLayerKey(stored);
+      }
+    } catch (_error) {
+      // ignore storage errors
+    }
+  }, [mapLayerStorageKey]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(mapLayerStorageKey, mapLayerKey);
+    } catch (_error) {
+      // ignore storage errors
+    }
+  }, [mapLayerKey, mapLayerStorageKey]);
+
+  useEffect(() => {
+    if (!mapLayerMenuOpen) return;
+    const handleClick = (event) => {
+      if (!mapLayerButtonRef.current) return;
+      if (mapLayerButtonRef.current.contains(event.target)) return;
+      setMapLayerMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [mapLayerMenuOpen]);
 
   const showToast = useCallback((message, type = "success", action = null) => {
     if (toastTimeoutRef.current) {
@@ -2028,7 +2865,8 @@ export default function Itineraries() {
 
   const handleAccessDenied = useCallback((error, message = "Sem acesso a este módulo.") => {
     if (!isForbiddenError(error)) return false;
-    setAccessError({ message });
+    const reason = resolveAccessReason(error) || ACCESS_REASONS.FORBIDDEN_SCOPE;
+    setAccessError({ message, reason });
     return true;
   }, []);
 
@@ -2037,7 +2875,44 @@ export default function Itineraries() {
       return;
     }
     try {
-      const response = await api.get(API_ROUTES.routes, { headers: mirrorHeaders });
+      if (isAllTenantsScope) {
+        const requests = tenantIds.map((clientId) =>
+          api.get(API_ROUTES.routes, {
+            params: { clientId },
+            headers: mirrorAllSelected
+              ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: clientId, mirrorContextMode })
+              : mirrorHeaders,
+          }),
+        );
+        const results = await Promise.allSettled(requests);
+        const merged = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const list = result.value?.data?.routes || result.value?.data?.data || [];
+            if (Array.isArray(list)) {
+              const ownerId = tenantIds[index];
+              merged.push(
+                ...list.map((item) => ({
+                  ...item,
+                  clientId: item?.clientId ?? ownerId ?? item?.tenantId ?? null,
+                })),
+              );
+            }
+          }
+        });
+        const deduped = new Map();
+        merged.forEach((item) => {
+          const key = `${item?.clientId ?? "unknown"}:${item?.id ?? ""}`;
+          if (!key || deduped.has(key)) return;
+          deduped.set(key, item);
+        });
+        setRoutes(Array.from(deduped.values()));
+        return;
+      }
+      const response = await api.get(API_ROUTES.routes, {
+        headers: mirrorHeaders,
+        params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+      });
       const list = response?.data?.routes || response?.data?.data || [];
       setRoutes(list);
     } catch (error) {
@@ -2048,12 +2923,79 @@ export default function Itineraries() {
       logItineraryError("[itineraries] Falha ao carregar rotas salvas", error);
       showToast(resolveApiError(error, "Não foi possível carregar as rotas salvas."), "warning");
     }
-  }, [mirrorHeaders, shouldWaitForMirror, showToast]);
+  }, [
+    effectiveClientId,
+    isAllTenantsScope,
+    mirrorAllSelected,
+    mirrorContextMode,
+    mirrorHeaders,
+    mirrorModeEnabled,
+    shouldWaitForMirror,
+    showToast,
+    tenantIds,
+  ]);
 
   const loadItineraries = useCallback(async () => {
+    if (shouldWaitForMirror) return;
     setLoading(true);
     try {
-      const response = await api.get(API_ROUTES.itineraries);
+      if (isAllTenantsScope) {
+        if (!tenantIds.length) {
+          setItineraries([]);
+          return;
+        }
+        const requests = tenantIds.map((clientId) =>
+          api.get(API_ROUTES.itineraries, {
+            params: { clientId },
+            headers: mirrorAllSelected
+              ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: clientId, mirrorContextMode })
+              : mirrorHeaders,
+          }),
+        );
+        const results = await Promise.allSettled(requests);
+        const merged = [];
+        let forbiddenCount = 0;
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const list = result.value?.data?.data || [];
+            if (Array.isArray(list)) {
+              const ownerId = tenantIds[index];
+              merged.push(
+                ...list.map((item) => {
+                  const next = { ...item };
+                  if (next?.clientId == null && next?.scope !== "global") {
+                    next.clientId = ownerId ?? next?.tenantId ?? null;
+                  }
+                  return next;
+                }),
+              );
+            }
+            return;
+          }
+          if (isForbiddenError(result.reason)) {
+            forbiddenCount += 1;
+          } else {
+            logItineraryError("[itineraries] Falha ao carregar itinerários (todos)", result.reason);
+          }
+        });
+        const deduped = new Map();
+        merged.forEach((item) => {
+          const key = String(item?.id ?? "");
+          if (!key || deduped.has(key)) return;
+          deduped.set(key, item);
+        });
+        if (merged.length === 0 && forbiddenCount === results.length) {
+          setAccessError({ message: "Sem acesso a itinerários nos clientes selecionados.", reason: ACCESS_REASONS.FORBIDDEN_SCOPE });
+        } else {
+          setAccessError(null);
+        }
+        setItineraries(Array.from(deduped.values()));
+        return;
+      }
+      const response = await api.get(API_ROUTES.itineraries, {
+        params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+        headers: mirrorHeaders,
+      });
       const list = response?.data?.data || [];
       setItineraries(list);
       setAccessError(null);
@@ -2066,21 +3008,60 @@ export default function Itineraries() {
     } finally {
       setLoading(false);
     }
-  }, [handleAccessDenied, showToast]);
+  }, [
+    effectiveClientId,
+    handleAccessDenied,
+    isAllTenantsScope,
+    mirrorAllSelected,
+    mirrorContextMode,
+    mirrorHeaders,
+    mirrorModeEnabled,
+    shouldWaitForMirror,
+    showToast,
+    tenantIds,
+  ]);
 
   const loadHistory = useCallback(async () => {
     if (historyRequestRef.current) return;
+    if (shouldWaitForMirror) return;
     historyRequestRef.current = true;
     setHistoryLoading(true);
     try {
+      if (isAllTenantsScope) {
+        if (!tenantIds.length) {
+          setHistoryEntries([]);
+          return;
+        }
+        const results = await Promise.allSettled(
+          tenantIds.map((clientId) =>
+            api.get(API_ROUTES.itineraryEmbarkHistory, {
+              params: { clientId },
+              headers: mirrorAllSelected
+                ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: clientId, mirrorContextMode })
+                : mirrorHeaders,
+              skipSWRCache: true,
+            }),
+          ),
+        );
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          const list = result.value?.data?.data || result.value?.data?.history || [];
+          if (Array.isArray(list)) merged.push(...list);
+        });
+        setHistoryEntries(sortHistoryEntries(merged));
+        return;
+      }
       const response = await api.get(API_ROUTES.itineraryEmbarkHistory, {
         params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+        headers: mirrorHeaders,
+        skipSWRCache: true,
       });
       if (response?.status === 304) {
         return;
       }
       const list = response?.data?.data || response?.data?.history || [];
-      setHistoryEntries(Array.isArray(list) ? list : []);
+      setHistoryEntries(sortHistoryEntries(Array.isArray(list) ? list : []));
     } catch (error) {
       if (isForbiddenError(error)) {
         showToast("Sem acesso ao histórico de embarques neste cliente.", "warning");
@@ -2092,13 +3073,72 @@ export default function Itineraries() {
       historyRequestRef.current = false;
       setHistoryLoading(false);
     }
-  }, [effectiveClientId, showToast]);
+  }, [
+    effectiveClientId,
+    isAllTenantsScope,
+    mirrorAllSelected,
+    mirrorContextMode,
+    mirrorHeaders,
+    mirrorModeEnabled,
+    shouldWaitForMirror,
+    showToast,
+    tenantIds,
+  ]);
 
   const loadEmbarkDetails = useCallback(async () => {
+    if (shouldWaitForMirror) return;
     setEmbarkDetailsLoading(true);
+    setEmbarkDetailsError(null);
     try {
+      if (isAllTenantsScope) {
+        if (!tenantIds.length) {
+          setEmbarkDetails([]);
+          return;
+        }
+        const results = await Promise.allSettled(
+          tenantIds.map((clientId) =>
+            api.get(API_ROUTES.itineraryEmbarkVehicles, {
+              params: { clientId },
+              headers: mirrorAllSelected
+                ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: clientId, mirrorContextMode })
+                : mirrorHeaders,
+            }),
+          ),
+        );
+        const merged = [];
+        const anySuccess = results.some((result) => result.status === "fulfilled");
+        results.forEach((result, index) => {
+          if (result.status !== "fulfilled") return;
+          const list = result.value?.data?.data || result.value?.data?.vehicles || [];
+          if (!Array.isArray(list)) return;
+          const ownerId = tenantIds[index];
+          list.forEach((detail) => {
+            merged.push({
+              ...detail,
+              clientId: resolveEntityClientId(detail) ?? ownerId,
+            });
+          });
+        });
+        const deduped = new Map();
+        merged.forEach((detail) => {
+          const key = `${detail?.clientId ?? "unknown"}:${detail?.vehicleId ?? detail?.vehicle_id ?? ""}`;
+          if (!deduped.has(key)) deduped.set(key, detail);
+        });
+        const resolvedList = Array.from(deduped.values());
+        setEmbarkDetails(resolvedList);
+        if (!anySuccess) {
+          setEmbarkDetailsError(new Error("Não foi possível carregar os veículos deste escopo."));
+        }
+        return;
+      }
+      if (!effectiveClientId) {
+        setEmbarkDetails([]);
+        setEmbarkDetailsError(new Error("Selecione um cliente para carregar os veículos."));
+        return;
+      }
       const response = await api.get(API_ROUTES.itineraryEmbarkVehicles, {
-        params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+        params: { clientId: effectiveClientId },
+        headers: mirrorHeaders,
       });
       const list = response?.data?.data || response?.data?.vehicles || [];
       setEmbarkDetails(Array.isArray(list) ? list : []);
@@ -2108,18 +3148,34 @@ export default function Itineraries() {
         return;
       }
       logItineraryError("[itineraries] Falha ao carregar detalhes de embarque por veículo", error);
+      setEmbarkDetailsError(new Error(resolveApiError(error, "Não foi possível carregar os veículos.")));
       showToast(resolveApiError(error, "Não foi possível carregar os detalhes dos veículos."), "warning");
     } finally {
       setEmbarkDetailsLoading(false);
     }
-  }, [effectiveClientId, showToast]);
+  }, [
+    effectiveClientId,
+    isAllTenantsScope,
+    mirrorAllSelected,
+    mirrorContextMode,
+    mirrorHeaders,
+    mirrorModeEnabled,
+    shouldWaitForMirror,
+    showToast,
+    tenantIds,
+  ]);
 
   const refreshVehicleStatus = useCallback(
     async (vehicleId) => {
       if (!vehicleId) return;
+      if (isReadOnly || isMirrorTarget) return;
+      const scopedClientId = isAllTenantsScope
+        ? vehicleClientById.get(String(vehicleId)) || null
+        : effectiveClientId;
       try {
         const response = await api.get(API_ROUTES.itineraryEmbarkVehicleStatus(vehicleId), {
-          params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+          params: scopedClientId ? { clientId: scopedClientId } : undefined,
+          headers: mirrorHeaders,
         });
         const detail = response?.data?.data || null;
         if (!detail) return;
@@ -2135,7 +3191,15 @@ export default function Itineraries() {
         showToast(resolveApiError(error, "Não foi possível atualizar o status do veículo."), "warning");
       }
     },
-    [effectiveClientId, showToast],
+    [
+      effectiveClientId,
+      isAllTenantsScope,
+      isMirrorTarget,
+      isReadOnly,
+      mirrorHeaders,
+      showToast,
+      vehicleClientById,
+    ],
   );
 
   const loadVehicleHistory = useCallback(
@@ -2146,8 +3210,16 @@ export default function Itineraries() {
       }
       setVehicleHistoryLoading(true);
       try {
+        const scopedClientId = isAllTenantsScope
+          ? vehicleClientById.get(String(vehicleId)) || null
+          : effectiveClientId;
+        const headers =
+          mirrorAllSelected && scopedClientId
+            ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: scopedClientId, mirrorContextMode })
+            : mirrorHeaders;
         const response = await api.get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId), {
-          params: effectiveClientId ? { clientId: effectiveClientId } : undefined,
+          params: scopedClientId ? { clientId: scopedClientId } : undefined,
+          headers,
         });
         const list = response?.data?.data || response?.data?.history || [];
         setVehicleHistory(Array.isArray(list) ? list : []);
@@ -2162,7 +3234,18 @@ export default function Itineraries() {
         setVehicleHistoryLoading(false);
       }
     },
-    [effectiveClientId, showToast],
+    [
+      effectiveClientId,
+      isAllTenantsScope,
+      isMirrorTarget,
+      isReadOnly,
+      mirrorAllSelected,
+      mirrorContextMode,
+      mirrorHeaders,
+      mirrorModeEnabled,
+      showToast,
+      vehicleClientById,
+    ],
   );
 
   useEffect(() => {
@@ -2196,7 +3279,7 @@ export default function Itineraries() {
     const hasPending = historyEntries.some((entry) => {
       const statusCode = entry.statusCode || entry.status || "";
       const normalized = String(statusCode).toUpperCase();
-      const label = String(entry.statusLabel || "").toUpperCase();
+      const label = translateItineraryStatusLabel(entry.statusLabel, { style: "upper", fallback: "" });
       return (
         ["DEPLOYING", "SYNCING", "QUEUED"].includes(normalized) ||
         ["PENDENTE", "ENVIADO"].includes(label)
@@ -2227,6 +3310,15 @@ export default function Itineraries() {
   }, [activeTab, embarkOpen, disembarkOpen, editorOpen, historyEntries, loadHistory]);
 
   useEffect(() => {
+    if (activeTab !== "historico") return;
+    if (embarkOpen || disembarkOpen || editorOpen) return;
+    const intervalId = setInterval(() => {
+      void loadHistory();
+    }, HISTORY_REFRESH_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [activeTab, embarkOpen, disembarkOpen, editorOpen, loadHistory]);
+
+  useEffect(() => {
     if (activeTab === "historico") {
       setHistoryPage(1);
     }
@@ -2243,6 +3335,14 @@ export default function Itineraries() {
     setSelectedId(null);
     setPostSavePrompt(null);
   };
+
+  useEffect(() => {
+    setForm({ name: "", description: "", items: [] });
+    setSelectedId(null);
+    setPostSavePrompt(null);
+    setEditorOpen(false);
+    setSelectedBatchItineraryIds([]);
+  }, [effectiveClientId, isAllTenantsScope]);
 
   const resetEmbarkForm = useCallback(() => {
     setEmbarkVehicleQuery("");
@@ -2289,10 +3389,6 @@ export default function Itineraries() {
       showToast("Sem permissão para criar ou editar itinerários.", "warning");
       return;
     }
-    if (!itinerary && !effectiveClientId) {
-      showToast("Selecione um cliente antes de criar um itinerário.", "warning");
-      return;
-    }
     if (itinerary) {
       setSelectedId(itinerary.id);
       setForm({
@@ -2304,6 +3400,20 @@ export default function Itineraries() {
     } else {
       resetForm();
     }
+    const defaultClientId = (() => {
+    if (itinerary) {
+      return itinerary?.clientId ? String(itinerary.clientId) : CLIENT_SCOPE_ALL;
+    }
+    if (mirrorAllSelected) {
+      const firstSpecific = editorClientOptions.find((option) => option.value !== CLIENT_SCOPE_ALL)?.value;
+      return firstSpecific || CLIENT_SCOPE_ALL;
+    }
+    if (isAllTenantsScope && hasAdminAccess) {
+      return CLIENT_SCOPE_ALL;
+    }
+    return effectiveClientId || baseClientId || null;
+  })();
+    setEditorClientId(defaultClientId);
     resetEditorEmbarkForm();
     resetEditorDisembarkForm();
     setEditorTab("detalhes");
@@ -2367,22 +3477,80 @@ export default function Itineraries() {
       showToast("Sem permissão para criar ou editar itinerários.", "warning");
       return null;
     }
-    const resolvedClientId = effectiveClientId ?? selected?.clientId ?? null;
-    if (!resolvedClientId && !selectedId) {
+    const desiredClientId =
+      editorClientId ?? (selected?.clientId ? String(selected.clientId) : null) ?? effectiveClientId ?? null;
+    const wantsAll = String(desiredClientId || "") === CLIENT_SCOPE_ALL;
+    const allowGlobal = isGlobalAdmin || (wantsAll && allowMirrorAll);
+    if (wantsAll && !allowGlobal) {
+      showToast("Selecione um cliente válido antes de salvar o itinerário.", "warning");
+      return null;
+    }
+    if (selected && !selected?.clientId && !allowGlobal) {
+      showToast("Sem acesso para editar itinerários globais.", "warning");
+      return null;
+    }
+    const isGlobalScope = wantsAll && allowGlobal;
+    const resolvedClientId = isGlobalScope ? null : desiredClientId;
+    if (!resolvedClientId && !selectedId && !isGlobalScope) {
       showToast("Selecione um cliente antes de criar um itinerário.", "warning");
+      return null;
+    }
+    if (resolvedClientId) {
+      const scopeId = String(resolvedClientId);
+      const invalidItem = (form.items || []).find((item) => {
+        const key = String(item?.id || "");
+        if (!key) return false;
+        const itemClientId =
+          item.type === "route"
+            ? routeClientById.get(key)
+            : item.type === "geofence"
+              ? geofenceClientById.get(key)
+              : targetClientById.get(key);
+        if (!itemClientId) return false;
+        return String(itemClientId) !== scopeId;
+      });
+      if (invalidItem) {
+        showToast("Há itens vinculados de outro cliente. Ajuste antes de salvar.", "warning");
+        return null;
+      }
+    }
+    if (isGlobalScope) {
+      const invalidGlobalItem = (form.items || []).find((item) => {
+        const itemClientId = resolveItemClientId(item);
+        return Boolean(itemClientId);
+      });
+      if (invalidGlobalItem) {
+        showToast("Itinerário global não pode conter itens de clientes. Selecione um cliente específico.", "warning");
+        return null;
+      }
+    }
+    const mirrorOwnerForSave =
+      !isGlobalAdmin && isMirrorReceiver
+        ? (isGlobalScope ? "all" : resolvedClientId)
+        : null;
+    const saveHeaders = mirrorOwnerForSave
+      ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: mirrorOwnerForSave })
+      : mirrorHeaders;
+    if (isGlobalScope && !isGlobalAdmin && !saveHeaders) {
+      showToast("Selecione um cliente válido antes de salvar o itinerário.", "warning");
       return null;
     }
     const isNew = !selectedId;
     setSaving(true);
     try {
-      const payload = { ...form, items: form.items || [], clientId: resolvedClientId ?? undefined };
+      const payload = {
+        ...form,
+        items: form.items || [],
+        clientId: resolvedClientId ?? undefined,
+        scope: isGlobalScope ? "global" : undefined,
+      };
       const response = selectedId
-        ? await api.put(`${API_ROUTES.itineraries}/${selectedId}`, payload)
-        : await api.post(API_ROUTES.itineraries, payload);
+        ? await api.put(`${API_ROUTES.itineraries}/${selectedId}`, payload, { headers: saveHeaders })
+        : await api.post(API_ROUTES.itineraries, payload, { headers: saveHeaders });
       const responsePayload = response?.data || {};
       const saved = responsePayload?.data || payload;
       await loadItineraries();
-      setSelectedId(saved.id || selectedId);
+      setSelectedId(null);
       showToast("Itinerário salvo com sucesso.");
       if (responsePayload?.xdm?.ok === false) {
         showToast(
@@ -2390,15 +3558,11 @@ export default function Itineraries() {
           "warning",
         );
       }
-      if (isNew) {
-        setEditorTab("detalhes");
-        setPostSavePrompt({
-          id: String(saved.id || selectedId || ""),
-          name: saved.name || form.name || "Itinerário",
-        });
-      } else if (closeModal) {
+      if (closeModal) {
         setEditorOpen(false);
       }
+      resetForm();
+      setPostSavePrompt(null);
       return saved;
     } catch (error) {
       if (isForbiddenError(error)) {
@@ -2430,9 +3594,10 @@ export default function Itineraries() {
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
-          await api.delete(`${API_ROUTES.itineraries}/${id}`);
+          await api.delete(`${API_ROUTES.itineraries}/${id}`, { headers: mirrorHeaders });
           setItineraries((current) => current.filter((item) => item.id !== id));
           if (selectedId === id) resetForm();
+          await loadItineraries();
           showToast("Excluído com sucesso.");
         } catch (error) {
           if (isForbiddenError(error)) {
@@ -2453,7 +3618,10 @@ export default function Itineraries() {
   const exportKml = async (id) => {
     if (!id) return;
     try {
-      const response = await api.get(`${API_ROUTES.itineraries}/${id}/export/kml`, { responseType: "blob" });
+      const response = await api.get(`${API_ROUTES.itineraries}/${id}/export/kml`, {
+        responseType: "blob",
+        headers: mirrorHeaders,
+      });
       const blob = new Blob([response.data], { type: "application/vnd.google-earth.kml+xml" });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -2528,10 +3696,27 @@ export default function Itineraries() {
     () => filteredEmbarkDetails.find((item) => String(item.vehicleId) === String(selectedEmbarkDetailVehicleId)) || null,
     [filteredEmbarkDetails, selectedEmbarkDetailVehicleId],
   );
+  const selectedEmbarkDetailError = useMemo(
+    () =>
+      resolveSafeErrorMessage(
+        selectedEmbarkDetail?.xdmError,
+        "Falhou no momento de embarcar no equipamento.",
+      ),
+    [selectedEmbarkDetail],
+  );
   const selectedVehicleHistoryEntry = useMemo(
     () => vehicleHistory.find((entry) => entry.id === selectedVehicleHistoryId) || null,
     [vehicleHistory, selectedVehicleHistoryId],
   );
+  const selectedVehicleHistoryDetails = useMemo(() => {
+    const safeDetails = resolveSafeErrorMessage(selectedVehicleHistoryEntry?.details, null);
+    if (safeDetails) return safeDetails;
+    const safeResult = resolveSafeErrorMessage(
+      selectedVehicleHistoryEntry?.result || selectedVehicleHistoryEntry?.message,
+      null,
+    );
+    return safeResult || "Falhou no momento de enviar para a central.";
+  }, [selectedVehicleHistoryEntry]);
   const detailItems = useMemo(() => {
     if (detailModalData?.items?.length) return detailModalData.items;
     return buildItineraryItemDetails(detailModalData?.itinerary, geofences, routes);
@@ -2768,6 +3953,111 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches, missingVehicles, missingItineraryClients } = buildClientScopedBatches({
+        vehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      const incompatibleClients = [];
+      const compatibleBatches = batches
+        .map((batch) => {
+          const compatibleIds = batch.itineraryIds.filter((id) => {
+            const itinerary = itineraryById.get(String(id));
+            return !itinerary || isItineraryCompatibleWithClient(itinerary, batch.clientId);
+          });
+          if (!compatibleIds.length) {
+            incompatibleClients.push(batch.clientId);
+          }
+          return { ...batch, itineraryIds: compatibleIds };
+        })
+        .filter((batch) => batch.itineraryIds.length);
+      if (!compatibleBatches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      if (missingVehicles.length) {
+        showToast("Alguns veículos não possuem cliente definido.", "warning");
+      }
+      if (missingItineraryClients.length) {
+        showToast("Nenhum itinerário disponível para alguns clientes selecionados.", "warning");
+      }
+      if (incompatibleClients.length) {
+        const labels = incompatibleClients
+          .map((id) => clientNameById.get(String(id)) || id)
+          .filter(Boolean);
+        showToast(`Há itinerários com itens de outro cliente. Ajuste antes de embarcar. (${labels.join(", ")})`, "warning");
+      }
+      setEmbarkSending(true);
+      setEmbarkErrorDetails(null);
+      try {
+        const results = await Promise.allSettled(
+          compatibleBatches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryEmbark,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                xdmBufferMeters: embarkBufferMeters,
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        const errorMessages = [];
+        const responseEntries = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            const list = result.value?.data?.data?.entries || result.value?.data?.entries || [];
+            if (Array.isArray(list) && list.length) {
+              responseEntries.push(...list);
+            }
+            return;
+          }
+          const message = isForbiddenError(result.reason)
+            ? "Sem acesso para embarcar em um dos clientes."
+            : resolveEmbarkErrorMessage(result.reason);
+          errorMessages.push(`Cliente ${compatibleBatches[index]?.clientId || "—"}: ${message}`);
+          failedCount += compatibleBatches[index]?.vehicleIds?.length || 0;
+        });
+        if (responseEntries.length) {
+          const normalized = normalizeLocalHistoryEntries(responseEntries);
+          if (normalized.length) {
+            setHistoryEntries((current) => mergeHistoryEntries(current, normalized));
+          }
+        }
+        if (failedCount > 0) {
+          showToast(`Embarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setEmbarkSummary(`Resultado: ${okCount} enviados, ${failedCount} falharam.`);
+          setEmbarkErrorDetails(errorMessages.length ? errorMessages.join("\n") : null);
+        } else {
+          showToast("Embarque enviado com sucesso.");
+          setEmbarkSummary("Embarque enviado com sucesso.");
+          setEmbarkOpen(false);
+          resetEmbarkForm();
+        }
+        await loadHistory();
+        if (activeTab === "veiculos") {
+          await loadEmbarkDetails();
+        }
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao embarcar (todos)", error);
+        const friendlyMessage = resolveEmbarkErrorMessage(error);
+        showToast(friendlyMessage, "warning");
+        setEmbarkSummary(friendlyMessage);
+        setEmbarkErrorDetails(resolveTechnicalDetails(error));
+      } finally {
+        setEmbarkSending(false);
+      }
+      return;
+    }
     const inferredClientId =
       overrideClientId ||
       effectiveClientId ||
@@ -2775,6 +4065,14 @@ export default function Itineraries() {
       null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para embarcar.", "warning");
+      return;
+    }
+    const incompatibleItinerary = itineraryIds.find((id) => {
+      const itinerary = itineraryById.get(String(id));
+      return itinerary && !isItineraryCompatibleWithClient(itinerary, inferredClientId);
+    });
+    if (incompatibleItinerary) {
+      showToast("Itinerário contém itens de outro cliente. Ajuste antes de embarcar.", "warning");
       return;
     }
     setEmbarkSending(true);
@@ -2785,7 +4083,14 @@ export default function Itineraries() {
         itineraryIds,
         clientId: inferredClientId ?? undefined,
         xdmBufferMeters: embarkBufferMeters,
-      });
+      }, { headers: mirrorHeaders });
+      const responseEntries = response?.data?.data?.entries || response?.data?.entries || [];
+      if (Array.isArray(responseEntries) && responseEntries.length) {
+        const normalized = normalizeLocalHistoryEntries(responseEntries);
+        if (normalized.length) {
+          setHistoryEntries((current) => mergeHistoryEntries(current, normalized));
+        }
+      }
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const okCount = Number(summary?.success || 0);
       const failedCount = Number(summary?.failed || 0);
@@ -2834,6 +4139,99 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches, missingVehicles, missingItineraryClients } = buildClientScopedBatches({
+        vehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      if (missingVehicles.length) {
+        showToast("Alguns veículos não possuem cliente definido.", "warning");
+      }
+      if (missingItineraryClients.length) {
+        showToast("Nenhum itinerário disponível para alguns clientes selecionados.", "warning");
+      }
+      disembarkInFlightRef.current = true;
+      setDisembarkSending(true);
+      setDisembarkErrorDetails(null);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryDisembarkBatch,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                options: {
+                  cleanup: {
+                    deleteGeozoneGroup: cleanupDeleteGroup,
+                    deleteGeozones: cleanupDeleteGeozones,
+                  },
+                },
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        const errorItems = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            const errors = summary?.errors || result.value?.data?.data?.errors || [];
+            if (Array.isArray(errors)) {
+              errors.forEach((entry) =>
+                errorItems.push({ ...entry, clientId: batches[index]?.clientId || null }),
+              );
+            }
+            return;
+          }
+          const message = isForbiddenError(result.reason)
+            ? "Sem acesso para desembarcar em um dos clientes."
+            : resolveEmbarkErrorMessage(result.reason);
+          errorItems.push({
+            itineraryId: "",
+            vehicleId: "",
+            message: `Cliente ${batches[index]?.clientId || "—"}: ${message}`,
+          });
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+        });
+        if (failedCount > 0) {
+          showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+          setDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+        } else {
+          showToast("Desembarque enviado com sucesso.");
+          setDisembarkSummary("Desembarque enviado com sucesso.");
+          setDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+          setDisembarkOpen(false);
+          resetDisembarkForm();
+        }
+        await loadHistory();
+        if (activeTab === "veiculos") {
+          await loadEmbarkDetails();
+        }
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao desembarcar (todos)", error);
+        const friendlyMessage = resolveEmbarkErrorMessage(error);
+        showToast(friendlyMessage, "warning");
+        setDisembarkSummary(friendlyMessage);
+        setDisembarkErrorDetails(resolveTechnicalDetails(error));
+      } finally {
+        setDisembarkSending(false);
+        disembarkInFlightRef.current = false;
+      }
+      return;
+    }
     const inferredClientId =
       overrideClientId ||
       effectiveClientId ||
@@ -2857,7 +4255,7 @@ export default function Itineraries() {
             deleteGeozones: cleanupDeleteGeozones,
           },
         },
-      });
+      }, { headers: mirrorHeaders });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const operationId = response?.data?.data?.operationId || null;
       const okCount = Number(summary?.success || 0);
@@ -2912,6 +4310,60 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches } = buildClientScopedBatches({
+        vehicleIds: selectedEditorEmbarkVehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      setEmbarkSending(true);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryEmbark,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                xdmBufferMeters: editorEmbarkBufferMeters,
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            return;
+          }
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+        });
+        if (failedCount > 0) {
+          showToast(`Embarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setEditorEmbarkSummary(`Resultado: ${okCount} enviados, ${failedCount} falharam.`);
+        } else {
+          showToast("Embarque enviado com sucesso.");
+          setEditorEmbarkSummary("Embarque enviado com sucesso.");
+        }
+        await loadHistory();
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao embarcar (editor)", error);
+        showToast(resolveEmbarkErrorMessage(error), "warning");
+      } finally {
+        setEmbarkSending(false);
+      }
+      return;
+    }
     const inferredClientId = selected?.clientId ?? effectiveClientId ?? null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para embarcar.", "warning");
@@ -2919,12 +4371,16 @@ export default function Itineraries() {
     }
     setEmbarkSending(true);
     try {
-      const response = await api.post(API_ROUTES.itineraryEmbark, {
-        vehicleIds: selectedEditorEmbarkVehicleIds,
-        itineraryIds,
-        clientId: inferredClientId ?? undefined,
-        xdmBufferMeters: editorEmbarkBufferMeters,
-      });
+      const response = await api.post(
+        API_ROUTES.itineraryEmbark,
+        {
+          vehicleIds: selectedEditorEmbarkVehicleIds,
+          itineraryIds,
+          clientId: inferredClientId ?? undefined,
+          xdmBufferMeters: editorEmbarkBufferMeters,
+        },
+        { headers: mirrorHeaders },
+      );
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const okCount = Number(summary?.success || 0);
       const failedCount = Number(summary?.failed || 0);
@@ -2967,6 +4423,83 @@ export default function Itineraries() {
       showToast(validationMessage, "warning");
       return;
     }
+    if (isAllTenantsScope) {
+      const { batches } = buildClientScopedBatches({
+        vehicleIds: selectedEditorDisembarkVehicleIds,
+        itineraryIds,
+        vehicleClientById,
+        itineraryClientById,
+      });
+      if (!batches.length) {
+        showToast("Selecione veículos e itinerários do mesmo cliente ou use um itinerário global.", "warning");
+        return;
+      }
+      disembarkInFlightRef.current = true;
+      setDisembarkSending(true);
+      setEditorDisembarkErrorDetails(null);
+      try {
+        const results = await Promise.allSettled(
+          batches.map((batch) =>
+            api.post(
+              API_ROUTES.itineraryDisembarkBatch,
+              {
+                vehicleIds: batch.vehicleIds,
+                itineraryIds: batch.itineraryIds,
+                clientId: batch.clientId,
+                options: {
+                  cleanup: {
+                    deleteGeozoneGroup: editorCleanupDeleteGroup,
+                    deleteGeozones: editorCleanupDeleteGeozones,
+                  },
+                },
+              },
+              { headers: mirrorHeaders },
+            ),
+          ),
+        );
+        let okCount = 0;
+        let failedCount = 0;
+        const errorItems = [];
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const summary = result.value?.data?.data?.summary || result.value?.data?.summary || null;
+            okCount += Number(summary?.success || 0);
+            failedCount += Number(summary?.failed || 0);
+            const errors = summary?.errors || result.value?.data?.data?.errors || [];
+            if (Array.isArray(errors)) {
+              errors.forEach((entry) =>
+                errorItems.push({ ...entry, clientId: batches[index]?.clientId || null }),
+              );
+            }
+            return;
+          }
+          failedCount += batches[index]?.vehicleIds?.length || 0;
+          errorItems.push({
+            itineraryId: "",
+            vehicleId: "",
+            message: `Cliente ${batches[index]?.clientId || "—"}: ${resolveEmbarkErrorMessage(result.reason)}`,
+          });
+        });
+        if (failedCount > 0) {
+          showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+          setEditorDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+          setEditorDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+        } else {
+          showToast("Desembarque enviado com sucesso.");
+          setEditorDisembarkSummary("Desembarque enviado com sucesso.");
+          setEditorDisembarkErrorDetails(formatDisembarkErrorDetails(errorItems));
+        }
+        await loadHistory();
+      } catch (error) {
+        logItineraryError("[itineraries] Falha ao desembarcar (editor)", error);
+        showToast(resolveEmbarkErrorMessage(error), "warning");
+        setEditorDisembarkErrorDetails(resolveTechnicalDetails(error));
+      } finally {
+        setDisembarkSending(false);
+        disembarkInFlightRef.current = false;
+      }
+      return;
+    }
     const inferredClientId = selected?.clientId ?? effectiveClientId ?? null;
     if (!inferredClientId) {
       showToast("Selecione um cliente válido para desembarcar.", "warning");
@@ -2976,17 +4509,21 @@ export default function Itineraries() {
     setDisembarkSending(true);
     setEditorDisembarkErrorDetails(null);
     try {
-      const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
-        vehicleIds: selectedEditorDisembarkVehicleIds,
-        itineraryIds,
-        clientId: inferredClientId ?? undefined,
-        options: {
-          cleanup: {
-            deleteGeozoneGroup: editorCleanupDeleteGroup,
-            deleteGeozones: editorCleanupDeleteGeozones,
+      const response = await api.post(
+        API_ROUTES.itineraryDisembarkBatch,
+        {
+          vehicleIds: selectedEditorDisembarkVehicleIds,
+          itineraryIds,
+          clientId: inferredClientId ?? undefined,
+          options: {
+            cleanup: {
+              deleteGeozoneGroup: editorCleanupDeleteGroup,
+              deleteGeozones: editorCleanupDeleteGeozones,
+            },
           },
         },
-      });
+        { headers: mirrorHeaders },
+      );
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const operationId = response?.data?.data?.operationId || null;
       const okCount = Number(summary?.success || 0);
@@ -3023,18 +4560,26 @@ export default function Itineraries() {
     }
     setDeleteConflictSending(true);
     try {
-      await api.post(API_ROUTES.itineraryDisembarkBatch, {
-        vehicleIds: [],
-        itineraryIds: [String(itineraryId)],
-        clientId: effectiveClientId ?? undefined,
-        options: {
-          cleanup: {
-            deleteGeozoneGroup: false,
-            deleteGeozones: false,
+      const targetClientId =
+        itineraries.find((item) => String(item.id) === String(itineraryId))?.clientId ?? effectiveClientId ?? null;
+      if (targetClientId) {
+        await api.post(
+          API_ROUTES.itineraryDisembarkBatch,
+          {
+            vehicleIds: [],
+            itineraryIds: [String(itineraryId)],
+            clientId: targetClientId,
+            options: {
+              cleanup: {
+                deleteGeozoneGroup: false,
+                deleteGeozones: false,
+              },
+            },
           },
-        },
-      });
-      await api.delete(`${API_ROUTES.itineraries}/${itineraryId}`);
+          { headers: mirrorHeaders },
+        );
+      }
+      await api.delete(`${API_ROUTES.itineraries}/${itineraryId}`, { headers: mirrorHeaders });
       setItineraries((current) => current.filter((item) => item.id !== itineraryId));
       if (selectedId === itineraryId) resetForm();
       setDeleteConflict(null);
@@ -3058,24 +4603,68 @@ export default function Itineraries() {
   const historyColCount = 11;
   const manageDisabledTooltip = canManageItineraries ? "" : "Sem permissão";
   const manageDisabledClass = canManageItineraries ? "" : "opacity-50 cursor-not-allowed";
+  const accessErrorReason = resolveAccessReason(accessError);
+  const accessReason = vehiclesAccessReason || mirrorAccessReason || accessErrorReason || resolveAccessReason(vehiclesError);
+  const hasAccessIssue = isBlockingAccessReason(accessReason);
+  const noVehiclesReason = vehiclesReason || accessListReason;
+  const showNoVehiclesState = !vehiclesLoading && !hasAccessIssue && isNoVehiclesReason(noVehiclesReason);
 
-  if (accessError) {
+  const handleLogout = useCallback(async () => {
+    await logout();
+    navigate("/login");
+  }, [logout, navigate]);
+
+  if (hasAccessIssue) {
+    const accessBullets = isAdminContext
+      ? [
+          "Revise o status do usuário (ativo/bloqueado/expirado) e as permissões do perfil.",
+          "Se o tenant estiver inativo/bloqueado, regularize o acesso antes de prosseguir.",
+          "Caso seja um usuário de cliente, valide as regras do tenant selecionado.",
+        ]
+      : [
+          "Seu tempo de acesso ao sistema pode ter expirado.",
+          "Para liberação, procure o administrador ou o setor de gestão de acesso da sua empresa para avaliação e reativação.",
+        ];
     return (
-      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
-        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 text-white">
-          <h2 className="text-lg font-semibold">Sem acesso a este módulo</h2>
-          <p className="mt-2 text-sm text-white/60">
-            {accessError.message || "Você não tem permissão para visualizar itinerários."}
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => navigate(-1)}>
-              Voltar
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10 text-white">
+        <AlertStateCard
+          title="Alerta de Usuário"
+          text={isAdminContext ? "Acesso expirado, bloqueado ou sem permissão" : "Acesso expirado ou bloqueado"}
+          bullets={accessBullets}
+          actions={(
+            <>
+              <Button size="sm" onClick={handleLogout}>Sair</Button>
+              <Button size="sm" variant="secondary" onClick={handleLogout}>Voltar ao login</Button>
+            </>
+          )}
+        />
+      </div>
+    );
+  }
+
+  if (showNoVehiclesState) {
+    const vehicleBullets = isAdminContext
+      ? [
+          "Confirme se existe equipamento com sinal e se o veículo foi vinculado corretamente.",
+          "Verifique permissões do usuário e se o veículo está liberado para monitoramento no tenant selecionado.",
+          "Se necessário, realize o vínculo/atribuição do veículo ao usuário.",
+        ]
+      : [
+          "Apenas veículos vinculados/liberados ao seu usuário aparecem na lista.",
+          "Se não visualizar o veículo, verifique se foi transferido sinal do equipamento e se ocorreu o vínculo ao seu usuário pelo administrador do sistema.",
+        ];
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 py-10 text-white">
+        <AlertStateCard
+          title="Alerta Vínculo de Veículo"
+          text={isAdminContext ? "Nenhum veículo disponível para este cliente/usuário" : "Nenhum veículo vinculado para monitoramento"}
+          bullets={vehicleBullets}
+          actions={isAdminContext ? (
+            <Button size="sm" variant="secondary" onClick={() => navigate("/equipamentos?link=unlinked")}>
+              Ir para vínculos
             </Button>
-            <Button size="sm" onClick={() => navigate("/home")}>
-              Trocar cliente
-            </Button>
-          </div>
-        </div>
+          ) : null}
+        />
       </div>
     );
   }
@@ -3159,73 +4748,29 @@ export default function Itineraries() {
           <div className="sticky top-0 z-30 bg-[#0b0f17] pb-4">
             <div className="space-y-4">
               <PageHeader
-                rightControls={
-                  <>
-                    <span className="map-status-pill">
-                      <span className="dot" />
-                      {itineraries.length} itinerários
-                    </span>
-                    {loading && (
-                      <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
-                        Carregando...
-                      </span>
-                    )}
-                  </>
-                }
-                actions={
-                  <>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleOpenEmbarkModal}
-                      disabled={!canManageItineraries}
-                      title={manageDisabledTooltip || "Embarcar"}
-                    >
-                      Embarcar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleOpenDisembarkModal}
-                      disabled={!canManageItineraries}
-                      title={manageDisabledTooltip || "Desembarcar"}
-                    >
-                      Desembarcar
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => openEditor(null)}
-                      icon={Plus}
-                      disabled={!canManageItineraries}
-                      title={manageDisabledTooltip || "Criar novo"}
-                    >
-                      Criar novo
-                    </Button>
-                  </>
-                }
+                rightControls={null}
               />
-              <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-                {[
-                  { key: "embarcado", label: "Embarcado" },
-                  { key: "historico", label: "Histórico" },
-                  { key: "veiculos", label: "Veículos" },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`rounded-md px-3 py-2 transition ${
-                      activeTab === tab.key
-                        ? "border border-primary/40 bg-primary/20 text-white"
-                        : "border border-transparent hover:border-white/20"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="w-full md:max-w-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+                  {[
+                    { key: "embarcado", label: "Embarcado" },
+                    { key: "historico", label: "Histórico" },
+                    { key: "veiculos", label: "Veículos" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key)}
+                      className={`rounded-md px-3 py-2 transition ${
+                        activeTab === tab.key
+                          ? "border border-primary/40 bg-primary/20 text-white"
+                          : "border border-transparent hover:border-white/20"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 min-w-[220px] max-w-xs">
                   <SearchInput
                     placeholder={
                       activeTab === "historico"
@@ -3250,6 +4795,83 @@ export default function Itineraries() {
                       }
                     }}
                   />
+                </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  <div ref={mapLayerButtonRef} className="map-layer-control">
+                    <button
+                      type="button"
+                      className={`map-tool-button map-toolbar-zoom-button ${mapLayerMenuOpen ? "is-active" : ""}`.trim()}
+                      onClick={() => setMapLayerMenuOpen((open) => !open)}
+                      title="Selecionar mapa"
+                      aria-label="Selecionar mapa"
+                    >
+                      <Layers style={{ width: 16, height: 16 }} />
+                    </button>
+                    {mapLayerMenuOpen && (
+                      <div className="map-layer-popover">
+                        <p className="map-layer-popover-title">Selecionar mapa</p>
+                        <div className="map-layer-options">
+                          {mapLayerOptions.map((option) => {
+                            const isActive = option.layer?.key === mapLayer?.key;
+                            return (
+                              <button
+                                key={option.id}
+                                type="button"
+                                className={`map-layer-option ${isActive ? "is-active" : ""}`.trim()}
+                                onClick={() => {
+                                  if (option.layer?.key) {
+                                    setMapLayerKey(option.layer.key);
+                                  }
+                                  setMapLayerMenuOpen(false);
+                                }}
+                              >
+                                <span className="map-layer-option-label">{option.label}</span>
+                                {option.layer?.description ? (
+                                  <span className="map-layer-option-subtitle">{option.layer.description}</span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <span className="map-status-pill">
+                    <span className="dot" />
+                    {itineraries.length} itinerários
+                  </span>
+                  {loading && (
+                    <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
+                      Carregando...
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={handleOpenEmbarkModal}
+                    disabled={!canManageItineraries}
+                    title={manageDisabledTooltip || "Embarcar"}
+                  >
+                    Embarcar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={handleOpenDisembarkModal}
+                    disabled={!canManageItineraries}
+                    title={manageDisabledTooltip || "Desembarcar"}
+                  >
+                    Desembarcar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => openEditor(null)}
+                    icon={Plus}
+                    disabled={!canManageItineraries}
+                    title={manageDisabledTooltip || "Criar novo"}
+                  >
+                    Criar novo
+                  </Button>
                 </div>
               </div>
             </div>
@@ -3341,7 +4963,11 @@ export default function Itineraries() {
                           />
                         </td>
                         <td className="px-4 py-3 font-semibold text-white">{item.name}</td>
-                        <td className="px-4 py-3">{clientNameById.get(String(item.clientId)) || item.clientId || "—"}</td>
+                        <td className="px-4 py-3">
+                          {clientNameById.get(item?.clientId ? String(item.clientId) : "global") ||
+                            item?.clientId ||
+                            "—"}
+                        </td>
                         <td className="px-4 py-3">{geofenceCount}</td>
                         <td className="px-4 py-3">{routeCount}</td>
                         <td className="px-4 py-3">{targetCount}</td>
@@ -3433,7 +5059,12 @@ export default function Itineraries() {
                   </tr>
                 )}
                 {!historyLoading &&
-                  paginatedHistory.map((entry) => (
+                  paginatedHistory.map((entry) => {
+                    const safeEntryDetails = resolveSafeErrorMessage(
+                      entry.details,
+                      "Falhou no momento de enviar para a central.",
+                    );
+                    return (
                     <tr key={entry.id}>
                       <td className="px-4 py-3">{formatDateTime(entry.sentAt || entry.at)}</td>
                       <td className="px-4 py-3">
@@ -3447,7 +5078,7 @@ export default function Itineraries() {
                       <td className="px-4 py-3">{entry.actionLabel || "—"}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${resolveStatusBadgeClass(entry.statusLabel || entry.status)}`}>
-                          {entry.statusLabel || entry.status || "—"}
+                          {translateItineraryStatusLabel(entry.statusLabel || entry.status, { style: "upper", fallback: "—" })}
                         </span>
                       </td>
                       <td className="px-4 py-3">{entry.message || entry.result || "—"}</td>
@@ -3456,17 +5087,15 @@ export default function Itineraries() {
                           <Button size="xs" variant="ghost" onClick={() => openHistorySnapshot(entry)} icon={MapIcon}>
                             Ver snapshot
                           </Button>
-                        ) : entry.details ? (
-                          <details className="text-xs text-white/70">
-                            <summary className="cursor-pointer text-white/80">Ver detalhes</summary>
-                            <div className="mt-2 whitespace-pre-wrap text-white/60">{entry.details}</div>
-                          </details>
+                        ) : safeEntryDetails ? (
+                          <span className="text-xs text-white/60">{safeEntryDetails}</span>
                         ) : (
                           <span className="text-white/50">—</span>
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>
@@ -3510,6 +5139,17 @@ export default function Itineraries() {
 
         {activeTab === "veiculos" && (
           <div className="grid gap-4">
+          {embarkDetailsError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-100">
+              <div className="font-semibold">Não foi possível carregar os veículos.</div>
+              <p className="mt-1 text-white/80">{embarkDetailsError.message || "Tente novamente em instantes."}</p>
+              <div className="mt-3 flex justify-end">
+                <Button size="xs" variant="ghost" onClick={() => loadEmbarkDetails()}>
+                  Tentar novamente
+                </Button>
+              </div>
+            </div>
+          )}
           {!selectedEmbarkDetail && (
             <div className="border border-white/10 bg-transparent p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -3567,9 +5207,21 @@ export default function Itineraries() {
                       <Button size="xs" variant="secondary" onClick={() => setSelectedEmbarkDetailVehicleId(null)}>
                         Voltar para lista de veículos
                       </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => refreshVehicleStatus(selectedEmbarkDetail.vehicleId)}
+                        disabled={isReadOnly || isMirrorTarget}
+                        title={isReadOnly || isMirrorTarget ? "Sem permissão para sincronizar" : "Sincronizar agora"}
+                      >
+                        Sincronizar agora
+                      </Button>
                       <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(resolveXdmStatusLabel(selectedEmbarkDetail))}`}>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(resolveXdmStatusLabel(selectedEmbarkDetail))}`}
+                            title={selectedEmbarkDetail.configStatusLabel || selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.xdmError || ""}
+                          >
                             {resolveXdmStatusLabel(selectedEmbarkDetail)}
                           </span>
                           <span>
@@ -3614,8 +5266,8 @@ export default function Itineraries() {
                           <p>Status da Central: {resolveCentralStatusLabel(selectedEmbarkDetail)}</p>
                           <p>Status do equipamento: {resolveEquipmentStatusLabel(selectedEmbarkDetail)}</p>
                         </div>
-                        {selectedEmbarkDetail.xdmError && (
-                          <p className="mt-2 text-xs text-red-200">{selectedEmbarkDetail.xdmError}</p>
+                        {selectedEmbarkDetailError && (
+                          <p className="mt-2 text-xs text-red-200">{selectedEmbarkDetailError}</p>
                         )}
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
@@ -3686,12 +5338,12 @@ export default function Itineraries() {
                                       </div>
                                       <div>
                                         <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Status</p>
-                                        <p>{item.statusLabel || resolveXdmStatusLabel(selectedEmbarkDetail)}</p>
+                                        <p>{translateItineraryStatusLabel(item.statusLabel || resolveXdmStatusLabel(selectedEmbarkDetail), { style: "upper", fallback: "—" })}</p>
                                       </div>
                                     </div>
                                     <div className="mt-3">
                                       <Button size="xs" variant="ghost" onClick={() => openItemMapPreview(item)} icon={MapIcon}>
-                                        Ver no mapa (Satélite)
+                                        Ver no mapa ({mapLayerLabel})
                                       </Button>
                                     </div>
                                   </div>
@@ -3740,7 +5392,7 @@ export default function Itineraries() {
                                       entry.statusLabel || entry.status,
                                     )}`}
                                   >
-                                    {entry.statusLabel || entry.status || "—"}
+                                    {translateItineraryStatusLabel(entry.statusLabel || entry.status, { style: "upper", fallback: "—" })}
                                   </span>
                                 </div>
                                 <p className="text-xs text-white/60">{formatDateTime(entry.sentAt)}</p>
@@ -3774,7 +5426,7 @@ export default function Itineraries() {
                                 selectedVehicleHistoryEntry.statusLabel || selectedVehicleHistoryEntry.status,
                               )}`}
                             >
-                              {selectedVehicleHistoryEntry.statusLabel || selectedVehicleHistoryEntry.status || "—"}
+                              {translateItineraryStatusLabel(selectedVehicleHistoryEntry.statusLabel || selectedVehicleHistoryEntry.status, { style: "upper", fallback: "—" })}
                             </span>
                           </div>
 
@@ -3786,9 +5438,9 @@ export default function Itineraries() {
                             {selectedVehicleHistoryEntry.message && (
                               <p className="mt-2 text-white/80">{selectedVehicleHistoryEntry.message}</p>
                             )}
-                            {selectedVehicleHistoryEntry.details && (
+                            {selectedVehicleHistoryDetails && (
                               <p className="mt-2 whitespace-pre-wrap text-white/50">
-                                {selectedVehicleHistoryEntry.details}
+                                {selectedVehicleHistoryDetails}
                               </p>
                             )}
                           </div>
@@ -3825,7 +5477,7 @@ export default function Itineraries() {
                                           <p className="text-xs text-white/60">{item.typeLabel || item.type || "—"}</p>
                                           <div className="mt-2">
                                             <Button size="xs" variant="ghost" onClick={() => openItemMapPreview(item)} icon={MapIcon}>
-                                              Ver no mapa (Satélite)
+                                              Ver no mapa ({mapLayerLabel})
                                             </Button>
                                           </div>
                                         </div>
@@ -3859,6 +5511,8 @@ export default function Itineraries() {
         onClose={() => setDetailModalData(null)}
         onExportKml={exportKml}
         onOpenMap={openItemMapPreview}
+        mapLayer={mapLayer}
+        mapLabel={mapLayerLabel}
       />
 
       <MapPreviewModal
@@ -3866,6 +5520,8 @@ export default function Itineraries() {
         title={mapPreview?.title || "Mapa"}
         items={mapPreview?.items || []}
         onClose={() => setMapPreview(null)}
+        mapLayer={mapLayer}
+        mapLabel={mapLayerLabel}
       />
 
       <ItineraryModal
@@ -3882,6 +5538,11 @@ export default function Itineraries() {
         onSave={handleSave}
         onDelete={selected ? () => handleDelete(selected.id) : null}
         canManage={canManageItineraries}
+        clientOptions={editorClientOptions}
+        clientId={editorClientId}
+        onClientChange={setEditorClientId}
+        clientLabel={editorClientLabel}
+        clientEditable={!selectedId}
         form={form}
         onChange={handleFormChange}
         postSavePrompt={postSavePrompt}
@@ -3899,9 +5560,9 @@ export default function Itineraries() {
         }}
         activeTab={editorTab}
         onTabChange={setEditorTab}
-        geofences={geofences}
-        routes={routes}
-        targetGeofences={targetGeofences}
+        geofences={editorGeofences}
+        routes={editorRoutes}
+        targetGeofences={editorTargetGeofences}
         onLinkItem={handleLinkItem}
         onRemoveItem={handleRemoveItem}
         vehicles={vehicles}
@@ -3936,7 +5597,6 @@ export default function Itineraries() {
           cleanupDeleteGeozones: editorCleanupDeleteGeozones,
           onCleanupDeleteGeozonesChange: setEditorCleanupDeleteGeozones,
           resultSummary: editorDisembarkSummary,
-          technicalDetails: editorDisembarkErrorDetails,
           sending: disembarkSending,
         }}
         onEmbarkSubmit={handleEditorEmbarkSubmit}
@@ -3965,7 +5625,6 @@ export default function Itineraries() {
         sending={embarkSending}
         onSubmit={handleEmbarkSubmit}
         resultSummary={embarkSummary}
-        technicalDetails={embarkErrorDetails}
       />
 
       <DisembarkModal
@@ -3992,7 +5651,6 @@ export default function Itineraries() {
         sending={disembarkSending}
         onSubmit={handleDisembarkSubmit}
         resultSummary={disembarkSummary}
-        technicalDetails={disembarkErrorDetails}
       />
     </div>
   );

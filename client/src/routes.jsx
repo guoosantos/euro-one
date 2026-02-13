@@ -24,6 +24,8 @@ import ServiceOrderDetails from "./pages/serviceOrders/ServiceOrderDetails.jsx";
 import ServiceOrderExecute from "./pages/serviceOrders/ServiceOrderExecute.jsx";
 import ServiceOrderImport from "./pages/serviceOrders/ServiceOrderImport.jsx";
 import ServiceOrderNew from "./pages/serviceOrders/ServiceOrderNew.jsx";
+import ServiceRequests from "./pages/ServiceRequests.jsx";
+import VarLive from "./pages/VarLive.jsx";
 import Deliveries from "./pages/Deliveries";
 import DeviceImport from "./pages/DeviceImport";
 import Geofences from "./pages/Geofences.jsx";
@@ -79,7 +81,13 @@ export const routeConfig = [
   { path: "/routes", element: RoutesPage, title: "Rotas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "routes" } },
   { path: "/rotas", element: RoutesPage, title: "Rotas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "routes" } },
   { path: "/devices", element: Devices, title: "Equipamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/devices/new", element: Devices, title: "Novo equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/devices/:id/edit", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/devices/:id/editar", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
   { path: "/equipamentos", element: Devices, title: "Equipamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/equipamentos/new", element: Devices, title: "Novo equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/equipamentos/:id/edit", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/equipamentos/:id/editar", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
   { path: "/devices/chips", element: Chips, title: "Chips", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-chips" } },
   { path: "/chips", element: Chips, title: "Chips", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-chips" } },
   { path: "/devices/products", element: Products, title: "Modelos & Portas", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-models" } },
@@ -89,8 +97,12 @@ export const routeConfig = [
   { path: "/commands/create", element: CreateCommands, title: "Criar Comandos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true } },
   { path: "/vehicles", element: Vehicles, title: "Veículos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
   { path: "/vehicles/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
+  { path: "/vehicles/:id/edit", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
+  { path: "/vehicles/:id/editar", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
   { path: "/veiculos", element: Vehicles, title: "Veículos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
   { path: "/veiculos/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
+  { path: "/veiculos/:id/edit", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
+  { path: "/veiculos/:id/editar", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
   { path: "/groups", element: Groups, title: "Grupos", requireTenant: true },
   { path: "/drivers", element: Drivers, title: "Motoristas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "documents", subKey: "drivers" } },
   { path: "/documents", element: Docs, title: "Documentos", requireTenant: true, permission: { menuKey: "fleet", pageKey: "documents", subKey: "contracts" } },
@@ -99,7 +111,9 @@ export const routeConfig = [
   { path: "/services/import", element: ServiceOrderImport, title: "Importar OS", requireTenant: true, roles: ["admin"], permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
   { path: "/services/:id", element: ServiceOrderDetails, title: "Detalhes da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
   { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
+  { path: "/service-requests", element: ServiceRequests, title: "Solicitações", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
   { path: "/appointments", element: Appointments, title: "Agendamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "appointments" } },
+  { path: "/var", element: VarLive, title: "VAR / Auditoria ao vivo", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "var-live" } },
   { path: "/deliveries", element: Deliveries, title: "Entregas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "deliveries" } },
   { path: "/tasks", element: Tasks, title: "Tasks", requireTenant: true },
   { path: "/tasks/new", element: TaskForm, title: "Nova task", requireTenant: true },

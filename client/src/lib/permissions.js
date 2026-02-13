@@ -24,6 +24,22 @@ export function resolvePermissionAccess(permission, { user, permissionContext, i
 
   const context = permissionContext ?? { permissions: null, isFull: false, permissionGroupId: null };
   const isAdmin = Boolean(isGlobalAdmin || user?.role === "admin");
+  if (isGlobalAdmin) {
+    return {
+      canShow: true,
+      hasAccess: true,
+      isFull: true,
+      entry: { visible: true, access: "full" },
+    };
+  }
+  if (isAdmin && permission?.menuKey === "admin") {
+    return {
+      canShow: true,
+      hasAccess: true,
+      isFull: true,
+      entry: { visible: true, access: "full" },
+    };
+  }
   const adminHasScopedPermissions = isAdmin && Boolean(context.permissionGroupId);
   if ((isAdmin && !adminHasScopedPermissions) || context.isFull) {
     return {
@@ -85,7 +101,7 @@ export function resolvePermissionDecision(
   }
 
   const ready = Boolean(permissionsReady);
-  const accessContext = menuAccessContext ?? buildMenuAccessContext({ tenant, user });
+  const accessContext = menuAccessContext ?? buildMenuAccessContext({ tenant, user, isGlobalAdmin });
   const allowedByTenant = canShowMenuItem({ permission, context: accessContext });
   const access = resolvePermissionAccess(permission, { user, permissionContext, isGlobalAdmin });
   const requireFull = Boolean(permission.requireFull);

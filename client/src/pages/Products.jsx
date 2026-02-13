@@ -6,13 +6,13 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Field from "../ui/Field";
 import Input from "../ui/Input";
-import Select from "../ui/Select";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
+import { normalizePortCounts } from "../lib/device-ports.js";
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -40,8 +40,25 @@ function Drawer({ open, onClose, title, description, children }) {
   );
 }
 
+function formatPortCountsSummary(model) {
+  const counts = normalizePortCounts(model?.portCounts, model?.ports);
+  const labels = {
+    di: "DI",
+    do: "DO",
+    rs232: "RS232",
+    rs485: "RS485",
+    can: "CAN",
+    lora: "LoRa",
+    wifi: "Wi-Fi",
+    bluetooth: "BT",
+  };
+  const entries = Object.entries(counts).filter(([, value]) => Number(value) > 0);
+  if (!entries.length) return "—";
+  return entries.map(([key, value]) => `${labels[key] || key.toUpperCase()}: ${value}`).join(" · ");
+}
+
 export default function Products() {
-  const { tenants } = useTenant();
+  const { tenants, tenantId, tenantScope, user } = useTenant();
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -50,9 +67,11 @@ export default function Products() {
   const [editingId, setEditingId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState("basico");
   const [form, setForm] = useState({
     name: "",
     brand: "",
+    prefix: "",
     protocol: "",
     connectivity: "",
     version: "",
@@ -67,15 +86,73 @@ export default function Products() {
     notes: "",
     isClientDefault: false,
     defaultClientId: "",
-    ports: [{ label: "", type: "digital" }],
+    portCounts: {
+      di: "",
+      do: "",
+      rs232: "",
+      rs485: "",
+      can: "",
+      lora: "",
+      wifi: "",
+      bluetooth: "",
+    },
+    technicalTimes: [],
+    productionModes: [],
   });
+
+  const resolvedClientId =
+    tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
+
+  const buildModelCounts = useCallback((devices = []) => {
+    const counts = new Map();
+    devices.forEach((device) => {
+      const modelId =
+        device?.modelId ||
+        device?.productId ||
+        device?.attributes?.modelId ||
+        device?.attributes?.productId ||
+        device?.model?.id ||
+        null;
+      if (!modelId) return;
+      const key = String(modelId);
+      if (!counts.has(key)) {
+        counts.set(key, { available: 0, linked: 0, total: 0 });
+      }
+      const bucket = counts.get(key);
+      if (device?.vehicleId) {
+        bucket.linked += 1;
+      } else {
+        bucket.available += 1;
+      }
+      bucket.total += 1;
+    });
+    return counts;
+  }, []);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const modelList = await CoreApi.models();
-      setModels(Array.isArray(modelList) ? modelList : []);
+      const [modelList, deviceList] = await Promise.all([
+        CoreApi.models(resolvedClientId ? { clientId: resolvedClientId } : undefined),
+        CoreApi.listDevices(resolvedClientId ? { clientId: resolvedClientId } : undefined).catch(() => null),
+      ]);
+      let nextModels = Array.isArray(modelList) ? modelList : [];
+
+      if (Array.isArray(deviceList)) {
+        const counts = buildModelCounts(deviceList);
+        nextModels = nextModels.map((model) => {
+          const bucket = counts.get(String(model.id)) || { available: 0, linked: 0, total: 0 };
+          return {
+            ...model,
+            availableCount: bucket.available,
+            linkedCount: bucket.linked,
+            totalCount: bucket.total,
+          };
+        });
+      }
+
+      setModels(nextModels);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar modelos"));
     } finally {
@@ -85,7 +162,7 @@ export default function Products() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [resolvedClientId]);
 
   const filtered = useMemo(() => {
     const modelTerm = searchModel.trim().toLowerCase();
@@ -127,28 +204,100 @@ export default function Products() {
     [clientOptions],
   );
 
-  function updatePort(index, key, value) {
+  function updatePortCount(key, value) {
+    setForm((current) => ({
+      ...current,
+      portCounts: { ...(current.portCounts || {}), [key]: value },
+    }));
+  }
+
+  function addDynamicItem(listKey) {
+    setForm((current) => ({
+      ...current,
+      [listKey]: [
+        ...(current[listKey] || []),
+        { id: crypto.randomUUID(), label: "", value: "", description: "" },
+      ],
+    }));
+  }
+
+  function updateDynamicItem(listKey, index, field, value) {
     setForm((current) => {
-      const ports = Array.isArray(current.ports) ? [...current.ports] : [];
-      ports[index] = { ...ports[index], [key]: value };
-      return { ...current, ports };
+      const items = Array.isArray(current[listKey]) ? [...current[listKey]] : [];
+      items[index] = { ...(items[index] || {}), [field]: value };
+      return { ...current, [listKey]: items };
     });
   }
 
-  function addPort() {
-    setForm((current) => ({ ...current, ports: [...(current.ports || []), { label: "", type: "digital" }] }));
-  }
-
-  function removePort(index) {
-    setForm((current) => ({ ...current, ports: (current.ports || []).filter((_, idx) => idx !== index) }));
+  function removeDynamicItem(listKey, index) {
+    setForm((current) => ({
+      ...current,
+      [listKey]: (current[listKey] || []).filter((_, idx) => idx !== index),
+    }));
   }
 
   function openDrawer(model) {
     if (model) {
+      const counts = normalizePortCounts(model.portCounts, model.ports);
+      const technicalTimes = Array.isArray(model.technicalTimes) ? [...model.technicalTimes] : [];
+      if (technicalTimes.length === 0) {
+        if (model.jammerBlockTime) {
+          technicalTimes.push({
+            id: crypto.randomUUID(),
+            label: "Tempo bloqueio Jammer",
+            value: model.jammerBlockTime,
+            description: "",
+          });
+        }
+        if (model.panelBlockTime) {
+          technicalTimes.push({
+            id: crypto.randomUUID(),
+            label: "Tempo bloqueio painel",
+            value: model.panelBlockTime,
+            description: "",
+          });
+        }
+        if (model.jammerDetectionTime) {
+          technicalTimes.push({
+            id: crypto.randomUUID(),
+            label: "Tempo detecção Jammer",
+            value: model.jammerDetectionTime,
+            description: "",
+          });
+        }
+      }
+      const productionModes = Array.isArray(model.productionModes) ? [...model.productionModes] : [];
+      if (productionModes.length === 0) {
+        if (model.blockMode) {
+          productionModes.push({
+            id: crypto.randomUUID(),
+            label: "Modo bloqueio",
+            value: model.blockMode,
+            description: "",
+          });
+        }
+        if (model.resetMode) {
+          productionModes.push({
+            id: crypto.randomUUID(),
+            label: "Modo reset",
+            value: model.resetMode,
+            description: "",
+          });
+        }
+        if (model.workshopMode) {
+          productionModes.push({
+            id: crypto.randomUUID(),
+            label: "Modo oficina",
+            value: model.workshopMode,
+            description: "",
+          });
+        }
+      }
       setEditingId(model.id);
       setForm({
         name: model.name || "",
         brand: model.brand || "",
+        prefix: model.prefix || "",
         protocol: model.protocol || "",
         connectivity: model.connectivity || "",
         version: model.version || "",
@@ -163,13 +312,25 @@ export default function Products() {
         notes: model.notes || "",
         isClientDefault: Boolean(model.isClientDefault),
         defaultClientId: model.defaultClientId || "",
-        ports: Array.isArray(model.ports) && model.ports.length ? model.ports : [{ label: "", type: "digital" }],
+        portCounts: {
+          di: String(Number(counts.di || 0)),
+          do: String(Number(counts.do || 0)),
+          rs232: String(Number(counts.rs232 || 0)),
+          rs485: String(Number(counts.rs485 || 0)),
+          can: String(Number(counts.can || 0)),
+          lora: String(Number(counts.lora || 0)),
+          wifi: String(Number(counts.wifi || 0)),
+          bluetooth: String(Number(counts.bluetooth || 0)),
+        },
+        technicalTimes,
+        productionModes,
       });
     } else {
       setEditingId(null);
       setForm({
         name: "",
         brand: "",
+        prefix: "",
         protocol: "",
         connectivity: "",
         version: "",
@@ -184,9 +345,21 @@ export default function Products() {
         notes: "",
         isClientDefault: false,
         defaultClientId: "",
-        ports: [{ label: "", type: "digital" }],
+        portCounts: {
+          di: "",
+          do: "",
+          rs232: "",
+          rs485: "",
+          can: "",
+          lora: "",
+          wifi: "",
+          bluetooth: "",
+        },
+        technicalTimes: [],
+        productionModes: [],
       });
     }
+    setActiveTab("basico");
     setDrawerOpen(true);
   }
 
@@ -198,9 +371,15 @@ export default function Products() {
     }
     setSaving(true);
     try {
+      const portCounts = Object.entries(form.portCounts || {}).reduce((acc, [key, value]) => {
+        const numeric = Number(value);
+        acc[key] = Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : 0;
+        return acc;
+      }, {});
       const payload = {
         name: form.name.trim(),
         brand: form.brand.trim(),
+        prefix: form.prefix ? String(form.prefix).trim() : undefined,
         protocol: form.protocol.trim() || undefined,
         connectivity: form.connectivity.trim() || undefined,
         version: form.version.trim() || undefined,
@@ -215,9 +394,9 @@ export default function Products() {
         notes: form.notes.trim() || undefined,
         isClientDefault: form.isClientDefault || false,
         defaultClientId: form.defaultClientId || undefined,
-        ports: (form.ports || [])
-          .map((port) => ({ label: port.label?.trim() || "", type: port.type?.trim() || "digital" }))
-          .filter((port) => port.label),
+        portCounts,
+        technicalTimes: (form.technicalTimes || []).filter((item) => item?.label?.trim()),
+        productionModes: (form.productionModes || []).filter((item) => item?.label?.trim()),
       };
       if (editingId) {
         await CoreApi.updateModel(editingId, payload);
@@ -233,6 +412,45 @@ export default function Products() {
       setSaving(false);
     }
   }
+
+  const renderDynamicItems = (listKey) => {
+    const items = Array.isArray(form[listKey]) ? form[listKey] : [];
+    return (
+      <div className="space-y-3">
+        {items.length === 0 && (
+          <p className="text-xs text-white/60">Nenhum item configurado.</p>
+        )}
+        {items.map((item, index) => (
+          <div key={item.id || `${listKey}-${index}`} className="grid gap-3 md:grid-cols-[2fr_2fr_2fr_auto]">
+            <Input
+              label="Nome"
+              placeholder="Nome"
+              value={item.label || ""}
+              onChange={(event) => updateDynamicItem(listKey, index, "label", event.target.value)}
+            />
+            <Input
+              label="Valor"
+              placeholder="Valor"
+              value={item.value || ""}
+              onChange={(event) => updateDynamicItem(listKey, index, "value", event.target.value)}
+            />
+            <Input
+              label="Descrição"
+              placeholder="Descrição (opcional)"
+              value={item.description || ""}
+              onChange={(event) => updateDynamicItem(listKey, index, "description", event.target.value)}
+            />
+            <Button type="button" onClick={() => removeDynamicItem(listKey, index)}>
+              Remover
+            </Button>
+          </div>
+        ))}
+        <Button type="button" onClick={() => addDynamicItem(listKey)}>
+          + Adicionar item
+        </Button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -285,28 +503,29 @@ export default function Products() {
               <th className="px-4 py-3 text-left">Versão</th>
               <th className="px-4 py-3 text-left">Disponível</th>
               <th className="px-4 py-3 text-left">Vinculados</th>
-              <th className="px-4 py-3 text-left">Portas</th>
+              <th className="px-4 py-3 text-left">Cadastrados</th>
+              <th className="px-4 py-3 text-left">Interfaces</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
             {loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={7} />
+                <td colSpan={8} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={8} />
                 </td>
               </tr>
             )}
             {!loading && error && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-red-200/80">
+                <td colSpan={8} className="px-4 py-6 text-center text-red-200/80">
                   {error.message}
                 </td>
               </tr>
             )}
             {!loading && !error && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8">
+                <td colSpan={8} className="px-4 py-8">
                   <EmptyState
                     title="Nenhum modelo cadastrado."
                     subtitle="Cadastre modelos e protocolos para facilitar o vínculo de equipamentos."
@@ -336,10 +555,9 @@ export default function Products() {
                     <td className="px-4 py-3 text-white/70">{model.version || "—"}</td>
                     <td className="px-4 py-3 text-white/70">{model.availableCount ?? 0}</td>
                     <td className="px-4 py-3 text-white/70">{model.linkedCount ?? 0}</td>
+                    <td className="px-4 py-3 text-white/70">{model.totalCount ?? 0}</td>
                     <td className="px-4 py-3 text-white/70">
-                      {Array.isArray(model.ports) && model.ports.length
-                        ? model.ports.map((port) => port.label).filter(Boolean).join(", ")
-                        : "—"}
+                      {formatPortCountsSummary(model)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
@@ -365,157 +583,216 @@ export default function Products() {
         description="Cadastre informações técnicas e portas do modelo."
       >
         <form onSubmit={handleSave} className="space-y-4">
-          <Field label="Informações básicas">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                placeholder="Nome *"
-                value={form.name}
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-              />
-              <Input
-                placeholder="Fabricante *"
-                value={form.brand}
-                onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))}
-              />
-              <Input
-                placeholder="Protocolo"
-                value={form.protocol}
-                onChange={(event) => setForm((current) => ({ ...current, protocol: event.target.value }))}
-              />
-              <Input
-                placeholder="Conectividade"
-                value={form.connectivity}
-                onChange={(event) => setForm((current) => ({ ...current, connectivity: event.target.value }))}
-              />
-              <Input
-                placeholder="Versão"
-                value={form.version}
-                onChange={(event) => setForm((current) => ({ ...current, version: event.target.value }))}
-              />
-              <Input
-                placeholder="Frequência"
-                value={form.frequency}
-                onChange={(event) => setForm((current) => ({ ...current, frequency: event.target.value }))}
-              />
-            </div>
-          </Field>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "basico", label: "Informações básicas" },
+              { id: "tempos", label: "Tempos técnicos" },
+              { id: "modos", label: "Modos e produção" },
+              { id: "padrao", label: "Padrão do cliente" },
+              { id: "obs", label: "Observação" },
+              { id: "interfaces", label: "Interfaces" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-xl px-4 py-2 text-xs uppercase tracking-[0.12em] transition ${
+                  activeTab === tab.id ? "bg-sky-500 text-black" : "bg-white/10 text-white/70 hover:bg-white/15"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-          <Field label="Tempos técnicos">
-            <div className="grid gap-3 md:grid-cols-3">
-              <Input
-                placeholder="Tempo bloqueio Jammer"
-                value={form.jammerBlockTime}
-                onChange={(event) => setForm((current) => ({ ...current, jammerBlockTime: event.target.value }))}
-              />
-              <Input
-                placeholder="Tempo bloqueio painel"
-                value={form.panelBlockTime}
-                onChange={(event) => setForm((current) => ({ ...current, panelBlockTime: event.target.value }))}
-              />
-              <Input
-                placeholder="Tempo detecção Jammer"
-                value={form.jammerDetectionTime}
-                onChange={(event) => setForm((current) => ({ ...current, jammerDetectionTime: event.target.value }))}
-              />
-            </div>
-          </Field>
-
-          <Field label="Modos e produção">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                placeholder="Modo bloqueio"
-                value={form.blockMode}
-                onChange={(event) => setForm((current) => ({ ...current, blockMode: event.target.value }))}
-              />
-              <Input
-                placeholder="Modo reset"
-                value={form.resetMode}
-                onChange={(event) => setForm((current) => ({ ...current, resetMode: event.target.value }))}
-              />
-              <Input
-                placeholder="Modo oficina"
-                value={form.workshopMode}
-                onChange={(event) => setForm((current) => ({ ...current, workshopMode: event.target.value }))}
-              />
-              <Input
-                type="date"
-                placeholder="Data de produção"
-                value={form.productionDate}
-                onChange={(event) => setForm((current) => ({ ...current, productionDate: event.target.value }))}
-              />
-            </div>
-          </Field>
-
-          <Field label="Padrão do cliente">
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-sm text-white/70">
-                <input
-                  type="checkbox"
-                  checked={form.isClientDefault}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      isClientDefault: event.target.checked,
-                      defaultClientId: event.target.checked ? current.defaultClientId : "",
-                    }))
-                  }
-                  className="h-4 w-4 rounded border-white/30 bg-white/10"
+          {activeTab === "basico" && (
+            <Field label="Informações básicas">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input
+                  label="Nome"
+                  placeholder="Nome *"
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                 />
-                Tornar modelo padrão para um cliente
-              </label>
-              {form.isClientDefault && (
-                <AutocompleteSelect
-                  label="Cliente"
-                  placeholder="Selecionar cliente"
-                  value={form.defaultClientId}
-                  onChange={(value) => setForm((current) => ({ ...current, defaultClientId: value }))}
-                  options={clientOptions}
-                  loadOptions={loadClientOptions}
-                  allowClear
+                <Input
+                  label="Fabricante"
+                  placeholder="Fabricante *"
+                  value={form.brand}
+                  onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))}
                 />
-              )}
-            </div>
-          </Field>
+                <Input
+                  label="Prefixo do código interno"
+                  placeholder="Prefixo do código interno"
+                  value={form.prefix}
+                  onChange={(event) => setForm((current) => ({ ...current, prefix: event.target.value }))}
+                />
+                <Input
+                  label="Protocolo"
+                  placeholder="Protocolo"
+                  value={form.protocol}
+                  onChange={(event) => setForm((current) => ({ ...current, protocol: event.target.value }))}
+                />
+                <Input
+                  label="Conectividade"
+                  placeholder="Conectividade"
+                  value={form.connectivity}
+                  onChange={(event) => setForm((current) => ({ ...current, connectivity: event.target.value }))}
+                />
+                <Input
+                  label="Versão"
+                  placeholder="Versão"
+                  value={form.version}
+                  onChange={(event) => setForm((current) => ({ ...current, version: event.target.value }))}
+                />
+                <Input
+                  label="Frequência"
+                  placeholder="Frequência"
+                  value={form.frequency}
+                  onChange={(event) => setForm((current) => ({ ...current, frequency: event.target.value }))}
+                />
+              </div>
+            </Field>
+          )}
 
-          <Field label="Observação">
-            <textarea
-              rows={3}
-              value={form.notes}
-              onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            />
-          </Field>
+          {activeTab === "tempos" && (
+            <Field label="Tempos técnicos">
+              {renderDynamicItems("technicalTimes")}
+            </Field>
+          )}
 
-          <Field label="Portas">
-            <div className="space-y-3">
-              {(form.ports || []).map((port, index) => (
-                <div key={`product-port-${index}`} className="grid gap-3 md:grid-cols-5">
-                  <Input
-                    placeholder="Nome"
-                    value={port.label}
-                    onChange={(event) => updatePort(index, "label", event.target.value)}
-                    className="md:col-span-3"
+          {activeTab === "modos" && (
+            <Field label="Modos e produção">
+              {renderDynamicItems("productionModes")}
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <Input
+                  type="date"
+                  label="Data de produção"
+                  placeholder="Data de produção"
+                  value={form.productionDate}
+                  onChange={(event) => setForm((current) => ({ ...current, productionDate: event.target.value }))}
+                />
+              </div>
+            </Field>
+          )}
+
+          {activeTab === "padrao" && (
+            <Field label="Padrão do cliente">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm text-white/70">
+                  <input
+                    type="checkbox"
+                    checked={form.isClientDefault}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        isClientDefault: event.target.checked,
+                        defaultClientId: event.target.checked ? current.defaultClientId : "",
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-white/30 bg-white/10"
                   />
-                  <Select
-                    value={port.type}
-                    onChange={(event) => updatePort(index, "type", event.target.value)}
-                    className="md:col-span-1"
-                  >
-                    <option value="digital">Digital</option>
-                    <option value="analógica">Analógica</option>
-                    <option value="entrada">Entrada</option>
-                    <option value="saida">Saída</option>
-                  </Select>
-                  <Button type="button" onClick={() => removePort(index)} disabled={(form.ports || []).length <= 1}>
-                    Remover
-                  </Button>
-                </div>
-              ))}
-              <Button type="button" onClick={addPort}>
-                + Adicionar porta
-              </Button>
-            </div>
-          </Field>
+                  Tornar modelo padrão para um cliente
+                </label>
+                {form.isClientDefault && (
+                  <AutocompleteSelect
+                    label="Cliente"
+                    placeholder="Selecionar cliente"
+                    value={form.defaultClientId}
+                    onChange={(value) => setForm((current) => ({ ...current, defaultClientId: value }))}
+                    options={clientOptions}
+                    loadOptions={loadClientOptions}
+                    allowClear
+                  />
+                )}
+              </div>
+            </Field>
+          )}
+
+          {activeTab === "obs" && (
+            <Field label="Observação">
+              <label className="text-xs uppercase tracking-[0.12em] text-white/60" htmlFor="model-notes">
+                Observações
+              </label>
+              <textarea
+                id="model-notes"
+                rows={3}
+                value={form.notes}
+                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              />
+            </Field>
+          )}
+
+          {activeTab === "interfaces" && (
+            <Field label="Quantidades de interfaces">
+              <div className="grid gap-3 md:grid-cols-4">
+                <Input
+                  type="number"
+                  min="0"
+                  label="Entradas (DI)"
+                  placeholder="Entradas (DI)"
+                  value={form.portCounts.di}
+                  onChange={(event) => updatePortCount("di", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="Saídas (DO)"
+                  placeholder="Saídas (DO)"
+                  value={form.portCounts.do}
+                  onChange={(event) => updatePortCount("do", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="RS232"
+                  placeholder="RS232"
+                  value={form.portCounts.rs232}
+                  onChange={(event) => updatePortCount("rs232", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="RS485"
+                  placeholder="RS485"
+                  value={form.portCounts.rs485}
+                  onChange={(event) => updatePortCount("rs485", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="CAN"
+                  placeholder="CAN"
+                  value={form.portCounts.can}
+                  onChange={(event) => updatePortCount("can", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="LoRa"
+                  placeholder="LoRa"
+                  value={form.portCounts.lora}
+                  onChange={(event) => updatePortCount("lora", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="Wi-Fi"
+                  placeholder="Wi-Fi"
+                  value={form.portCounts.wifi}
+                  onChange={(event) => updatePortCount("wifi", event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  label="Bluetooth"
+                  placeholder="Bluetooth"
+                  value={form.portCounts.bluetooth}
+                  onChange={(event) => updatePortCount("bluetooth", event.target.value)}
+                />
+              </div>
+            </Field>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button type="button" onClick={() => setDrawerOpen(false)}>

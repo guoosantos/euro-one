@@ -66,6 +66,25 @@ function ensureSameTenant(user, clientId) {
   }
 }
 
+function canMirrorRead(req, clientId) {
+  const mirrorContext = req?.mirrorContext;
+  if (!mirrorContext || mirrorContext.mode !== "target") return false;
+  if (String(mirrorContext.ownerClientId || "") === "all") {
+    const allowed = Array.isArray(mirrorContext.ownerClientIds)
+      ? mirrorContext.ownerClientIds.map((value) => String(value))
+      : [];
+    return allowed.includes(String(clientId));
+  }
+  return String(mirrorContext.ownerClientId || "") === String(clientId);
+}
+
+function ensureSameTenantOrMirror(req, clientId) {
+  if (req.user?.role === "admin") return;
+  if (req.user?.clientId && String(req.user.clientId) === String(clientId)) return;
+  if (canMirrorRead(req, clientId)) return;
+  throw createError(403, "Operação não permitida para este cliente");
+}
+
 router.get(
   "/geofences/export/kml",
   authorizePermission({ menuKey: "fleet", pageKey: "geofences" }),
@@ -137,14 +156,26 @@ router.get(
   async (req, res, next) => {
   try {
     const userRole = req.user?.role || "user";
-    const targetClientId = resolveClientId(req, req.query?.clientId);
-    if (!targetClientId && userRole !== "admin") {
+    const { groupId, isTarget, lite } = req.query || {};
+    const mirrorOwnerIds = Array.isArray(req.mirrorContext?.ownerClientIds)
+      ? req.mirrorContext.ownerClientIds.map((value) => String(value)).filter(Boolean)
+      : [];
+    const isMirrorAll = String(req.mirrorContext?.ownerClientId || "") === "all";
+    const targetClientId = !isMirrorAll ? resolveClientId(req, req.query?.clientId) : null;
+    if (!targetClientId && mirrorOwnerIds.length === 0 && userRole !== "admin") {
       return res.json({ geofences: [] });
     }
-    const { groupId } = req.query || {};
+    const hasTargetFilter = isTarget !== undefined && isTarget !== null && String(isTarget).length > 0;
+    const normalized = hasTargetFilter ? String(isTarget).toLowerCase() : null;
+    const targetFlag = hasTargetFilter ? ["true", "1", "yes", "y", "sim"].includes(normalized) : null;
     const geofences = await listGeofences({
+      ...(mirrorOwnerIds.length > 0 ? { clientIds: mirrorOwnerIds } : {}),
       ...(targetClientId ? { clientId: targetClientId } : {}),
       ...(groupId ? { groupId } : {}),
+      ...(targetFlag === null ? {} : { isTarget: targetFlag }),
+      ...(lite !== undefined && lite !== null && String(lite).length > 0
+        ? { lite: ["true", "1", "yes", "y", "sim"].includes(String(lite).toLowerCase()) }
+        : {}),
     });
     return res.json({ geofences });
   } catch (error) {
@@ -162,7 +193,7 @@ router.get(
     if (!geofence) {
       throw createError(404, "Geofence não encontrada");
     }
-    ensureSameTenant(req.user, geofence.clientId);
+    ensureSameTenantOrMirror(req, geofence.clientId);
     return res.json({ geofence });
 
   } catch (error) {

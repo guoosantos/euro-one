@@ -6,6 +6,8 @@ import { listMirrors } from "../models/mirror.js";
 import { listVehicles } from "../models/vehicle.js";
 import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
 import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
+import { ACCESS_REASONS } from "../utils/access-reasons.js";
+import { createTtlCache } from "../utils/ttl-cache.js";
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -15,6 +17,9 @@ const RECEIVER_TYPES = new Set([
   "COMPANHIA DE SEGUROS",
 ]);
 const MIRROR_ALL_TOKEN = "all";
+const TENANT_CACHE_TTL_MS = Number(process.env.TENANT_CACHE_TTL_MS) || 60_000;
+const TENANT_CACHE_MAX = Number(process.env.TENANT_CACHE_MAX) || 5000;
+const tenantCache = createTtlCache({ defaultTtlMs: TENANT_CACHE_TTL_MS, maxSize: TENANT_CACHE_MAX });
 
 function isReceiverType(value) {
   if (!value) return false;
@@ -97,14 +102,18 @@ function resolveMirrorContext({ user, ownerClientId, strict = true } = {}) {
     : null;
   if (allowedOwnerIds && allowedOwnerIds.size === 0) {
     if (strict) {
-      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`, {
+        reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+      });
     }
     return null;
   }
 
   if (allowedOwnerIds && String(ownerClientId) !== MIRROR_ALL_TOKEN && !allowedOwnerIds.has(String(ownerClientId))) {
     if (strict) {
-      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+      throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`, {
+        reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+      });
     }
     return null;
   }
@@ -245,6 +254,31 @@ function logTenantResolution({ user, tenant }) {
   });
 }
 
+function buildTenantCacheKey(req, requestedClientId) {
+  const user = req?.user;
+  const mirrorHeader = req?.get ? req.get("X-Owner-Client-Id") : req?.headers?.["x-owner-client-id"];
+  const mirrorMode = req?.get ? req.get("X-Mirror-Mode") : req?.headers?.["x-mirror-mode"];
+  const mirrorOverrideSelf = isMirrorOverrideSelf(req);
+  return [
+    "tenant",
+    user?.id ? String(user.id) : "anon",
+    user?.clientId ? String(user.clientId) : "none",
+    user?.role || "unknown",
+    requestedClientId ? String(requestedClientId) : "none",
+    mirrorHeader ? String(mirrorHeader) : "none",
+    mirrorMode ? String(mirrorMode) : "none",
+    mirrorOverrideSelf ? "mirror-self" : "mirror-auto",
+    isContextRequest(req) ? "ctx" : "noctx",
+    isPermissionContextRequest(req) ? "permctx" : "nopermctx",
+    config.features?.mirrorMode ? "mirror-on" : "mirror-off",
+    config.features?.tenantFallbackToSelf ? "fallback-on" : "fallback-off",
+  ].join(":");
+}
+
+export function invalidateTenantCache() {
+  tenantCache.clear();
+}
+
 export function resolveTenant(req, { requestedClientId, required = true } = {}) {
   if (!req?.user) {
     throw createError(401, "Sessão não autenticada");
@@ -252,6 +286,23 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
 
   const user = req.user;
   const resolvedRequested = pickRequestedClientId(req, requestedClientId);
+  if (req._tenant) {
+    return req._tenant;
+  }
+  const cacheKey = buildTenantCacheKey(req, resolvedRequested);
+  const cached = tenantCache.get(cacheKey);
+  if (cached) {
+    const tenant = cached?.mirrorContext
+      ? { ...cached, mirrorContext: { ...cached.mirrorContext } }
+      : { ...cached, mirrorContext: null };
+    req.tenant = tenant;
+    req.clientId = tenant.clientIdResolved;
+    req.mirrorContext = tenant.mirrorContext;
+    req._tenant = tenant;
+    return tenant;
+  }
+
+  const tenant = (() => {
   const existingMirror = req.mirrorContext;
   if (existingMirror && (!resolvedRequested || String(existingMirror.ownerClientId) === String(resolvedRequested))) {
     const tenant = {
@@ -268,6 +319,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.mirrorContext = existingMirror;
     logMirrorApplied({ user, mirrorContext: existingMirror });
     logTenantResolution({ user, tenant });
+    tenantCache.set(cacheKey, tenant);
     return tenant;
   }
 
@@ -289,6 +341,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = null;
     logTenantResolution({ user, tenant });
+    tenantCache.set(cacheKey, tenant);
     return tenant;
   }
 
@@ -323,6 +376,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
           req.mirrorContext = mirrorContext;
           logMirrorApplied({ user, mirrorContext });
           logTenantResolution({ user, tenant });
+          tenantCache.set(cacheKey, tenant);
           return tenant;
         }
       }
@@ -337,6 +391,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.clientId = userClientId;
     req.mirrorContext = null;
     logTenantResolution({ user, tenant });
+    tenantCache.set(cacheKey, tenant);
     return tenant;
   }
 
@@ -360,6 +415,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.mirrorContext = mirrorContext;
     logMirrorApplied({ user, mirrorContext });
     logTenantResolution({ user, tenant });
+    tenantCache.set(cacheKey, tenant);
     return tenant;
   }
 
@@ -375,6 +431,7 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.clientId = tenant.clientIdResolved;
     req.mirrorContext = null;
     logTenantResolution({ user, tenant });
+    tenantCache.set(cacheKey, tenant);
     return tenant;
   }
 
@@ -398,12 +455,16 @@ export function resolveTenant(req, { requestedClientId, required = true } = {}) 
     req.clientId = userClientId;
     req.mirrorContext = null;
     logTenantResolution({ user, tenant });
+    tenantCache.set(cacheKey, tenant);
     return tenant;
   }
 
   const reason = explicitClientIds.length ? "not-linked" : "no-mirror-found";
   logDeniedAccess({ user, requestedClientId: resolvedRequested, reason });
-  throw createError(403, "Sem acesso");
+  throw createError(403, "Sem acesso", { reason: ACCESS_REASONS.FORBIDDEN_SCOPE });
+  })();
+  req._tenant = tenant;
+  return tenant;
 }
 
 export function resolveTenantMiddleware({ required = false } = {}) {

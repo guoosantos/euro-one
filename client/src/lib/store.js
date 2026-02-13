@@ -39,6 +39,10 @@ const initialTheme =
   storedState.theme ??
   (prefersDark ? "dark" : "light");
 
+if (typeof document !== "undefined") {
+  document.documentElement.dataset.theme = initialTheme;
+}
+
 const initialState = {
   sidebarOpen: false,
   sidebarCollapsed: false,
@@ -51,6 +55,8 @@ const initialState = {
   selectedTelemetryDeviceId: null,
   overlayCount: 0,
   ...storedState,
+  selectedVehicleId: null,
+  selectedTelemetryDeviceId: null,
   theme: initialTheme,
 };
 
@@ -62,8 +68,6 @@ function persistNextState(nextState) {
     monitoringTopbarVisible: nextState.monitoringTopbarVisible,
     geofencesTopbarVisible: nextState.geofencesTopbarVisible,
     routesTopbarVisible: nextState.routesTopbarVisible,
-    selectedVehicleId: nextState.selectedVehicleId,
-    selectedTelemetryDeviceId: nextState.selectedTelemetryDeviceId,
   });
 }
 

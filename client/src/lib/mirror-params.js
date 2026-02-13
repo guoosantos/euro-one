@@ -52,6 +52,12 @@ export function resolveMirrorOwnerClientId({
   mirrorOwnerClientId,
   mirrorContextMode,
 } = {}) {
+  const explicitOwnerId = mirrorOwnerClientId ? String(mirrorOwnerClientId) : null;
+  if (explicitOwnerId) {
+    if (mirrorModeEnabled === false) return null;
+    if (mirrorContextMode && mirrorContextMode !== "target") return null;
+    return explicitOwnerId;
+  }
   const storedOwnerId = resolveStoredMirrorOwnerClientId();
   if (storedOwnerId) return storedOwnerId;
   if (!mirrorOwnerClientId) return null;
@@ -60,10 +66,10 @@ export function resolveMirrorOwnerClientId({
   return String(mirrorOwnerClientId);
 }
 
-export function resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId } = {}) {
-  const ownerClientId = resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId });
+export function resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode } = {}) {
+  const ownerClientId = resolveMirrorOwnerClientId({ mirrorModeEnabled, mirrorOwnerClientId, mirrorContextMode });
   if (!ownerClientId) return undefined;
-  return { "X-Owner-Client-Id": ownerClientId };
+  return { "X-Owner-Client-Id": ownerClientId, "X-Mirror-Mode": "target" };
 }
 
 export default resolveMirrorClientParams;

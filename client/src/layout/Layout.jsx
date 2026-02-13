@@ -21,7 +21,6 @@ export default function Layout({ children, title, hideTitle = false }) {
     location.pathname.startsWith("/alvos");
   const isRoutesPage = location.pathname.startsWith("/routes");
   const isEventsPage = location.pathname.startsWith("/events");
-  const isItinerariesPage = location.pathname.startsWith("/itineraries");
   const isTripsPage = location.pathname.startsWith("/trips");
   // Rotas fullscreen (sem container / sem padding)
   const isFullWidthPage =
@@ -116,7 +115,9 @@ export default function Layout({ children, title, hideTitle = false }) {
         {((!isMonitoringPage && !isGeofencesPage && !isRoutesPage) ||
           (isMonitoringPage && showMonitoringTopbar) ||
           (isGeofencesPage && showGeofencesTopbar) ||
-          (isRoutesPage && showRoutesTopbar)) && <Topbar title={isFullWidthPage ? null : resolvedTitle} />}
+          (isRoutesPage && showRoutesTopbar)) && (
+          <Topbar title={isFullWidthPage ? null : resolvedTitle} />
+        )}
 
         <section className={`app-shell__content ${isWidePage ? "p-0" : "p-6"}`}>
           {apiUnavailable && (
@@ -148,8 +149,26 @@ export default function Layout({ children, title, hideTitle = false }) {
       </main>
 
       {buildInfo && (
-        <div className="pointer-events-none fixed bottom-3 right-3 z-50 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-white/70 shadow">
-          Build: {buildInfo.builtAt ? new Date(buildInfo.builtAt).toLocaleString("pt-BR") : "unknown"}
+        <div
+          className="pointer-events-none fixed bottom-3 right-3 z-50 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-white/70 shadow"
+          title={
+            buildInfo.builtAt
+              ? `UTC: ${new Intl.DateTimeFormat("en-GB", {
+                  timeZone: "UTC",
+                  dateStyle: "short",
+                  timeStyle: "medium",
+                }).format(new Date(buildInfo.builtAt))}`
+              : undefined
+          }
+        >
+          Build (UTC-3):{" "}
+          {buildInfo.builtAt
+            ? new Intl.DateTimeFormat("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+                dateStyle: "short",
+                timeStyle: "medium",
+              }).format(new Date(buildInfo.builtAt))
+            : "unknown"}
         </div>
       )}
       <DeviceModalGlobal />

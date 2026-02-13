@@ -3,17 +3,26 @@ import createError from "http-errors";
 
 import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { requireAdminGeneral } from "../middleware/admin-general.js";
-import { authorizePermission, MIRROR_FALLBACK_PERMISSIONS } from "../middleware/permissions.js";
+import { authorizePermission, MIRROR_FALLBACK_PERMISSIONS, invalidatePermissionContextCache } from "../middleware/permissions.js";
+import { invalidateTenantCache } from "../middleware/tenant.js";
+import { invalidateContextCache } from "./context.js";
 import { getClientById, listClients } from "../models/client.js";
 import { createGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
 import { listVehicles } from "../models/vehicle.js";
 import { createMirror, deleteMirror, getMirrorById, listMirrors, updateMirror } from "../models/mirror.js";
 import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
+import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 
 router.use(authenticate);
+
+const MIRROR_CONTEXT_CACHE_TTL_MS = Number(process.env.MIRROR_CONTEXT_CACHE_TTL_MS) || 60_000;
+const MIRROR_CONTEXT_CACHE_MAX = Number(process.env.MIRROR_CONTEXT_CACHE_MAX) || 3000;
+const mirrorContextCache = createTtlCache({
+  defaultTtlMs: MIRROR_CONTEXT_CACHE_TTL_MS,
+  maxSize: MIRROR_CONTEXT_CACHE_MAX,
+});
 
 const RECEIVER_TYPES = new Set([
   "GERENCIADORA",
@@ -72,6 +81,28 @@ function resolveGroupVehicleIds(group) {
 
 function isReceiverType(clientType) {
   return RECEIVER_TYPES.has(String(clientType || "").toUpperCase());
+}
+
+function buildMirrorContextCacheKey({ user, ownerClientId, mirrorModeEnabled, allowedMirrorOwners }) {
+  const allowedKey =
+    allowedMirrorOwners === null
+      ? "all"
+      : Array.isArray(allowedMirrorOwners)
+        ? allowedMirrorOwners.map((id) => String(id)).sort().join(",")
+        : "none";
+  return [
+    "mirrorctx",
+    user?.id ? String(user.id) : "anon",
+    user?.role || "unknown",
+    user?.clientId ? String(user.clientId) : "none",
+    ownerClientId ? String(ownerClientId) : "none",
+    mirrorModeEnabled ? "mirror-on" : "mirror-off",
+    allowedKey || "none",
+  ].join(":");
+}
+
+function invalidateMirrorContextCache() {
+  mirrorContextCache.clear();
 }
 
 function isMirrorActive(mirror, now = new Date()) {
@@ -190,59 +221,76 @@ function markTemporaryGroupExpired(mirror) {
   });
 }
 
-router.get("/mirrors/context", async (req, res, next) => {
-  try {
-    const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
-    const ownerClientId = req.query?.ownerClientId ?? null;
-    if (ownerClientId) {
-      if (req.user.role !== "admin") {
-        const allowedMirrorOwners = resolveAllowedMirrorOwnerIds(req.user);
-        const allowedOwnerIds = Array.isArray(allowedMirrorOwners)
-          ? new Set(allowedMirrorOwners.map((id) => String(id)))
-          : null;
-        if (allowedOwnerIds && allowedOwnerIds.size === 0) {
-          throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
-        }
-        if (allowedOwnerIds && String(ownerClientId) !== "all" && !allowedOwnerIds.has(String(ownerClientId))) {
-          throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
-        }
+export async function resolveMirrorsContextPayload(req, { ownerClientId: ownerClientIdOverride } = {}) {
+  const mirrorModeEnabled = Boolean(config.features?.mirrorMode);
+  const ownerClientId = ownerClientIdOverride ?? req.query?.ownerClientId ?? null;
+  const allowedMirrorOwners = resolveAllowedMirrorOwnerIds(req.user);
+  const mirrorAllowAll = allowedMirrorOwners === null;
+  const allowedOwnerIds = Array.isArray(allowedMirrorOwners)
+    ? new Set(allowedMirrorOwners.map((id) => String(id)))
+    : null;
+  const cacheKey = buildMirrorContextCacheKey({
+    user: req.user,
+    ownerClientId,
+    mirrorModeEnabled,
+    allowedMirrorOwners,
+  });
+  const cached = mirrorContextCache.get(cacheKey);
+  if (cached) return cached;
+
+  if (ownerClientId) {
+    if (req.user.role !== "admin") {
+      if (allowedOwnerIds && allowedOwnerIds.size === 0) {
+        throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
       }
-      if (String(ownerClientId) === "all") {
-        return res.json({ activeMirror: null, mirrorModeEnabled });
+      if (allowedOwnerIds && String(ownerClientId) !== "all" && !allowedOwnerIds.has(String(ownerClientId))) {
+        throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
       }
+    }
+    if (String(ownerClientId) === "all") {
       if (!mirrorModeEnabled) {
-        return res.json({ activeMirror: null, mirrorModeEnabled });
+        const payload = { activeMirror: null, mirrorModeEnabled, canMirrorAll: false };
+        mirrorContextCache.set(cacheKey, payload);
+        return payload;
       }
-      if (req.user.role === "admin") {
-        const mirror = listMirrors({ ownerClientId }).find((entry) => isMirrorActive(entry));
-        if (!mirror) {
-          return res.json({ activeMirror: null, mirrorModeEnabled });
-        }
-        return res.json({
-          activeMirror: {
-            ownerClientId: String(mirror.ownerClientId),
-            targetClientId: mirror.targetClientId ? String(mirror.targetClientId) : null,
-            mirrorId: String(mirror.id),
-            permissionGroupId: mirror.permissionGroupId ?? null,
-            vehicleIds: resolveMirrorVehicleIds(mirror),
-            vehicleGroupId: mirror.vehicleGroupId ?? null,
-            startAt: mirror.startAt || null,
-            endAt: mirror.endAt || null,
-          },
+      if (req.user.role !== "admin" && req.user.clientId) {
+        const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) => isMirrorActive(mirror));
+        const ownerIds = Array.from(
+          new Set(
+            mirrors
+              .map((mirror) => mirror.ownerClientId)
+              .filter(Boolean)
+              .map((id) => String(id)),
+          ),
+        );
+        const filteredOwners = allowedOwnerIds
+          ? ownerIds.filter((id) => allowedOwnerIds.has(String(id)))
+          : ownerIds;
+        const payload = {
+          activeMirror: null,
           mirrorModeEnabled,
-        });
+          canMirrorAll: mirrorAllowAll && filteredOwners.length > 0,
+        };
+        mirrorContextCache.set(cacheKey, payload);
+        return payload;
       }
-      if (!req.user.clientId) {
-        throw createError(401, "Usuário sem tenant associado");
+      const payload = { activeMirror: null, mirrorModeEnabled, canMirrorAll: false };
+      mirrorContextCache.set(cacheKey, payload);
+      return payload;
+    }
+    if (!mirrorModeEnabled) {
+      const payload = { activeMirror: null, mirrorModeEnabled, canMirrorAll: false };
+      mirrorContextCache.set(cacheKey, payload);
+      return payload;
+    }
+    if (req.user.role === "admin") {
+      const mirror = listMirrors({ ownerClientId }).find((entry) => isMirrorActive(entry));
+      if (!mirror) {
+        const payload = { activeMirror: null, mirrorModeEnabled, canMirrorAll: false };
+        mirrorContextCache.set(cacheKey, payload);
+        return payload;
       }
-      const mirrors = listMirrors({ ownerClientId, targetClientId: req.user.clientId }).filter((mirror) =>
-        isMirrorActive(mirror),
-      );
-      if (!mirrors.length) {
-        return res.json({ activeMirror: null, mirrorModeEnabled });
-      }
-      const mirror = mirrors[0];
-      return res.json({
+      const payload = {
         activeMirror: {
           ownerClientId: String(mirror.ownerClientId),
           targetClientId: mirror.targetClientId ? String(mirror.targetClientId) : null,
@@ -254,54 +302,126 @@ router.get("/mirrors/context", async (req, res, next) => {
           endAt: mirror.endAt || null,
         },
         mirrorModeEnabled,
-      });
-    }
-    if (req.user.role === "admin") {
-      const allClients = await listClients();
-      const targets = allClients.filter((client) => isReceiverType(resolveClientType(client)));
-      return res.json({
-        mode: "admin",
-        clientType: "ADMIN",
-        targets,
-        owners: allClients,
-        mirrorModeEnabled,
-      });
-    }
-
-    const currentClient = await getClientById(req.user.clientId);
-    const clientType = resolveClientType(currentClient);
-    if (isReceiverType(clientType)) {
-      const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) => isMirrorActive(mirror));
-      const ownerIds = Array.from(new Set(mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean)));
-      const directory = await listClients();
-      const owners = directory.filter((client) => ownerIds.includes(String(client.id)));
-      const fallbackTarget = currentClient || {
-        id: req.user.clientId,
-        name: req.user.attributes?.companyName || req.user.name || "Cliente",
-        deviceLimit: req.user.attributes?.deviceLimit ?? null,
-        userLimit: req.user.attributes?.userLimit ?? null,
-        attributes: req.user.attributes || {},
+        canMirrorAll: false,
       };
-      const targets = fallbackTarget ? [fallbackTarget] : [];
-      return res.json({
-        mode: "target",
-        clientType,
-        owners,
-        targets,
-        mirrorModeEnabled,
-      });
+      mirrorContextCache.set(cacheKey, payload);
+      return payload;
     }
+    if (!req.user.clientId) {
+      throw createError(401, "Usuário sem tenant associado");
+    }
+    const mirrors = listMirrors({ ownerClientId, targetClientId: req.user.clientId }).filter((mirror) =>
+      isMirrorActive(mirror),
+    );
+    if (!mirrors.length) {
+      const payload = { activeMirror: null, mirrorModeEnabled, canMirrorAll: mirrorAllowAll };
+      mirrorContextCache.set(cacheKey, payload);
+      return payload;
+    }
+    const mirror = mirrors[0];
+    const payload = {
+      activeMirror: {
+        ownerClientId: String(mirror.ownerClientId),
+        targetClientId: mirror.targetClientId ? String(mirror.targetClientId) : null,
+        mirrorId: String(mirror.id),
+        permissionGroupId: mirror.permissionGroupId ?? null,
+        vehicleIds: resolveMirrorVehicleIds(mirror),
+        vehicleGroupId: mirror.vehicleGroupId ?? null,
+        startAt: mirror.startAt || null,
+        endAt: mirror.endAt || null,
+      },
+      mirrorModeEnabled,
+      canMirrorAll: mirrorAllowAll,
+    };
+    mirrorContextCache.set(cacheKey, payload);
+    return payload;
+  }
+  if (req.user.role === "admin") {
+    const allClients = await listClients();
+    const targets = allClients.filter((client) => isReceiverType(resolveClientType(client)));
+    const payload = {
+      mode: "admin",
+      clientType: "ADMIN",
+      targets,
+      owners: allClients,
+      mirrorModeEnabled,
+      canMirrorAll: false,
+    };
+    mirrorContextCache.set(cacheKey, payload);
+    return payload;
+  }
 
+  const currentClient = await getClientById(req.user.clientId);
+  const clientType = resolveClientType(currentClient);
+  if (isReceiverType(clientType)) {
+    const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) => isMirrorActive(mirror));
+    const ownerIds = Array.from(new Set(mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean)));
     const directory = await listClients();
-    const targets = directory.filter((client) => isReceiverType(resolveClientType(client)));
-    return res.json({
-      mode: "owner",
+    const owners = directory.filter((client) => ownerIds.includes(String(client.id)));
+    const filteredOwners = allowedOwnerIds
+      ? owners.filter((client) => allowedOwnerIds.has(String(client.id)))
+      : owners;
+    const fallbackTarget = currentClient || {
+      id: req.user.clientId,
+      name: req.user.attributes?.companyName || req.user.name || "Cliente",
+      deviceLimit: req.user.attributes?.deviceLimit ?? null,
+      userLimit: req.user.attributes?.userLimit ?? null,
+      attributes: req.user.attributes || {},
+    };
+    const targets = fallbackTarget ? [fallbackTarget] : [];
+    const payload = {
+      mode: "target",
       clientType,
-      owners: [],
+      owners: filteredOwners,
       targets,
       mirrorModeEnabled,
+      canMirrorAll: mirrorModeEnabled && mirrorAllowAll && filteredOwners.length > 0,
+    };
+    mirrorContextCache.set(cacheKey, payload);
+    return payload;
+  }
+
+  const directory = await listClients();
+  const targets = directory.filter((client) => isReceiverType(resolveClientType(client)));
+  const payload = {
+    mode: "owner",
+    clientType,
+    owners: [],
+    targets,
+    mirrorModeEnabled,
+    canMirrorAll: false,
+  };
+  mirrorContextCache.set(cacheKey, payload);
+  return payload;
+}
+
+router.get("/mirrors/context", async (req, res, next) => {
+  try {
+    const startedAt = Date.now();
+    const correlationId =
+      req.get?.("x-correlation-id") ||
+      req.get?.("x-request-id") ||
+      Math.random().toString(36).slice(2);
+    res.set("X-Correlation-Id", correlationId);
+    const payload = await resolveMirrorsContextPayload(req);
+    res.json(payload);
+    console.info("[mirrors-context] done", {
+      correlationId,
+      ms: Date.now() - startedAt,
+      userId: req.user?.id ? String(req.user.id) : null,
+      ownerClientId: req.query?.ownerClientId ? String(req.query.ownerClientId) : null,
+      mode: payload?.mode || null,
+      hasMirror: Boolean(payload?.activeMirror),
     });
   } catch (error) {
+    console.warn("[mirrors-context] error", {
+      correlationId:
+        req.get?.("x-correlation-id") ||
+        req.get?.("x-request-id") ||
+        null,
+      message: error?.message || String(error),
+      status: error?.status || error?.response?.status || null,
+    });
     return next(error);
   }
 });
@@ -447,6 +567,10 @@ router.post(
       createdByName: req.user?.name || req.user?.email || null,
     });
 
+    invalidateMirrorContextCache();
+    invalidateTenantCache();
+    invalidateContextCache();
+    invalidatePermissionContextCache();
     return res.status(201).json({ mirror });
   } catch (error) {
     return next(error);
@@ -487,6 +611,10 @@ router.put(
     if (req.user.role !== "admin" && isTarget && !isOwner) {
       const nextPermissionGroupId = req.body?.permissionGroupId || ensureMirrorPermissionGroup(existing.ownerClientId).id;
       const mirror = updateMirror(id, { permissionGroupId: nextPermissionGroupId });
+      invalidateMirrorContextCache();
+      invalidateTenantCache();
+      invalidateContextCache();
+      invalidatePermissionContextCache();
       return res.json({ mirror });
     }
 
@@ -523,6 +651,10 @@ router.put(
     updates.vehicleGroupId = resolvedVehicleGroupId;
 
     const mirror = updateMirror(id, updates);
+    invalidateMirrorContextCache();
+    invalidateTenantCache();
+    invalidateContextCache();
+    invalidatePermissionContextCache();
     return res.json({ mirror });
   } catch (error) {
     return next(error);
@@ -534,7 +666,6 @@ router.delete(
   "/mirrors/:id",
   authorizePermission({ menuKey: "admin", pageKey: "mirrors", requireFull: true }),
   requireRole("manager", "admin"),
-  requireAdminGeneral,
   (req, res, next) => {
   try {
     const { id } = req.params;
@@ -543,9 +674,17 @@ router.delete(
       throw createError(404, "Espelhamento não encontrado");
     }
     if (req.user.role !== "admin") {
-      ensureOwnerAccess(req.user, existing.ownerClientId);
+      const isOwner = String(req.user.clientId) === String(existing.ownerClientId);
+      const isTarget = String(req.user.clientId) === String(existing.targetClientId);
+      if (!isOwner && !isTarget) {
+        throw createError(403, "Operação não permitida para este cliente");
+      }
     }
     deleteMirror(id);
+    invalidateMirrorContextCache();
+    invalidateTenantCache();
+    invalidateContextCache();
+    invalidatePermissionContextCache();
     return res.status(204).send();
   } catch (error) {
     return next(error);

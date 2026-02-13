@@ -6,13 +6,27 @@ import { getClientById } from "../models/client.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { getGroupById } from "../models/group.js";
 import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
+import { ACCESS_REASONS } from "../utils/access-reasons.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
 const PRESENTATION_MENU_KEYS = new Set(["business", "primary", "fleet", "telemetry", "admin"]);
-const PRESENTATION_CACHE_TTL_MS = 10_000;
+const PRESENTATION_CACHE_TTL_MS = Number(process.env.PRESENTATION_CACHE_TTL_MS) || 60_000;
+const PRESENTATION_CACHE_MAX = Number(process.env.PRESENTATION_CACHE_MAX) || 1000;
+const PERMISSION_CONTEXT_CACHE_TTL_MS = Number(process.env.PERMISSION_CONTEXT_CACHE_TTL_MS) || 90_000;
+const PERMISSION_CONTEXT_CACHE_MAX = Number(process.env.PERMISSION_CONTEXT_CACHE_MAX) || 5000;
+const MIRROR_MODE_ENABLED = process.env.MIRROR_MODE_ENABLED === "true";
 const PRISMA_TIMEOUT_MS = Number(process.env.PRISMA_TIMEOUT_MS) || 4000;
-const presentationCache = createTtlCache(PRESENTATION_CACHE_TTL_MS);
+const presentationCache = createTtlCache({ defaultTtlMs: PRESENTATION_CACHE_TTL_MS, maxSize: PRESENTATION_CACHE_MAX });
+const presentationClientCache = createTtlCache({ defaultTtlMs: PRESENTATION_CACHE_TTL_MS, maxSize: PRESENTATION_CACHE_MAX });
+const permissionContextCache = createTtlCache({
+  defaultTtlMs: PERMISSION_CONTEXT_CACHE_TTL_MS,
+  maxSize: PERMISSION_CONTEXT_CACHE_MAX,
+});
+const permissionGroupIdCache = createTtlCache({
+  defaultTtlMs: PERMISSION_CONTEXT_CACHE_TTL_MS,
+  maxSize: PERMISSION_CONTEXT_CACHE_MAX,
+});
 const NO_PRESENTATION = Symbol("no-presentation");
 export const MIRROR_FALLBACK_PERMISSIONS = {
   primary: {
@@ -214,19 +228,26 @@ function extractPresentationGroupId(attributes) {
   return null;
 }
 
-function getPresentationCacheKey(clientId) {
-  return `presentation:${String(clientId)}`;
+function getPresentationCacheKey(clientId, version) {
+  return `presentation:${String(clientId)}:${version || "na"}`;
 }
 
 export function invalidatePresentationCache(clientId) {
   if (!clientId) {
     presentationCache.clear();
+    presentationClientCache.clear();
     return;
   }
-  presentationCache.delete(getPresentationCacheKey(clientId));
+  presentationCache.clear();
+  presentationClientCache.delete(String(clientId));
 }
 
-async function resolvePresentationPermissions(req) {
+export function invalidatePermissionContextCache() {
+  permissionContextCache.clear();
+  permissionGroupIdCache.clear();
+}
+
+async function resolvePresentationPayload(req) {
   const clientId =
     req?.clientId ??
     req?.tenant?.clientIdResolved ??
@@ -234,25 +255,57 @@ async function resolvePresentationPermissions(req) {
     req?.user?.clientId ??
     null;
   if (!clientId) return null;
-  const cacheKey = getPresentationCacheKey(clientId);
-  const cached = presentationCache.get(cacheKey);
-  if (cached) {
-    return cached === NO_PRESENTATION ? null : cached;
+  const cachedClient = presentationClientCache.get(String(clientId));
+  const client = cachedClient || (await getClientById(clientId).catch(() => null));
+  if (client && !cachedClient) {
+    presentationClientCache.set(String(clientId), client);
   }
-  const client = await getClientById(clientId).catch(() => null);
   const attributes = client?.attributes || null;
+  const clientVersion = client?.updatedAt || attributes?.updatedAt || null;
   let permissions = extractPresentationPermissions(attributes);
+  let presentationGroup = null;
   if (!permissions) {
     const groupId = extractPresentationGroupId(attributes);
     if (groupId) {
-      const group = getGroupById(groupId);
-      if (group?.attributes?.kind === "PERMISSION_GROUP") {
-        permissions = group.attributes.permissions || null;
+      presentationGroup = getGroupById(groupId);
+      if (presentationGroup?.attributes?.kind === "PERMISSION_GROUP") {
+        permissions = presentationGroup.attributes.permissions || null;
       }
     }
   }
+  const groupVersion = presentationGroup?.updatedAt || null;
+  const version = [clientVersion, groupVersion].filter(Boolean).join("|") || null;
+  const cacheKey = getPresentationCacheKey(clientId, version);
+  const cached = presentationCache.get(cacheKey);
+  if (cached) {
+    return cached === NO_PRESENTATION ? { permissions: null, version } : { permissions: cached, version };
+  }
   presentationCache.set(cacheKey, permissions || NO_PRESENTATION);
-  return permissions || null;
+  return { permissions: permissions || null, version };
+}
+
+async function resolvePresentationPermissions(req) {
+  const payload = await resolvePresentationPayload(req);
+  return payload?.permissions || null;
+}
+
+function buildPermissionContextCacheKey({
+  userId,
+  effectiveClientId,
+  ownerClientId,
+  permissionGroupId,
+  mirrorModeEnabled,
+  presentationVersion,
+}) {
+  return [
+    "permctx",
+    userId || "anon",
+    effectiveClientId ?? "none",
+    ownerClientId ?? "none",
+    permissionGroupId ?? "none",
+    mirrorModeEnabled ? "mirror-on" : "mirror-off",
+    presentationVersion || "na",
+  ].join(":");
 }
 
 function minAccess(left, right) {
@@ -327,6 +380,16 @@ function applyPresentationPermissions(permissions, presentation) {
   return merged;
 }
 
+function canBypassAdminPermission(req, menuKey) {
+  return req?.user?.role === "admin" && menuKey === "admin";
+}
+
+function canBypassAdminPermissionList(req, permissions) {
+  if (req?.user?.role !== "admin") return false;
+  if (!Array.isArray(permissions)) return false;
+  return permissions.some((permission) => permission?.menuKey === "admin");
+}
+
 function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
   if (!permissions || !menuKey || !pageKey) return { visible: false, access: null };
 
@@ -361,157 +424,259 @@ export async function resolvePermissionContext(req) {
   if (!req.user) {
     throw createError(401, "Sessão não autenticada");
   }
-
-  const shouldDebugMirror = process.env.DEBUG_MIRROR === "true";
-  const logMirrorPermissions = ({ permissionGroupIdUsed, usedFallback }) => {
-    if (!shouldDebugMirror) return;
-    console.info("[permissions] mirror context", {
-      userId: req.user?.id ? String(req.user.id) : null,
-      userClientId: req.user?.clientId ? String(req.user.clientId) : null,
-      ownerClientId: req.mirrorContext?.ownerClientId ? String(req.mirrorContext.ownerClientId) : null,
-      targetClientId: req.mirrorContext?.targetClientId ? String(req.mirrorContext.targetClientId) : null,
-      mirrorId: req.mirrorContext?.mirrorId ? String(req.mirrorContext.mirrorId) : null,
-      permissionGroupIdUsed: permissionGroupIdUsed ? String(permissionGroupIdUsed) : null,
-      usedFallback: Boolean(usedFallback),
-    });
-  };
-
-  if (req.user.role === "admin") {
-    const adminPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
-    if (!adminPermissionGroupId) {
-      return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
-    }
-    const adminGroup = getGroupById(adminPermissionGroupId);
-    const adminPermissions =
-      adminGroup?.attributes?.kind === "PERMISSION_GROUP"
-        ? adminGroup?.attributes?.permissions || {}
-        : adminGroup?.attributes?.permissions || {};
-    if (!adminGroup || !adminPermissions || Object.keys(adminPermissions).length === 0) {
-      return { permissions: null, level: "full", isFull: true, permissionGroupId: null };
-    }
-    return {
-      permissions: applyPresentationPermissions(adminPermissions, await resolvePresentationPermissions(req)),
-      level: null,
-      isFull: false,
-      permissionGroupId: adminPermissionGroupId,
-    };
+  if (req._permissionContext) {
+    return req._permissionContext;
+  }
+  if (req._permissionContextPromise) {
+    return req._permissionContextPromise;
   }
 
-  const presentationPermissions = await resolvePresentationPermissions(req);
-  const applyPresentation = (permissions) =>
-    applyPresentationPermissions(permissions, presentationPermissions);
+  const resolverPromise = (async () => {
+    const isAdminUser = req.user?.role === "admin";
+    const presentationPayload = isAdminUser ? null : await resolvePresentationPayload(req);
+    const presentationPermissions = presentationPayload?.permissions || null;
+    const presentationVersion = presentationPayload?.version || null;
+    const applyPresentation = (permissions) =>
+      isAdminUser ? permissions : applyPresentationPermissions(permissions, presentationPermissions);
 
-  const mirrorPermissionGroupId = req.mirrorContext?.permissionGroupId ?? null;
-  if (req.mirrorContext) {
-    if (!mirrorPermissionGroupId) {
-      // Se o mirror não tem grupo explícito, usamos o grupo do usuário para evitar
-      // "vazar" módulos de outros tenants via fallback genérico.
-      let fallbackPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
-      let fallbackUser = null;
-      if (!fallbackPermissionGroupId && isPrismaAvailable()) {
-        fallbackUser = await withTimeout(
-          prisma.user.findUnique({ where: { id: String(req.user.id) } }),
-          PRISMA_TIMEOUT_MS,
-          { label: "prisma.user.findUnique(mirror-fallback)" },
-        ).catch(() => null);
-        fallbackPermissionGroupId = fallbackUser?.attributes?.permissionGroupId ?? null;
-      }
-      if (!fallbackUser && !fallbackPermissionGroupId && isFallbackEnabled()) {
-        fallbackUser = getFallbackUser();
-        fallbackPermissionGroupId = fallbackUser?.attributes?.permissionGroupId ?? null;
-      }
+    const shouldDebugMirror = process.env.DEBUG_MIRROR === "true";
+    const logMirrorPermissions = ({ permissionGroupIdUsed, usedFallback }) => {
+      if (!shouldDebugMirror) return;
+      console.info("[permissions] mirror context", {
+        userId: req.user?.id ? String(req.user.id) : null,
+        userClientId: req.user?.clientId ? String(req.user.clientId) : null,
+        ownerClientId: req.mirrorContext?.ownerClientId ? String(req.mirrorContext.ownerClientId) : null,
+        targetClientId: req.mirrorContext?.targetClientId ? String(req.mirrorContext.targetClientId) : null,
+        mirrorId: req.mirrorContext?.mirrorId ? String(req.mirrorContext.mirrorId) : null,
+        permissionGroupIdUsed: permissionGroupIdUsed ? String(permissionGroupIdUsed) : null,
+        usedFallback: Boolean(usedFallback),
+      });
+    };
 
-      if (fallbackPermissionGroupId) {
-        const fallbackGroup = getGroupById(fallbackPermissionGroupId);
-        const fallbackPermissions =
-          fallbackGroup?.attributes?.kind === "PERMISSION_GROUP"
-            ? fallbackGroup?.attributes?.permissions || {}
-            : fallbackGroup?.attributes?.permissions || {};
-        if (fallbackGroup && fallbackPermissions && Object.keys(fallbackPermissions).length > 0) {
-          logMirrorPermissions({ permissionGroupIdUsed: fallbackPermissionGroupId, usedFallback: false });
-          return {
-            permissions: applyPresentation(fallbackPermissions),
-            level: null,
-            isFull: false,
-            permissionGroupId: fallbackPermissionGroupId,
-          };
+    const effectiveClientId =
+      req?.clientId ??
+      req?.tenant?.clientIdResolved ??
+      req?.mirrorContext?.ownerClientId ??
+      req?.user?.clientId ??
+      null;
+    const ownerClientId = req?.mirrorContext?.ownerClientId ?? null;
+
+    if (req.user.role === "admin") {
+      const adminPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
+      const cacheKey = buildPermissionContextCacheKey({
+        userId: req.user?.id,
+        effectiveClientId,
+        ownerClientId,
+        permissionGroupId: adminPermissionGroupId,
+        mirrorModeEnabled: MIRROR_MODE_ENABLED,
+        presentationVersion,
+      });
+      const cached = permissionContextCache.get(cacheKey);
+      if (cached) return cached;
+      if (!adminPermissionGroupId) {
+        const payload = { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+        permissionContextCache.set(cacheKey, payload);
+        return payload;
+      }
+      const adminGroup = getGroupById(adminPermissionGroupId);
+      const adminPermissions =
+        adminGroup?.attributes?.kind === "PERMISSION_GROUP"
+          ? adminGroup?.attributes?.permissions || {}
+          : adminGroup?.attributes?.permissions || {};
+      if (!adminGroup || !adminPermissions || Object.keys(adminPermissions).length === 0) {
+        const payload = { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+        permissionContextCache.set(cacheKey, payload);
+        return payload;
+      }
+      const payload = {
+        permissions: applyPresentation(adminPermissions),
+        level: null,
+        isFull: false,
+        permissionGroupId: adminPermissionGroupId,
+      };
+      permissionContextCache.set(cacheKey, payload);
+      return payload;
+    }
+
+    const mirrorPermissionGroupId = req.mirrorContext?.permissionGroupId ?? null;
+    if (req.mirrorContext) {
+      if (!mirrorPermissionGroupId) {
+        // Se o mirror não tem grupo explícito, usamos o grupo do usuário para evitar
+        // "vazar" módulos de outros tenants via fallback genérico.
+        let fallbackPermissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
+        let fallbackUser = null;
+        if (!fallbackPermissionGroupId) {
+          fallbackPermissionGroupId = permissionGroupIdCache.get(String(req.user.id));
         }
+        if (!fallbackPermissionGroupId && isPrismaAvailable()) {
+          fallbackUser = await withTimeout(
+            prisma.user.findUnique({ where: { id: String(req.user.id) } }),
+            PRISMA_TIMEOUT_MS,
+            { label: "prisma.user.findUnique(mirror-fallback)" },
+          ).catch(() => null);
+          fallbackPermissionGroupId = fallbackUser?.attributes?.permissionGroupId ?? null;
+        }
+        if (!fallbackUser && !fallbackPermissionGroupId && isFallbackEnabled()) {
+          fallbackUser = getFallbackUser();
+          fallbackPermissionGroupId = fallbackUser?.attributes?.permissionGroupId ?? null;
+        }
+        if (fallbackPermissionGroupId) {
+          permissionGroupIdCache.set(String(req.user.id), fallbackPermissionGroupId);
+        }
+
+        const cacheKey = buildPermissionContextCacheKey({
+          userId: req.user?.id,
+          effectiveClientId,
+          ownerClientId,
+          permissionGroupId: fallbackPermissionGroupId,
+          mirrorModeEnabled: MIRROR_MODE_ENABLED,
+          presentationVersion,
+        });
+        const cached = permissionContextCache.get(cacheKey);
+        if (cached) return cached;
+
+        if (fallbackPermissionGroupId) {
+          const fallbackGroup = getGroupById(fallbackPermissionGroupId);
+          const fallbackPermissions =
+            fallbackGroup?.attributes?.kind === "PERMISSION_GROUP"
+              ? fallbackGroup?.attributes?.permissions || {}
+              : fallbackGroup?.attributes?.permissions || {};
+          if (fallbackGroup && fallbackPermissions && Object.keys(fallbackPermissions).length > 0) {
+            logMirrorPermissions({ permissionGroupIdUsed: fallbackPermissionGroupId, usedFallback: false });
+            const payload = {
+              permissions: applyPresentation(fallbackPermissions),
+              level: null,
+              isFull: false,
+              permissionGroupId: fallbackPermissionGroupId,
+            };
+            permissionContextCache.set(cacheKey, payload);
+            return payload;
+          }
+        }
+
+        logMirrorPermissions({ permissionGroupIdUsed: null, usedFallback: true });
+        const payload = {
+          permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
+          level: null,
+          isFull: false,
+          permissionGroupId: null,
+        };
+        permissionContextCache.set(cacheKey, payload);
+        return payload;
       }
 
-      logMirrorPermissions({ permissionGroupIdUsed: null, usedFallback: true });
-      return {
-        permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
+      const cacheKey = buildPermissionContextCacheKey({
+        userId: req.user?.id,
+        effectiveClientId,
+        ownerClientId,
+        permissionGroupId: mirrorPermissionGroupId,
+        mirrorModeEnabled: MIRROR_MODE_ENABLED,
+        presentationVersion,
+      });
+      const cached = permissionContextCache.get(cacheKey);
+      if (cached) return cached;
+
+      const mirrorGroup = getGroupById(mirrorPermissionGroupId);
+      const permissions = mirrorGroup?.attributes?.permissions || null;
+      const isPermissionGroup = mirrorGroup?.attributes?.kind === "PERMISSION_GROUP";
+
+      if (!mirrorGroup || !isPermissionGroup || !permissions || Object.keys(permissions).length === 0) {
+        logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: true });
+        const payload = {
+          permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
+          level: null,
+          isFull: false,
+          permissionGroupId: null,
+        };
+        permissionContextCache.set(cacheKey, payload);
+        return payload;
+      }
+
+      logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: false });
+      const payload = {
+        permissions: applyPresentation(permissions),
+        level: null,
+        isFull: false,
+        permissionGroupId: mirrorPermissionGroupId,
+      };
+      permissionContextCache.set(cacheKey, payload);
+      return payload;
+    }
+
+    let permissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
+    let user = null;
+    if (!permissionGroupId) {
+      permissionGroupId = permissionGroupIdCache.get(String(req.user.id));
+    }
+    if (!permissionGroupId && isPrismaAvailable()) {
+      user = await withTimeout(
+        prisma.user.findUnique({ where: { id: String(req.user.id) } }),
+        PRISMA_TIMEOUT_MS,
+        { label: "prisma.user.findUnique(permission-group)" },
+      ).catch(() => null);
+      permissionGroupId = user?.attributes?.permissionGroupId ?? null;
+    }
+
+    if (!user && !permissionGroupId && isFallbackEnabled()) {
+      user = getFallbackUser();
+      permissionGroupId = user?.attributes?.permissionGroupId ?? null;
+    }
+
+    if (permissionGroupId) {
+      permissionGroupIdCache.set(String(req.user.id), permissionGroupId);
+    }
+
+    const cacheKey = buildPermissionContextCacheKey({
+      userId: req.user?.id,
+      effectiveClientId,
+      ownerClientId,
+      permissionGroupId,
+      mirrorModeEnabled: MIRROR_MODE_ENABLED,
+      presentationVersion,
+    });
+    const cached = permissionContextCache.get(cacheKey);
+    if (cached) return cached;
+
+    if (!permissionGroupId) {
+      const payload = {
+        permissions: applyPresentation(null),
         level: null,
         isFull: false,
         permissionGroupId: null,
       };
+      permissionContextCache.set(cacheKey, payload);
+      return payload;
     }
 
-    const mirrorGroup = getGroupById(mirrorPermissionGroupId);
-    const permissions = mirrorGroup?.attributes?.permissions || null;
-    const isPermissionGroup = mirrorGroup?.attributes?.kind === "PERMISSION_GROUP";
+    const permissionGroup = getGroupById(permissionGroupId);
+    const permissions =
+      permissionGroup?.attributes?.kind === "PERMISSION_GROUP"
+        ? permissionGroup?.attributes?.permissions || {}
+        : permissionGroup?.attributes?.permissions || {};
 
-    if (!mirrorGroup || !isPermissionGroup || !permissions || Object.keys(permissions).length === 0) {
-      logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: true });
-      return {
-        permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
-        level: null,
-        isFull: false,
-        permissionGroupId: null,
-      };
-    }
-
-    logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: false });
-    return {
+    const payload = {
       permissions: applyPresentation(permissions),
       level: null,
       isFull: false,
-      permissionGroupId: mirrorPermissionGroupId,
+      permissionGroupId,
     };
-  }
+    permissionContextCache.set(cacheKey, payload);
+    return payload;
+  })();
 
-  let permissionGroupId = req.user?.attributes?.permissionGroupId ?? null;
-  let user = null;
-  if (!permissionGroupId && isPrismaAvailable()) {
-    user = await withTimeout(
-      prisma.user.findUnique({ where: { id: String(req.user.id) } }),
-      PRISMA_TIMEOUT_MS,
-      { label: "prisma.user.findUnique(permission-group)" },
-    ).catch(() => null);
-    permissionGroupId = user?.attributes?.permissionGroupId ?? null;
-  }
-
-  if (!user && !permissionGroupId && isFallbackEnabled()) {
-    user = getFallbackUser();
-    permissionGroupId = user?.attributes?.permissionGroupId ?? null;
-  }
-
-  if (!permissionGroupId) {
-    return {
-      permissions: applyPresentation(null),
-      level: null,
-      isFull: false,
-      permissionGroupId: null,
-    };
-  }
-
-  const permissionGroup = getGroupById(permissionGroupId);
-  const permissions =
-    permissionGroup?.attributes?.kind === "PERMISSION_GROUP"
-      ? permissionGroup?.attributes?.permissions || {}
-      : permissionGroup?.attributes?.permissions || {};
-
-  return {
-    permissions: applyPresentation(permissions),
-    level: null,
-    isFull: false,
-    permissionGroupId,
-  };
+  req._permissionContextPromise = resolverPromise;
+  const resolved = await resolverPromise;
+  req._permissionContext = resolved;
+  req._permissionContextPromise = null;
+  return resolved;
 }
 
 export function authorizePermission({ menuKey, pageKey, subKey, requireFull = false }) {
   return async (req, _res, next) => {
     try {
+      if (canBypassAdminPermission(req, menuKey)) {
+        return next();
+      }
       const context = await resolvePermissionContext(req);
       const resolved =
         context.level
@@ -545,7 +710,9 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
           requireFull,
           permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
         });
-        return next(createError(403, "Sem permissão para acessar este recurso"));
+        return next(createError(403, "Sem permissão para acessar este recurso", {
+          reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+        }));
       }
 
       if (requireFull && resolved.access !== "full") {
@@ -561,7 +728,9 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
           requireFull,
           permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
         });
-        return next(createError(403, "Acesso restrito para esta operação"));
+        return next(createError(403, "Acesso restrito para esta operação", {
+          reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+        }));
       }
 
       return next();
@@ -574,6 +743,9 @@ export function authorizePermission({ menuKey, pageKey, subKey, requireFull = fa
 export function authorizeAnyPermission({ permissions = [], requireFull = false }) {
   return async (req, _res, next) => {
     try {
+      if (canBypassAdminPermissionList(req, permissions)) {
+        return next();
+      }
       if (!Array.isArray(permissions) || permissions.length === 0) {
         return next();
       }
@@ -608,7 +780,9 @@ export function authorizeAnyPermission({ permissions = [], requireFull = false }
           })),
           permissionGroupId: context.permissionGroupId ? String(context.permissionGroupId) : null,
         });
-        return next(createError(403, "Sem permissão para acessar este recurso"));
+        return next(createError(403, "Sem permissão para acessar este recurso", {
+          reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+        }));
       }
 
       return next();
@@ -628,6 +802,9 @@ export function authorizePermissionOrEmpty({
 }) {
   return async (req, res, next) => {
     try {
+      if (canBypassAdminPermission(req, menuKey)) {
+        return next();
+      }
       const context = await resolvePermissionContext(req);
       const resolved =
         context.level
@@ -663,7 +840,9 @@ export function authorizePermissionOrEmpty({
         return res.status(200).json(payload ?? { data: [], total: 0 });
       }
 
-      return next(createError(403, "Sem permissão para acessar este recurso"));
+      return next(createError(403, "Sem permissão para acessar este recurso", {
+        reason: ACCESS_REASONS.FORBIDDEN_SCOPE,
+      }));
     } catch (error) {
       return next(error);
     }
@@ -675,4 +854,6 @@ export default {
   authorizeAnyPermission,
   authorizePermissionOrEmpty,
   resolvePermissionContext,
+  invalidatePresentationCache,
+  invalidatePermissionContextCache,
 };

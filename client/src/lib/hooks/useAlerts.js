@@ -12,8 +12,9 @@ export function useAlerts({
   enabled = true,
 } = {}) {
   const { tenantId, mirrorContextMode, activeMirror, activeMirrorOwnerClientId, mirrorModeEnabled } = useTenant();
-  const alertsPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring", subKey: "alerts" });
-  const canAccessAlerts = alertsPermission.hasAccess;
+  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
+  const eventsPermission = usePermissionGate({ menuKey: "primary", pageKey: "events" });
+  const canAccessAlerts = monitoringPermission.hasAccess || eventsPermission.hasAccess;
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

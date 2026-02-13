@@ -2,10 +2,13 @@ import React from "react";
 import { useTenant } from "../lib/tenant-context";
 
 export default function SessionError({ error }) {
-  const { logout } = useTenant();
+  const { logout, apiUnavailableInfo } = useTenant();
   const message =
     error?.message ||
     "Não foi possível carregar o contexto da sessão. Tente novamente.";
+  const details = apiUnavailableInfo
+    ? `Base: ${apiUnavailableInfo.baseUrl || "—"} • Endpoint: ${apiUnavailableInfo.endpoint || "—"} • Status: ${apiUnavailableInfo.status || "—"}`
+    : null;
 
   const handleReload = () => {
     window.location.reload();
@@ -27,6 +30,7 @@ export default function SessionError({ error }) {
         </div>
         <div className="mt-2 text-xl font-semibold">Falha ao carregar a sessão</div>
         <div className="mt-2 text-sm text-red-100/80">{message}</div>
+        {details && <div className="mt-2 text-xs text-red-200/70">{details}</div>}
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <button
             type="button"

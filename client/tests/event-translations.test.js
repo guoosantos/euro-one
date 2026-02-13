@@ -13,7 +13,7 @@ import {
 test("translateEventType retorna rótulos localizados com normalização", () => {
   assert.strictEqual(translateEventType("ignitionOn", "pt-BR"), "Ignição ligada");
   assert.strictEqual(translateEventType("OVERSPEED", "pt-BR"), "Excesso de velocidade");
-  assert.strictEqual(translateEventType("overspeed", "en-US"), "Excesso de velocidade");
+  assert.strictEqual(translateEventType("overspeed", "en-US"), "Speeding");
 });
 
 test("translateEventType usa fallback translator quando chave não existe", () => {

@@ -12,13 +12,14 @@ const normalizeId = (value) => {
 const selectionKey = (vehicleId, deviceId) =>
   `${normalizeId(vehicleId) ?? ""}:${normalizeId(deviceId) ?? ""}`;
 
-export default function useVehicleSelection({ syncQuery = true } = {}) {
+export default function useVehicleSelection({ syncQuery = true, allowQuerySelection = false } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { vehicles } = useVehicles();
   const { tenantId } = useTenant();
   const { selectedVehicleId, selectedTelemetryDeviceId, setVehicleSelection, clearVehicleSelection } = useUI();
   const lastAppliedQueryRef = useRef(null);
+  const pendingNavigateRef = useRef(null);
   const lastTenantRef = useRef(tenantId);
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
@@ -41,7 +42,12 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     const search = new URLSearchParams(location.search || "");
     const normalizedQuery = normalizeId(search.get("vehicleId"));
     const normalizedDevice = normalizeId(search.get("deviceId") || search.get("device"));
+    const hasSelection = Boolean(selectedVehicleId || selectedTelemetryDeviceId);
     if (!normalizedQuery) {
+      lastAppliedQueryRef.current = selectionKey(null, null);
+      return;
+    }
+    if (!hasSelection && !allowQuerySelection) {
       lastAppliedQueryRef.current = selectionKey(null, null);
       return;
     }
@@ -73,6 +79,14 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
 
   useEffect(() => {
     if (!syncQuery) return;
+    const currentPath = `${location.pathname}${location.search}`;
+    if (pendingNavigateRef.current && pendingNavigateRef.current === currentPath) {
+      pendingNavigateRef.current = null;
+    }
+  }, [location.pathname, location.search, syncQuery]);
+
+  useEffect(() => {
+    if (!syncQuery) return;
     const search = new URLSearchParams(location.search || "");
     const currentVehicle = normalizeId(search.get("vehicleId"));
     const currentDevice = normalizeId(search.get("deviceId") || search.get("device"));
@@ -97,7 +111,10 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
 
     const nextQuery = search.toString();
     const nextPath = nextQuery ? `${location.pathname}?${nextQuery}` : location.pathname;
-    if (nextPath === `${location.pathname}${location.search}`) return;
+    const currentPath = `${location.pathname}${location.search}`;
+    if (nextPath === currentPath) return;
+    if (pendingNavigateRef.current === nextPath) return;
+    pendingNavigateRef.current = nextPath;
     navigate(nextPath, { replace: true });
   }, [
     location.pathname,

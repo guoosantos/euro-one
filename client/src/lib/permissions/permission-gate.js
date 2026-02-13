@@ -98,8 +98,9 @@ export function createPermissionResolver({ useTenantHook = useTenant } = {}) {
             isFull: false,
           };
         }
+        const isAdmin = Boolean(isGlobalAdmin || role === "admin");
         const adminHasScopedPermissions = Boolean(context.permissionGroupId);
-        const allowAdminFull = (isGlobalAdmin || role === "admin") && !adminHasScopedPermissions;
+        const allowAdminFull = (isAdmin && !adminHasScopedPermissions) || (isAdmin && menuKey === "admin");
         const finalize = (permission) => {
           if (!readOnly || !permission.isFull) return permission;
           return {

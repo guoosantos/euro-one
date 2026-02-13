@@ -100,6 +100,7 @@ const accessTabs = [
 const detailsTabs = [
   { id: "geral", label: "Geral" },
   { id: "veiculos", label: "Veículos" },
+  { id: "historico", label: "Histórico" },
 ];
 
 const daysOfWeek = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -160,7 +161,8 @@ function resolveVehicleGroupIds(userAccess) {
 }
 
 export default function Users() {
-  const { role, tenants, tenantId, tenant, user, mirrorOwners, isMirrorReceiver, homeClient } = useTenant();
+  const { role, tenants, tenantId, tenant, user, mirrorOwners, isMirrorReceiver, homeClient, permissionContext } =
+    useTenant();
   const [users, setUsers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -182,6 +184,7 @@ export default function Users() {
   const [permissionDrawerOpen, setPermissionDrawerOpen] = useState(false);
   const [editingPermissionGroup, setEditingPermissionGroup] = useState(null);
   const [permissionForm, setPermissionForm] = useState({ name: "", description: "", permissions: {} });
+  const [permissionReadOnly, setPermissionReadOnly] = useState(false);
   const [activeUserDrawerTab, setActiveUserDrawerTab] = useState("geral");
   const [userDrawerOpen, setUserDrawerOpen] = useState(false);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
@@ -200,6 +203,11 @@ export default function Users() {
   const [vehicleGroupPickId, setVehicleGroupPickId] = useState("");
   const [groupVehiclePickId, setGroupVehiclePickId] = useState("");
   const [detailsSearch, setDetailsSearch] = useState("");
+  const [historyEvents, setHistoryEvents] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  const [historyFilter, setHistoryFilter] = useState("all");
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
   const selfRequestOptions = useMemo(
@@ -207,6 +215,23 @@ export default function Users() {
       skipMirrorClient: true,
       headers: { "X-Mirror-Mode": "self" },
     }),
+    [],
+  );
+  const handlePermissionFormChange = useCallback(
+    (nextPermissions) => setPermissionForm((prev) => ({ ...prev, permissions: nextPermissions })),
+    [],
+  );
+
+  const historyCategories = useMemo(
+    () => [
+      { value: "all", label: "Todos" },
+      { value: "access", label: "Acessos" },
+      { value: "command", label: "Comandos" },
+      { value: "report", label: "Relatórios" },
+      { value: "alert-handling", label: "Tratativas" },
+      { value: "crud", label: "Cadastros" },
+      { value: "system", label: "Sistema" },
+    ],
     [],
   );
   const usersPermission = usePermissionGate({ menuKey: "admin", pageKey: "users" }) || {
@@ -218,6 +243,9 @@ export default function Users() {
     isFull: false,
     loading: true,
   };
+  const usersCreatePermission = usePermissionGate({ menuKey: "admin", pageKey: "users", subKey: "users-create" });
+  const usersEditPermission = usePermissionGate({ menuKey: "admin", pageKey: "users", subKey: "users-edit" });
+  const usersDeletePermission = usePermissionGate({ menuKey: "admin", pageKey: "users", subKey: "users-delete" });
   const canManageUsers = resolveCanManageUsers({ role, permission: usersPermission });
   const baseUserAccess = useMemo(
     () => ({
@@ -284,6 +312,9 @@ export default function Users() {
   const allowedRoles = role === "admin" ? Object.keys(roleLabels) : ["user", "driver", "viewer"];
   const isManager = role === "manager";
   const isTenantAdmin = role === "tenant_admin";
+  const canCreateUsers = usersCreatePermission.isFull;
+  const canEditUsers = usersEditPermission.isFull;
+  const canDeleteUsers = usersDeletePermission.isFull;
 
   const { groups, reload: reloadGroups, createGroup, updateGroup, deleteGroup } = useGroups({
     params: selectedTenantId ? { clientId: selectedTenantId } : {},
@@ -331,6 +362,34 @@ export default function Users() {
     () => groups.filter((entry) => entry.attributes?.kind === "PERMISSION_GROUP"),
     [groups],
   );
+  const permissionGroupLabelById = useMemo(() => {
+    const map = new Map();
+    permissionGroups.forEach((group) => {
+      if (!group?.id) return;
+      const suffix = group.attributes?.scope === "global" ? " (Global)" : "";
+      map.set(String(group.id), `${group.name}${suffix}`);
+    });
+    return map;
+  }, [permissionGroups]);
+  const resolveUserProfileLabel = useCallback(
+    (entry) => {
+      if (!entry) return "—";
+      const groupId = entry.attributes?.permissionGroupId;
+      if (groupId && permissionGroupLabelById.has(String(groupId))) {
+        return permissionGroupLabelById.get(String(groupId));
+      }
+      if (entry.role === "admin") {
+        return "Administrador (Global)";
+      }
+      return roleLabels[entry.role] || entry.role || "—";
+    },
+    [permissionGroupLabelById],
+  );
+  const scopedPermissionContext = useMemo(() => {
+    if (isAdminGeneral) return null;
+    if (permissionContext?.isFull) return null;
+    return permissionContext?.permissions || {};
+  }, [isAdminGeneral, permissionContext]);
 
   useEffect(() => {
     if (!selectedTenantId && managedTenants.length) {
@@ -420,7 +479,11 @@ export default function Users() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!canManageUsers) return;
+    if (editingId) {
+      if (!canEditUsers) return;
+    } else if (!canCreateUsers) {
+      return;
+    }
     const ipMode = form.attributes.userAccess.ipRestriction.mode;
     const ipValue = form.attributes.userAccess.ipRestriction.ip;
     const isIpValid = ipMode !== "single" || isValidIpAddress(ipValue);
@@ -520,6 +583,13 @@ export default function Users() {
     }
   }, [detailsUser, detailsUserId, users]);
 
+  useEffect(() => {
+    if (detailsUserId && detailsDrawerOpen) return;
+    setHistoryEvents([]);
+    setHistoryFilter("all");
+    setHistoryError(null);
+  }, [detailsDrawerOpen, detailsUserId]);
+
   function handleVehicleGroupAdd(groupId) {
     if (!groupId) return;
     const nextIds = uniqueList([...selectedVehicleGroupIds, groupId]);
@@ -606,12 +676,11 @@ export default function Users() {
     });
   }
 
-  function openPermissionDrawer(group = null) {
-    if (group?.attributes?.scope === "global" && !isAdminGeneralTenant) {
-      setMessage("Perfis globais só podem ser editados no ADMIN GERAL.");
-      return;
-    }
+  function openPermissionDrawer(group = null, { readOnly = false } = {}) {
+    const isGlobal = group?.attributes?.scope === "global";
+    const forcedReadOnly = readOnly || !activeTabPermission?.isFull || (isGlobal && !isAdminGeneralTenant);
     setEditingPermissionGroup(group);
+    setPermissionReadOnly(Boolean(forcedReadOnly));
     setPermissionForm({
       name: group?.name || "",
       description: group?.description || "",
@@ -623,7 +692,7 @@ export default function Users() {
   async function handlePermissionSubmit(event) {
     event.preventDefault();
     try {
-      if (!activeTabPermission?.isFull) {
+      if (permissionReadOnly || !activeTabPermission?.isFull) {
         setError(new Error("Permissão insuficiente para salvar grupos de permissões."));
         return;
       }
@@ -643,6 +712,7 @@ export default function Users() {
       }
       setPermissionDrawerOpen(false);
       setEditingPermissionGroup(null);
+      setPermissionReadOnly(false);
       setPermissionForm({ name: "", description: "", permissions: {} });
     } catch (permissionError) {
       console.error("Falha ao salvar grupo de permissões", permissionError);
@@ -699,7 +769,7 @@ export default function Users() {
 
   async function handleUserDelete(entry) {
     if (!entry?.id) return;
-    if (!isAdminGeneral) return;
+    if (!canDeleteUsers) return;
     await confirmDeleteAction({
       confirmDelete,
       title: "Excluir usuário",
@@ -877,6 +947,35 @@ export default function Users() {
     return vehicles.filter((vehicle) => ids.has(String(vehicle.id)));
   }, [detailsUser, groupVehicleIdsMap, vehicles]);
 
+  const vehicleLabelById = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      const label =
+        [vehicle.plate, vehicle.name || vehicle.model]
+          .filter(Boolean)
+          .join(" • ") || String(vehicle.id);
+      if (vehicle.id != null) {
+        map.set(String(vehicle.id), label);
+      }
+      const deviceCandidates = [
+        vehicle.deviceId,
+        vehicle.device?.id,
+        vehicle.device?.uniqueId,
+      ];
+      if (Array.isArray(vehicle.devices)) {
+        vehicle.devices.forEach((device) => {
+          deviceCandidates.push(device?.id, device?.uniqueId);
+        });
+      }
+      deviceCandidates
+        .filter(Boolean)
+        .forEach((deviceId) => {
+          map.set(String(deviceId), label);
+        });
+    });
+    return map;
+  }, [vehicles]);
+
   const filteredDetailsVehicles = useMemo(() => {
     const term = normalizeText(detailsSearch);
     if (!term) return detailsVehicles;
@@ -885,6 +984,133 @@ export default function Users() {
       return haystack.includes(term);
     });
   }, [detailsSearch, detailsVehicles]);
+
+  const formatHistoryTimestamp = useCallback((value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "medium",
+    }).format(date);
+  }, []);
+
+  const resolveHistoryTarget = useCallback(
+    (entry) => {
+      if (!entry) return "—";
+      const details = entry.details && typeof entry.details === "object" ? entry.details : {};
+      const friendlyLabel =
+        details.vehicleLabel ||
+        details.plate ||
+        details.vehiclePlate ||
+        details.vehicleName ||
+        null;
+      if (friendlyLabel) return String(friendlyLabel);
+
+      const candidateIds = [
+        entry.vehicleId,
+        details.vehicleId,
+        entry.deviceId,
+        details.deviceId,
+        entry.relatedId,
+        details.target,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value));
+
+      for (const id of candidateIds) {
+        const label = vehicleLabelById.get(id);
+        if (label) return label;
+      }
+
+      if (entry.deviceId) return `Equipamento ${entry.deviceId}`;
+      return candidateIds[0] || "—";
+    },
+    [vehicleLabelById],
+  );
+
+  const resolveHistoryDetails = useCallback((entry) => {
+    if (!entry) return "—";
+    if (typeof entry.details === "string" && entry.details.trim()) {
+      return entry.details;
+    }
+    const details = entry.details && typeof entry.details === "object" ? entry.details : {};
+    const category = String(entry.category || "").toLowerCase();
+    const stringifyValue = (value) => {
+      if (value === null || value === undefined || value === "") return "";
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value);
+      } catch (_err) {
+        return String(value);
+      }
+    };
+
+    if (category === "command") {
+      const commandLabel = details.command || details.commandName || details.commandKey || entry.action || null;
+      const payloadValue = details.payload || details.params || details.commandPayload || null;
+      const payloadLabel = stringifyValue(payloadValue);
+      const parts = [];
+      if (commandLabel) parts.push(`Comando: ${commandLabel}`);
+      if (payloadLabel) parts.push(`Payload: ${payloadLabel}`);
+      return parts.length ? parts.join(" • ") : "—";
+    }
+
+    if (category === "alert-handling") {
+      const notes = details.handlingNotes || details.notes || details.note || details.observation || null;
+      return notes ? `Observação: ${notes}` : "—";
+    }
+
+    if (category === "report") {
+      const reportName = details.report || details.name || null;
+      return reportName ? `Relatório: ${reportName}` : "—";
+    }
+
+    const fallback = stringifyValue(details);
+    return fallback && fallback !== "{}" ? fallback : "—";
+  }, []);
+
+  const filteredHistoryEvents = useMemo(() => {
+    if (historyFilter === "all") return historyEvents;
+    return historyEvents.filter((entry) => String(entry.category || "").toLowerCase() === historyFilter);
+  }, [historyEvents, historyFilter]);
+
+  useEffect(() => {
+    if (!detailsUserId || detailsDrawerTab !== "historico") return;
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    api
+      .get(API_ROUTES.userAudit(detailsUserId), {
+        params: {
+          clientId: detailsUser?.clientId || tenantId || undefined,
+        },
+      })
+      .then((response) => {
+        if (!active) return;
+        const list = Array.isArray(response?.data?.data)
+          ? response.data.data
+          : Array.isArray(response?.data?.events)
+          ? response.data.events
+          : Array.isArray(response?.data)
+          ? response.data
+          : [];
+        setHistoryEvents(list);
+      })
+      .catch((err) => {
+        if (!active) return;
+        const message =
+          err?.response?.data?.message || err?.message || "Não foi possível carregar o histórico.";
+        setHistoryError(new Error(message));
+        setHistoryEvents([]);
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [detailsDrawerTab, detailsUser?.clientId, detailsUserId, historyReloadKey, tenantId]);
 
   if (!canManageUsers) {
     return (
@@ -917,15 +1143,17 @@ export default function Users() {
                 <RefreshCw className="h-4 w-4" /> Atualizar
               </span>
             </button>
-            <button
-              type="button"
-              onClick={() => openUserDrawer()}
-              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Plus className="h-4 w-4" /> Novo usuário
-              </span>
-            </button>
+            {canCreateUsers && (
+              <button
+                type="button"
+                onClick={() => openUserDrawer()}
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Plus className="h-4 w-4" /> Novo usuário
+                </span>
+              </button>
+            )}
           </div>
         }
       />
@@ -1036,20 +1264,22 @@ export default function Users() {
                       <tr key={entry.id} className="hover:bg-white/5">
                         <td className="px-4 py-3 text-white">
                           <div className="font-semibold text-white">{entry.name}</div>
-                          <div className="text-xs text-white/60">{roleLabels[entry.role] || entry.role || "—"}</div>
+                          <div className="text-xs text-white/60">{resolveUserProfileLabel(entry)}</div>
                         </td>
                         <td className="px-4 py-3 text-white/70">{entry.email}</td>
                         <td className="px-4 py-3 text-white/70">{entry.username || "—"}</td>
                         <td className="px-4 py-3 text-white/70">{vehicleCount}</td>
                         <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openUserDrawer(entry)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
-                        >
-                          <Pencil className="h-3.5 w-3.5" /> Editar
-                        </button>
+                        {canEditUsers && (
+                          <button
+                            type="button"
+                            onClick={() => openUserDrawer(entry)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
+                          >
+                            <Pencil className="h-3.5 w-3.5" /> Editar
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openDetailsDrawer(entry)}
@@ -1057,7 +1287,7 @@ export default function Users() {
                         >
                           <Eye className="h-3.5 w-3.5" /> Detalhes
                         </button>
-                        {usersPermission.isFull && isAdminGeneral && (
+                        {canDeleteUsers && (
                           <button
                             type="button"
                             onClick={() => handleUserDelete(entry)}
@@ -1288,6 +1518,7 @@ export default function Users() {
               <tbody className="divide-y divide-white/10">
                 {filteredPermissionGroups.map((entry) => {
                   const isGlobal = entry.attributes?.scope === "global";
+                  const canEditGroup = activeTabPermission?.isFull && (!isGlobal || isAdminGeneralTenant);
                   return (
                     <tr key={entry.id} className="hover:bg-white/5">
                       <td className="px-4 py-3 text-white">
@@ -1303,7 +1534,7 @@ export default function Users() {
                     <td className="px-4 py-3 text-white/70">{entry.description || "—"}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        {(!isGlobal || isAdminGeneralTenant) && (
+                        {canEditGroup ? (
                           <>
                             <button
                               type="button"
@@ -1320,6 +1551,14 @@ export default function Users() {
                               Remover
                             </button>
                           </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openPermissionDrawer(entry, { readOnly: true })}
+                            className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/80 hover:border-white/30"
+                          >
+                            Detalhes
+                          </button>
                         )}
                       </div>
                     </td>
@@ -1739,30 +1978,31 @@ export default function Users() {
         description="Resumo de acesso, permissões e veículos vinculados."
       >
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {detailsTabs.map((tab) => (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {detailsTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setDetailsDrawerTab(tab.id)}
+                  className={`rounded-xl px-4 py-2 text-sm transition ${
+                    detailsDrawerTab === tab.id ? "bg-sky-500 text-black" : "bg-white/10 text-white hover:bg-white/15"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {canDeleteUsers && detailsUser && (
               <button
-                key={tab.id}
                 type="button"
-                onClick={() => setDetailsDrawerTab(tab.id)}
-                className={`rounded-xl px-4 py-2 text-sm transition ${
-                  detailsDrawerTab === tab.id ? "bg-sky-500 text-black" : "bg-white/10 text-white hover:bg-white/15"
-                }`}
+                onClick={() => handleUserDelete(detailsUser)}
+                className="rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
               >
-                {tab.label}
+                Excluir usuário
               </button>
-            ))}
+            )}
           </div>
-
-          {usersPermission.isFull && isAdminGeneral && detailsUser && (
-            <button
-              type="button"
-              onClick={() => handleUserDelete(detailsUser)}
-              className="w-fit rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10"
-            >
-              Excluir usuário
-            </button>
-          )}
 
           {detailsDrawerTab === "geral" && detailsUser && (
             <div className="space-y-4">
@@ -1775,11 +2015,7 @@ export default function Users() {
                   <span className="text-xs uppercase tracking-wide text-white/50">Perfil</span>
                   <span className="text-sm text-white/80">
                     {(() => {
-                      const group = permissionGroups.find(
-                        (entry) => entry.id === detailsUser.attributes?.permissionGroupId,
-                      );
-                      if (!group) return "—";
-                      return `${group.name}${group.attributes?.scope === "global" ? " (Global)" : ""}`;
+                      return resolveUserProfileLabel(detailsUser);
                     })()}
                   </span>
                 </div>
@@ -1870,6 +2106,87 @@ export default function Users() {
                   )}
                 </tbody>
               </DataTable>
+            </div>
+          )}
+
+          {detailsDrawerTab === "historico" && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-white/50">Filtros</p>
+                  <p className="text-sm text-white/70">
+                    Histórico de acessos, comandos, relatórios e tratativas.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={historyFilter}
+                    onChange={(event) => setHistoryFilter(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/80"
+                  >
+                    {historyCategories.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
+                    onClick={() => setHistoryReloadKey((current) => current + 1)}
+                  >
+                    Atualizar
+                  </button>
+                </div>
+              </div>
+
+              {historyLoading && <p className="text-xs text-white/60">Carregando histórico...</p>}
+              {historyError && !historyLoading && (
+                <p className="text-xs text-red-200/80">{historyError.message}</p>
+              )}
+              {!historyLoading && !historyError && filteredHistoryEvents.length === 0 && (
+                <p className="text-xs text-white/50">Nenhum evento encontrado para este usuário.</p>
+              )}
+
+              {!historyLoading && !historyError && filteredHistoryEvents.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-white/40">
+                      <tr className="border-b border-white/10 text-left">
+                        <th className="py-2 pr-4">Data/Hora</th>
+                        <th className="py-2 pr-4">Ação</th>
+                        <th className="py-2 pr-4">Alvo</th>
+                        <th className="py-2 pr-4">IP</th>
+                        <th className="py-2 pr-4">Detalhes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredHistoryEvents.map((entry) => {
+                        const targetLabel = resolveHistoryTarget(entry);
+                        const detailsLabel = resolveHistoryDetails(entry);
+                        return (
+                          <tr key={entry.id} className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-white/70">
+                              {formatHistoryTimestamp(entry.sentAt || entry.respondedAt || entry.createdAt)}
+                            </td>
+                            <td className="py-2 pr-4 text-white/80">
+                              {entry.action || entry.category || "Ação registrada"}
+                            </td>
+                            <td className="py-2 pr-4 text-white/70">{targetLabel}</td>
+                            <td className="py-2 pr-4 text-white/60">{entry.ipAddress || "—"}</td>
+                            <td
+                              className="py-2 pr-4 text-white/60 max-w-[320px] truncate"
+                              title={detailsLabel}
+                            >
+                              {detailsLabel}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2045,12 +2362,27 @@ export default function Users() {
 
       <Drawer
         open={permissionDrawerOpen}
-        onClose={() => setPermissionDrawerOpen(false)}
-        title={editingPermissionGroup ? "Editar grupo de permissões" : "Novo grupo de permissões"}
+        onClose={() => {
+          setPermissionDrawerOpen(false);
+          setPermissionReadOnly(false);
+          setEditingPermissionGroup(null);
+        }}
+        title={
+          editingPermissionGroup
+            ? permissionReadOnly
+              ? "Detalhes do grupo de permissões"
+              : "Editar grupo de permissões"
+            : "Novo grupo de permissões"
+        }
         description="Defina níveis de acesso por menu, página e submenus."
         eyebrow="Grupos de permissões"
       >
         <form onSubmit={handlePermissionSubmit} className="space-y-4">
+          {permissionReadOnly && (
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+              Visualização somente leitura. Perfis globais são gerenciados no ADMIN GERAL.
+            </div>
+          )}
           {isAdminGeneralTenant && !editingPermissionGroup && (
             <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-xs text-sky-100">
               Perfis criados no ADMIN GERAL ficam disponíveis para todos os clientes.
@@ -2063,7 +2395,8 @@ export default function Users() {
               value={permissionForm.name}
               required
               onChange={(event) => setPermissionForm((prev) => ({ ...prev, name: event.target.value }))}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+              disabled={permissionReadOnly}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm disabled:opacity-70"
             />
           </label>
           <label className="text-sm">
@@ -2072,15 +2405,17 @@ export default function Users() {
               type="text"
               value={permissionForm.description}
               onChange={(event) => setPermissionForm((prev) => ({ ...prev, description: event.target.value }))}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm"
+              disabled={permissionReadOnly}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm disabled:opacity-70"
             />
           </label>
 
           <PermissionTreeEditor
             permissions={permissionForm.permissions}
-            onChange={(nextPermissions) =>
-              setPermissionForm((prev) => ({ ...prev, permissions: nextPermissions }))
-            }
+            scopePermissions={scopedPermissionContext}
+            allowBulkActions={isAdminGeneral}
+            readOnly={permissionReadOnly}
+            onChange={handlePermissionFormChange}
           />
 
           <div className="flex items-center justify-end gap-3">
@@ -2089,14 +2424,16 @@ export default function Users() {
               onClick={() => setPermissionDrawerOpen(false)}
               className="rounded-xl border border-border px-4 py-2 text-sm text-white/70 hover:bg-white/10"
             >
-              Cancelar
+              {permissionReadOnly ? "Fechar" : "Cancelar"}
             </button>
-            <button
-              type="submit"
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-            >
-              Salvar grupo
-            </button>
+            {!permissionReadOnly && (
+              <button
+                type="submit"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+              >
+                Salvar grupo
+              </button>
+            )}
           </div>
         </form>
       </Drawer>

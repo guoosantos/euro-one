@@ -82,7 +82,7 @@ export const TELEMETRY_COLUMNS = [
     key: "plate",
     labelKey: "monitoring.columns.plate",
     defaultVisible: true,
-    getValue: (row) => row.plate || row.vehicle?.plate || row.vehicleName || FALLBACK,
+    getValue: (row) => row.plateLabel || row.plate || row.vehicle?.plate || row.vehicleName || FALLBACK,
   },
   {
     key: "deviceId",

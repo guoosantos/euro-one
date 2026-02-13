@@ -5,16 +5,19 @@ import { randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { requireAdminGeneralAccess } from "../middleware/admin-general.js";
 import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { resolveTenant } from "../middleware/tenant.js";
 import { getDeviceById, listDevices } from "../models/device.js";
-import { getClientById } from "../models/client.js";
+import { listVehicles } from "../models/vehicle.js";
+import { getAdminGeneralClient, getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
+import { normalizeEventPayload } from "../services/event-normalizer.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
 import { listSignalEvents } from "../services/signal-events.js";
 import { listVehicleEmbarkHistory } from "../services/embark-history.js";
@@ -81,6 +84,7 @@ import {
 } from "../../shared/telemetryDictionary.js";
 import { resolveEventDefinition, resolveEventDefinitionFromPayload } from "../../client/src/lib/event-translations.js";
 import { computeBlocked } from "../../shared/computeBlocked.js";
+import { buildIotmOutputPayload } from "../utils/iotm-output-control.js";
 
 
 const router = express.Router();
@@ -108,6 +112,25 @@ function getExportJob(jobId, owner, collection = analyticExportJobs) {
   return job;
 }
 
+function buildExportJobRequest({ user, payload, job }) {
+  const headers = {};
+  if (job?.ipAddress) headers["x-forwarded-for"] = String(job.ipAddress);
+  if (job?.mirrorMode) headers["x-mirror-mode"] = String(job.mirrorMode);
+  if (job?.ownerClientId) headers["x-owner-client-id"] = String(job.ownerClientId);
+  return {
+    user,
+    body: payload,
+    query: {},
+    headers,
+    ip: job?.ipAddress || undefined,
+    get: (name) => {
+      if (!name) return undefined;
+      const key = String(name).toLowerCase();
+      return headers[key];
+    },
+  };
+}
+
 function enforceClientGroupInBody(req, target = req.body) {
   const groupId = resolveClientGroupId(req);
   if (!groupId) return;
@@ -133,6 +156,24 @@ function resolveMirrorVehicleNotFoundMessage(req) {
   return req.tenant?.mirrorContext?.ownerClientId
     ? "Veículo não encontrado para este espelhamento"
     : "Veículo não encontrado";
+}
+
+function resolveAdminVehicleFallback(req, vehicleId, context) {
+  if (!vehicleId || req.user?.role !== "admin") return context;
+  const currentVehicles = Array.isArray(context?.vehicles) ? context.vehicles : [];
+  if (currentVehicles.some((item) => String(item?.id) === String(vehicleId))) return context;
+  const allVehicles = listVehicles({});
+  const matched = allVehicles.find((item) => String(item?.id) === String(vehicleId));
+  if (!matched) return context;
+  const ownerClientId = matched?.clientId ? String(matched.clientId) : null;
+  const ownerVehicles = ownerClientId ? listVehicles({ clientId: ownerClientId }) : [matched];
+  const ownerDevices = ownerClientId ? listDevices({ clientId: ownerClientId }) : listDevices({});
+  return {
+    ...context,
+    clientId: ownerClientId ?? context?.clientId ?? null,
+    vehicles: ownerVehicles,
+    devices: ownerDevices,
+  };
 }
 
 function resolveTraccarDeviceId(req, allowed = null) {
@@ -209,6 +250,16 @@ function logResolveTraccarDeviceFailure(context, error) {
   });
 }
 
+function resolveCommandParams(command, params) {
+  const ensureObject = (value) =>
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const baseParams = ensureObject(command?.params);
+  const defaultParams = ensureObject(command?.defaultParams);
+  const fixedParams = ensureObject(command?.fixedParams);
+  const providedParams = ensureObject(params);
+  return { ...baseParams, ...defaultParams, ...providedParams, ...fixedParams };
+}
+
 function resolveCommandPayload(req) {
   const commandKey = req.body?.commandKey;
   const protocol = req.body?.protocol;
@@ -232,13 +283,14 @@ function resolveCommandPayload(req) {
     throw createError(404, "Comando não encontrado para o protocolo");
   }
 
-  if (protocolKey === "iotm" && match?.id === "outputControl") {
-    return buildIotmOutputPayload(req.body?.params || {});
+  const resolvedParams = resolveCommandParams(match, req.body?.params);
+  const effectiveCommandKey = String(match?.baseCommand || match?.id || match?.code || "").toLowerCase();
+  if (protocolKey === "iotm" && effectiveCommandKey === "outputcontrol") {
+    return buildIotmOutputPayload(resolvedParams);
   }
 
   if (match?.type === "custom" || match?.code === "custom" || match?.id === "custom") {
-    const params = req.body?.params || {};
-    const data = params.data ?? params.payload ?? params.command ?? params.text;
+    const data = resolvedParams.data ?? resolvedParams.payload ?? resolvedParams.command ?? resolvedParams.text;
     if (data !== undefined) {
       return {
         type: "custom",
@@ -251,7 +303,7 @@ function resolveCommandPayload(req) {
 
   return {
     type: match.type || match.code || match.id,
-    attributes: req.body?.params || {},
+    attributes: resolvedParams,
     textChannel: req.body?.textChannel,
     description: req.body?.description,
   };
@@ -267,43 +319,6 @@ function resolveDirectCustomPayload(body) {
     attributes: { data: payload },
     textChannel: false,
     description: body?.description,
-  };
-}
-
-function buildIotmOutputPayload(params = {}) {
-  const rawOutput = params.output ?? params.outputId ?? params.outputIndex ?? 1;
-  const outputNumber = Number(rawOutput);
-  if (!Number.isFinite(outputNumber) || outputNumber < 1 || outputNumber > 4) {
-    throw createError(400, "Saída inválida para comando IOTM");
-  }
-
-  const actionRaw = String(params.action ?? params.state ?? params.mode ?? "on").toLowerCase();
-  const action = actionRaw === "on" || actionRaw === "ligar" ? "on" : actionRaw === "off" || actionRaw === "desligar" ? "off" : null;
-  if (!action) {
-    throw createError(400, "Ação inválida para comando IOTM");
-  }
-
-  const rawDuration = params.durationMs ?? params.duration ?? params.timeMs ?? 0;
-  const durationMs = Number(rawDuration);
-  if (!Number.isFinite(durationMs) || durationMs < 0) {
-    throw createError(400, "Tempo inválido para comando IOTM");
-  }
-
-  const ticks = Math.round(durationMs / 10);
-  if (!Number.isFinite(ticks) || ticks < 0 || ticks > 0xffff) {
-    throw createError(400, "Tempo inválido para comando IOTM");
-  }
-
-  const buffer = Buffer.alloc(4);
-  buffer.writeUInt8(outputNumber - 1, 0);
-  buffer.writeUInt8(action === "on" ? 0x00 : 0x01, 1);
-  buffer.writeUInt16BE(ticks, 2);
-
-  return {
-    type: "custom",
-    attributes: {
-      data: buffer.toString("hex").toUpperCase(),
-    },
   };
 }
 
@@ -334,6 +349,13 @@ function findBuiltinCustomCommand(commandId) {
 
 function isUuid(value) {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function isAdminGeneralUser(req) {
+  if (!req.user || req.user.role !== "admin") return false;
+  const adminGeneralClient = await getAdminGeneralClient();
+  if (!adminGeneralClient) return false;
+  return String(req.user.clientId || "") === String(adminGeneralClient.id);
 }
 
 const commandFallbackModels = new Map();
@@ -2128,12 +2150,19 @@ function buildDeviceInfo(device, metadata, fallbackId) {
   const id = device?.traccarId ? String(device.traccarId) : device?.id ? String(device.id) : String(fallbackId || "");
   const uniqueId = metadata?.uniqueId || device?.uniqueId || null;
   const lastUpdate = metadata?.lastUpdate || null;
+  const protocol =
+    metadata?.protocol ||
+    device?.protocol ||
+    device?.attributes?.protocol ||
+    device?.attributes?.deviceProtocol ||
+    null;
   return {
     id,
     name: metadata?.name || device?.name || device?.uniqueId || id,
     uniqueId,
     status: metadata?.status || null,
     lastUpdate,
+    protocol,
   };
 }
 
@@ -2555,11 +2584,26 @@ async function handleEventsReport(req, res, next) {
       const eventRequiresHandling =
         configuredEvent?.requiresHandling ?? event?.eventRequiresHandling ?? event?.requiresHandling ?? false;
       const severity = configuredEvent?.severity || baseSeverity;
+      const eventPayload = {
+        ...event,
+        eventLabel,
+        eventSeverity: severity,
+        eventCategory,
+        eventRequiresHandling,
+        protocol,
+      };
+      const normalizedEvent = normalizeEventPayload({
+        event: eventPayload,
+        position: decoratedPosition || position,
+        protocol,
+        configuredEvent,
+      });
+      const alertEventPayload = normalizedEvent ? { ...eventPayload, normalizedEvent } : eventPayload;
 
       if (eventRequiresHandling) {
         upsertAlertFromEvent({
           clientId,
-          event,
+          event: alertEventPayload,
           configuredEvent: {
             label: eventLabel,
             severity,
@@ -2593,6 +2637,8 @@ async function handleEventsReport(req, res, next) {
         eventCategory,
         eventRequiresHandling,
         protocol,
+        normalizedEvent,
+        eventType: normalizedEvent?.typeKey ?? event?.eventType ?? null,
         resolved: Boolean(resolution),
         resolvedAt: resolution?.resolvedAt || null,
         resolvedBy: resolution?.resolvedBy || null,
@@ -3075,10 +3121,28 @@ router.patch(
   async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+    const notes = req.body?.notes || req.body?.handling || req.body?.comment || null;
     const resolution = markEventResolved(req.params.id, {
       clientId,
       resolvedBy: req.user?.id ?? null,
       resolvedByName: req.user?.name || req.user?.email || null,
+      notes,
+    });
+    recordAuditEvent({
+      clientId,
+      vehicleId: req.body?.vehicleId ?? null,
+      deviceId: req.body?.deviceId ?? null,
+      category: "alert-handling",
+      action: "TRATATIVA CONJUGADA",
+      status: "Concluído",
+      sentAt: new Date().toISOString(),
+      user: { id: req.user?.id ?? null, name: req.user?.name || req.user?.email || null },
+      ipAddress: resolveRequestIp(req),
+      relatedId: req.params.id,
+      details: {
+        handlingType: "conjugated",
+        handlingNotes: notes || null,
+      },
     });
     return res.json({ ok: true, data: resolution, error: null });
   } catch (error) {
@@ -3228,6 +3292,7 @@ router.post(
   "/commands/send-sms",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "advanced", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     const phone = String(req.body?.phone || "").trim();
@@ -3263,7 +3328,6 @@ router.post(
 router.post(
   "/commands/send",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
-  requireRole("manager", "admin"),
   async (req, res, next) => {
   try {
     const commandDispatchModel = ensureCommandPrismaModel("commandDispatch");
@@ -3277,11 +3341,33 @@ router.post(
       throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
+    const isAdminGeneral = await isAdminGeneralUser(req);
+    const directPayload = resolveDirectCustomPayload(req.body);
+    if (!isAdminGeneral) {
+      if (directPayload) {
+        throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+      }
+      const params = req.body?.params && typeof req.body.params === "object" ? req.body.params : {};
+      if (Object.keys(params).length > 0) {
+        throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+      }
+      if (req.body?.commandKey && req.body?.protocol) {
+        const protocolKey = normalizeProtocolKey(req.body.protocol);
+        const commands = getProtocolCommands(protocolKey) || [];
+        const match = commands.find((command) => command?.id === req.body.commandKey || command?.code === req.body.commandKey);
+        if (match?.parameters?.length) {
+          throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+        }
+        if (match?.type === "custom" || match?.code === "custom" || match?.id === "custom") {
+          throw createError(403, "Configuração de comandos permitida apenas para o ADMIN GERAL");
+        }
+      }
+    }
+
     let commandPayload = null;
     let commandName = null;
     let commandKey = null;
 
-    const directPayload = resolveDirectCustomPayload(req.body);
     if (directPayload && !req.body?.customCommandId && !req.body?.commandKey) {
       commandPayload = directPayload;
       commandName = req.body?.commandName || req.body?.description || "Comando personalizado";
@@ -3297,6 +3383,19 @@ router.post(
       });
       if (!customCommand) {
         customCommand = findBuiltinCustomCommand(customCommandId);
+      }
+      if (!customCommand) {
+        const adminGeneralClient = await getAdminGeneralClient();
+        const adminGeneralClientId = adminGeneralClient?.id ?? null;
+        if (adminGeneralClientId && (!clientId || String(adminGeneralClientId) !== String(clientId))) {
+          customCommand = await customCommandModel.findFirst({
+            where: {
+              id: customCommandId,
+              clientId: adminGeneralClientId,
+              ...(req.user?.role === "admin" ? {} : { visible: true }),
+            },
+          });
+        }
       }
       if (!customCommand) {
         throw createError(404, "Comando personalizado não encontrado");
@@ -3466,7 +3565,10 @@ router.post(
       respondedAt: historyItem.respondedAt,
       user: resolveAuditUser(req),
       ipAddress: resolveRequestIp(req),
-      details: { command: historyItem.commandName || historyItem.command || null },
+      details: {
+        command: historyItem.commandName || historyItem.command || null,
+        payload: historyItem.payload || payload || null,
+      },
       relatedId: requestId,
     });
 
@@ -3900,9 +4002,15 @@ router.get(
     const includeHidden = String(req.query?.includeHidden || "").toLowerCase() === "true";
     let protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
     const deviceId = req.query?.deviceId ? String(req.query.deviceId).trim() : "";
-    const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);
+    const canSeeHidden = includeHidden && (await isAdminGeneralUser(req));
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     const prismaAvailable = isPrismaAvailable();
+    const adminGeneralClient = await getAdminGeneralClient();
+    const adminGeneralClientId = adminGeneralClient?.id ?? null;
+    const clientIds =
+      adminGeneralClientId && String(adminGeneralClientId) !== String(clientId)
+        ? [clientId, adminGeneralClientId]
+        : [clientId];
 
     if (!protocol && deviceId) {
       try {
@@ -3919,7 +4027,7 @@ router.get(
     const commands = prismaAvailable
       ? await customCommandModel.findMany({
           where: {
-            clientId,
+            clientId: clientIds.length > 1 ? { in: clientIds } : clientId,
             ...(canSeeHidden ? {} : { visible: true }),
             ...(protocol ? { protocol } : {}),
           },
@@ -3948,6 +4056,7 @@ router.post(
   "/commands/custom",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
@@ -4003,6 +4112,7 @@ router.put(
   "/commands/custom/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
@@ -4050,6 +4160,7 @@ router.patch(
   "/commands/custom/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
@@ -4095,6 +4206,7 @@ router.delete(
   "/commands/custom/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
@@ -4130,6 +4242,7 @@ router.post(
   "/commands",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
   try {
     const allowed = resolveAllowedDeviceIds(req);
@@ -4160,6 +4273,7 @@ router.put(
   "/commands/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
     try {
       const data = await traccarProxy("put", `/commands/${req.params.id}`, { data: req.body, asAdmin: true });
@@ -4174,6 +4288,7 @@ router.delete(
   "/commands/:id",
   authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
   requireRole("manager", "admin"),
+  requireAdminGeneralAccess,
   async (req, res, next) => {
     try {
       await traccarProxy("delete", `/commands/${req.params.id}`, { asAdmin: true });
@@ -4547,7 +4662,19 @@ async function fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientI
   return [...dispatchItems, ...traccarItems].filter((item) => item.sentAt || item.receivedAt);
 }
 
-async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null, reportEventScope = "active" }) {
+async function buildPositionsReportData(
+  req,
+  {
+    vehicleId,
+    from,
+    to,
+    addressFilter,
+    pagination = null,
+    reportEventScope = "active",
+    sortBy = null,
+    sortDir = null,
+  },
+) {
   if (!vehicleId) {
     throw createError(400, "vehicleId é obrigatório");
   }
@@ -4555,7 +4682,12 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     throw createError(400, "from/to são obrigatórios");
   }
 
-  const { clientId, vehicles, devices } = await resolveAccessibleDeviceContext(req);
+  const resolvedContext = resolveAdminVehicleFallback(
+    req,
+    vehicleId,
+    await resolveAccessibleDeviceContext(req),
+  );
+  const { clientId, vehicles, devices } = resolvedContext;
   const eventScope = normalizeReportEventScope(reportEventScope);
   const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
   if (!vehicle) {
@@ -4568,10 +4700,18 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   }
 
   const traccarId = String(device.traccarId);
+  const resolvedSortBy = normalizeAnalyticSortBy(sortBy);
+  const resolvedSortDir = normalizeAnalyticSortDir(sortDir) || (resolvedSortBy ? "asc" : null);
+
   const page = pagination?.page || 1;
   const limit = pagination?.limit || null;
   const offset = pagination?.offset ?? (limit ? (page - 1) * limit : null);
-  const positions = await fetchPositions([traccarId], from, to, { limit, offset });
+  const positions = await fetchPositions([traccarId], from, to, {
+    limit,
+    offset,
+    sortBy: resolvedSortBy,
+    sortDir: resolvedSortDir,
+  });
   const protocol =
     device?.protocol ||
     device?.attributes?.protocol ||
@@ -4881,12 +5021,17 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   inputIndexes.forEach((index) => availableColumns.add(`digitalInput${index}`));
   outputIndexes.forEach((index) => availableColumns.add(`digitalOutput${index}`));
 
+  const outputSortBy = resolvedSortBy || "gpsTime";
+  const outputSortDir = resolvedSortDir || "desc";
+  const outputMultiplier = outputSortDir === "desc" ? -1 : 1;
+
   const mapped = mappedChronological
     .map(({ __deviceStatusToken, __digitalInputs, __digitalOutputs, __odometer, __extras, ...rest }) => rest)
     .sort((a, b) => {
-      const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
-      const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
-      return timeB - timeA;
+      const timeA = resolvePositionsSortTime(a, outputSortBy);
+      const timeB = resolvePositionsSortTime(b, outputSortBy);
+      if (timeA !== timeB) return (timeA - timeB) * outputMultiplier;
+      return 0;
     });
 
   const latestPosition = mapped[0] || null;
@@ -5116,6 +5261,19 @@ function normalizeAnalyticSortDir(value) {
   return null;
 }
 
+function resolvePositionsSortTime(entry, sortBy) {
+  if (!entry) return 0;
+  const candidate =
+    entry?.[sortBy] ??
+    entry?.gpsTime ??
+    entry?.deviceTime ??
+    entry?.serverTime ??
+    entry?.fixTime ??
+    null;
+  const parsed = candidate ? new Date(candidate).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function resolveAnalyticSortTime(entry, sortBy) {
   if (!entry) return 0;
   const candidate =
@@ -5220,6 +5378,13 @@ async function buildAnalyticReportData(
         ipAddress: event.ipAddress || null,
         fallback: "Sistema",
       });
+      const handlingNotes = event.details?.handlingNotes || event.details?.notes || null;
+      const handlingAuthor =
+        event.details?.handlingAuthor ||
+        event.user?.name ||
+        event.user?.email ||
+        null;
+      const handlingAt = event.details?.handlingAt || event.sentAt || event.respondedAt || null;
       return {
         id: event.id,
         type: "action",
@@ -5231,6 +5396,9 @@ async function buildAnalyticReportData(
         user: event.user?.name || null,
         ipAddress: event.ipAddress || null,
         details: event.details || null,
+        handlingNotes,
+        handlingAuthor,
+        handlingAt,
         timestamp: event.sentAt || event.respondedAt || event.createdAt || null,
         event: ANALYTIC_EVENT_CATEGORIES.report,
         eventType,
@@ -5244,6 +5412,9 @@ async function buildAnalyticReportData(
           eventType,
           whoSent,
           deviceStatus: event.status || "Pendente",
+          handlingNotes,
+          handlingAuthor,
+          handlingAt,
         },
       };
     });
@@ -5311,7 +5482,7 @@ async function buildAnalyticReportData(
     });
 
   const analyticMeta = { ...positionsReport.meta, protocol, deviceModel };
-  const extraKeys = ["eventType", "blocked", "whoSent"];
+  const extraKeys = ["eventType", "blocked", "whoSent", "handlingNotes", "handlingAuthor", "handlingAt"];
   const availableSet = new Set(Array.isArray(analyticMeta.availableColumns) ? analyticMeta.availableColumns : []);
   extraKeys.forEach((key) => availableSet.add(key));
   analyticMeta.availableColumns = Array.from(availableSet);
@@ -5349,13 +5520,7 @@ async function runAnalyticExportJob({ jobId, payload, user }) {
   const job = analyticExportJobs.get(jobId);
   if (!job) return;
   const auditSentAt = new Date().toISOString();
-  const jobReq = {
-    user,
-    body: payload,
-    query: {},
-    headers: job.ipAddress ? { "x-forwarded-for": job.ipAddress } : {},
-    ip: job.ipAddress || undefined,
-  };
+  const jobReq = buildExportJobRequest({ user, payload, job });
 
   try {
     const vehicleId = payload?.vehicleId ? String(payload.vehicleId).trim() : "";
@@ -5471,21 +5636,24 @@ async function runPositionsExportJob({ jobId, payload, user }) {
   const job = positionsExportJobs.get(jobId);
   if (!job) return;
   const auditSentAt = new Date().toISOString();
-  const jobReq = {
-    user,
-    body: payload,
-    query: {},
-    headers: job.ipAddress ? { "x-forwarded-for": job.ipAddress } : {},
-    ip: job.ipAddress || undefined,
-  };
+  const jobReq = buildExportJobRequest({ user, payload, job });
 
   try {
     const vehicleId = payload?.vehicleId ? String(payload.vehicleId).trim() : "";
     const from = parseDateOrThrow(payload?.from, "from");
     const to = parseDateOrThrow(payload?.to, "to");
     const addressFilter = payload?.addressFilter && typeof payload.addressFilter === "object" ? payload.addressFilter : null;
+    const sortBy = normalizeAnalyticSortBy(payload?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(payload?.sortDir);
 
-    const report = await buildPositionsReportData(jobReq, { vehicleId, from, to, addressFilter });
+    const report = await buildPositionsReportData(jobReq, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(payload?.availableColumns) && payload.availableColumns.length
       ? payload.availableColumns
       : report?.meta?.availableColumns;
@@ -5637,8 +5805,18 @@ router.get("/reports/positions", async (req, res) => {
     const to = parseDateOrThrow(req.query?.to, "to");
     const addressFilter = parseAddressFilterQuery(req.query);
     const pagination = normalizePagination(req.query);
+    const sortBy = normalizeAnalyticSortBy(req.query?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.query?.sortDir);
 
-    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    const report = await buildPositionsReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      pagination,
+      sortBy,
+      sortDir,
+    });
     recordReportAudit({
       req,
       reportName: "Relatório de Posições",
@@ -5743,6 +5921,8 @@ router.post("/reports/analytic/export", async (req, res) => {
 
   const jobId = randomUUID();
   const owner = resolveExportOwner(req);
+  const mirrorMode = req.get?.("X-Mirror-Mode") || req.headers?.["x-mirror-mode"] || null;
+  const ownerClientId = req.get?.("X-Owner-Client-Id") || req.headers?.["x-owner-client-id"] || null;
   const job = {
     id: jobId,
     owner,
@@ -5750,6 +5930,8 @@ router.post("/reports/analytic/export", async (req, res) => {
     createdAt: Date.now(),
     format,
     ipAddress: resolveRequestIp(req),
+    mirrorMode,
+    ownerClientId,
   };
   analyticExportJobs.set(jobId, job);
   scheduleExportCleanup(jobId, analyticExportJobs);
@@ -5770,6 +5952,8 @@ router.post("/reports/positions/export", async (req, res) => {
 
   const jobId = randomUUID();
   const owner = resolveExportOwner(req);
+  const mirrorMode = req.get?.("X-Mirror-Mode") || req.headers?.["x-mirror-mode"] || null;
+  const ownerClientId = req.get?.("X-Owner-Client-Id") || req.headers?.["x-owner-client-id"] || null;
   const job = {
     id: jobId,
     owner,
@@ -5777,6 +5961,8 @@ router.post("/reports/positions/export", async (req, res) => {
     createdAt: Date.now(),
     format,
     ipAddress: resolveRequestIp(req),
+    mirrorMode,
+    ownerClientId,
   };
   positionsExportJobs.set(jobId, job);
   scheduleExportCleanup(jobId, positionsExportJobs);
@@ -6175,9 +6361,18 @@ router.post("/reports/positions/pdf", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const sortBy = normalizeAnalyticSortBy(req.body?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.body?.sortDir);
 
 
-    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const report = await buildPositionsReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -6256,8 +6451,17 @@ router.post("/reports/positions/xlsx", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const sortBy = normalizeAnalyticSortBy(req.body?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.body?.sortDir);
 
-    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const report = await buildPositionsReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -6339,8 +6543,17 @@ router.post("/reports/positions/csv", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const sortBy = normalizeAnalyticSortBy(req.body?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.body?.sortDir);
 
-    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const report = await buildPositionsReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -6741,6 +6954,7 @@ router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, 
 });
 
 export {
+  resolveCommandPayload,
   normalizeReportEventScope,
   resolveAnalyticPositionDetails,
   resolvePositionEventLabel,

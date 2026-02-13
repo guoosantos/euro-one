@@ -222,3 +222,46 @@ test("authorizeAnyPermission permite acesso quando qualquer permissão é válid
   assert.equal(response.status, 200);
   assert.equal(response.payload.ok, true);
 });
+
+test("admin global mantém acesso a permissões administrativas mesmo com grupo limitado", async () => {
+  const permissionGroup = createGroup({
+    name: "Permissões limitadas",
+    description: "Grupo sem admin.users",
+    clientId: testClientId,
+    attributes: {
+      kind: "PERMISSION_GROUP",
+      permissions: {
+        primary: {
+          monitoring: "read",
+        },
+      },
+    },
+  });
+  createdGroups.push(permissionGroup.id);
+
+  const app = express();
+  app.use(express.json());
+  app.get(
+    "/api/admin",
+    authenticate,
+    authorizePermission({ menuKey: "admin", pageKey: "users", requireFull: true }),
+    (_req, res) => res.json({ ok: true }),
+  );
+  app.use(errorHandler);
+
+  const user = await createTestUser({
+    role: "admin",
+    clientId: testClientId,
+    attributes: { permissionGroupId: permissionGroup.id },
+  });
+  const token = signSession({
+    id: user.id,
+    role: user.role,
+    clientId: user.clientId,
+    attributes: user.attributes,
+  });
+  const response = await callEndpoint(app, { path: "/api/admin", token });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.ok, true);
+});

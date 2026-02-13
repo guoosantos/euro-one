@@ -7,6 +7,9 @@ const BASE_COLUMNS = [
   { key: "eventType", labelPt: "Tipo", labelPdf: "Tipo", width: 180, defaultVisible: true, weight: 1.6, group: "base" },
   { key: "blocked", labelPt: "Bloqueado", labelPdf: "Bloqueado", width: 120, defaultVisible: true, weight: 1.2, group: "base", type: "string" },
   { key: "whoSent", labelPt: "Quem enviou", labelPdf: "Quem enviou", width: 200, defaultVisible: true, weight: 1.6, group: "base" },
+  { key: "handlingNotes", labelPt: "Tratativa", labelPdf: "Tratativa", width: 220, defaultVisible: false, weight: 1.8, group: "actions" },
+  { key: "handlingAuthor", labelPt: "Autor Tratativa", labelPdf: "Autor Tratativa", width: 180, defaultVisible: false, weight: 1.4, group: "actions" },
+  { key: "handlingAt", labelPt: "Data Tratativa", labelPdf: "Data Tratativa", width: 160, defaultVisible: false, weight: 1.2, group: "actions", type: "date" },
   {
     key: "address",
     labelPt: "Endereço",

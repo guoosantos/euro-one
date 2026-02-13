@@ -1,4 +1,5 @@
 import React from "react";
+import { formatSuggestion } from "../../lib/address/autocomplete.js";
 
 const SearchIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -26,6 +27,7 @@ export default function MonitoringSearchBox({
   const showClearButton = Boolean(onClear) && Boolean(trimmedValue);
 
   const handleKeyDown = (event) => {
+    event.stopPropagation();
     if (event.key === "Enter") {
       if (showSuggestions) {
         event.preventDefault();
@@ -41,7 +43,7 @@ export default function MonitoringSearchBox({
 
   return (
     <div
-      className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 overflow-visible rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}
+      className={`monitoring-search-shell relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 overflow-visible rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}
     >
       <div className="pointer-events-none flex items-center justify-center text-white/40">
         {icon}
@@ -85,9 +87,9 @@ export default function MonitoringSearchBox({
                   {item.type === "address" ? "📍" : "🚗"}
                 </span>
                 <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-white">{item.label}</span>
+                  <span className="truncate text-white">{formatSuggestion(item.label ?? item, "")}</span>
                   {item.description ? (
-                    <span className="truncate text-[10px] text-white/60">{item.description}</span>
+                    <span className="truncate text-[10px] text-white/60">{formatSuggestion(item.description, "")}</span>
                   ) : null}
                 </div>
               </li>

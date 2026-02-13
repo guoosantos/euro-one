@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip } from "react-leaflet";
+import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip, Polyline, Polygon } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -12,6 +12,7 @@ import MapZoomControls from "./MapZoomControls.jsx";
 import AppMap from "./AppMap.jsx";
 import { formatAddress } from "../../lib/format-address.js";
 import { DEFAULT_MAP_LAYER } from "../../lib/mapLayers.js";
+import { buildOverlayShapes, buildRouteCorridorPolygons } from "../../lib/itinerary-overlay.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
@@ -74,6 +75,8 @@ function getClusterIcon(count) {
 
 function PopupContent({ marker }) {
   const statusStyle = getStatusStyle(marker.status);
+  const primaryLabel = marker.plate || marker.label || "Sem placa";
+  const secondaryLabel = marker.model && marker.model !== primaryLabel ? marker.model : "";
   
   const addressText = useMemo(() => {
     if (typeof marker.address === "string") return marker.address;
@@ -91,9 +94,10 @@ function PopupContent({ marker }) {
 
   return (
     <div className="space-y-1.5 text-white min-w-[200px]">
-      {marker.label && <div className="text-sm font-bold leading-tight text-white">{marker.label}</div>}
-      {marker.plate && <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div>}
-      {marker.model && <div className="text-[11px] text-white/70">{marker.model}</div>}
+      <div className="text-sm font-bold leading-tight text-white">{primaryLabel}</div>
+      {secondaryLabel ? (
+        <div className="text-[11px] text-white/70">{secondaryLabel}</div>
+      ) : null}
       
       {addressText && <div className="text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">{addressText}</div>}
       
@@ -348,6 +352,148 @@ function AddressMarker({ marker }) {
   );
 }
 
+function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shouldFit = true }) {
+  const map = useMap();
+  const lastFitTokenRef = useRef(null);
+  const isDebug = variant === "debug";
+  const { routeLines, geofences, checkpoints } = useMemo(
+    () => buildOverlayShapes(overlay),
+    [overlay],
+  );
+  const corridorBufferMeters = useMemo(() => {
+    const raw = Number(overlay?.bufferMeters);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return raw;
+  }, [overlay?.bufferMeters]);
+  const routeCorridors = useMemo(
+    () => buildRouteCorridorPolygons(routeLines, corridorBufferMeters),
+    [corridorBufferMeters, routeLines],
+  );
+  const routeStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", weight: 3, opacity: 0.9 }
+      : { color: "#3b82f6", weight: 3, opacity: 0.9 }),
+    [isDebug],
+  );
+  const corridorStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", weight: 1, fillColor: "#ef4444", fillOpacity: 0.18 }
+      : { color: "#3b82f6", weight: 1, fillColor: "#3b82f6", fillOpacity: 0.18 }),
+    [isDebug],
+  );
+  const geofenceStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", weight: 2, fillColor: "#ef4444", fillOpacity: 0.12 }
+      : { color: "#3b82f6", weight: 2, fillColor: "#3b82f6", fillOpacity: 0.12 }),
+    [isDebug],
+  );
+  const checkpointStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", fillColor: "#ef4444", fillOpacity: 0.8 }
+      : { color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.8 }),
+    [isDebug],
+  );
+  const prefix = isDebug ? "itinerary-debug" : "itinerary";
+  const routeTooltipLabel = overlay?.name || overlay?.itineraryName || overlay?.id || "Rota";
+  const routeBufferLabel = useMemo(() => {
+    const raw = Number(overlay?.bufferMeters);
+    if (!Number.isFinite(raw) || raw <= 0) return "—";
+    return `${Math.round(raw)} m`;
+  }, [overlay?.bufferMeters]);
+
+  const safeRouteLines = routeLines.filter((line) => Array.isArray(line) && line.length > 1);
+  const safeGeofences = geofences
+    .map((geofence) => ({
+      ...geofence,
+      polygons: (geofence.polygons || []).filter((ring) => Array.isArray(ring) && ring.length > 2),
+    }))
+    .filter((geofence) => geofence.polygons.length > 0);
+
+  useEffect(() => {
+    if (!overlay || !map || !canInteractWithMap(map) || !shouldFit) return;
+    const fitToken = overlay?.fitToken || "default";
+    if (fitToken === lastFitTokenRef.current) return;
+    lastFitTokenRef.current = fitToken;
+    const bounds = L.latLngBounds([]);
+    safeRouteLines.forEach((line) => {
+      line.forEach((point) => bounds.extend(point));
+    });
+    safeGeofences.forEach((geofence) => {
+      (geofence.polygons || []).forEach((ring) => {
+        ring.forEach((point) => bounds.extend(point));
+      });
+    });
+    if (focusPoint && Number.isFinite(focusPoint.lat) && Number.isFinite(focusPoint.lng)) {
+      bounds.extend([focusPoint.lat, focusPoint.lng]);
+    }
+    if (!bounds.isValid()) return;
+    map.fitBounds(bounds, { padding: [36, 36], animate: true });
+  }, [focusPoint, map, overlay, safeGeofences, safeRouteLines, shouldFit]);
+
+  if (!overlay) return null;
+
+  return (
+    <>
+      {routeCorridors.length > 0
+        ? routeCorridors.map((polygon, index) => (
+            <Polygon
+              key={`${prefix}-corridor-${index}`}
+              positions={polygon}
+              pathOptions={corridorStyle}
+            >
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+                <div className="text-xs text-white/80">
+                  <div className="font-semibold text-white">{routeTooltipLabel}</div>
+                  <div className="text-white/60">Tolerância para Desvio de Rota: {routeBufferLabel}</div>
+                </div>
+              </Tooltip>
+            </Polygon>
+          ))
+        : safeRouteLines.map((line, index) => (
+            <Polyline
+              key={`${prefix}-route-${index}`}
+              positions={line}
+              pathOptions={routeStyle}
+            >
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+                <div className="text-xs text-white/80">
+                  <div className="font-semibold text-white">{routeTooltipLabel}</div>
+                  <div className="text-white/60">Tolerância para Desvio de Rota: {routeBufferLabel}</div>
+                </div>
+              </Tooltip>
+            </Polyline>
+          ))}
+      {safeGeofences.map((geofence, index) => (
+        <Polygon
+          key={`${prefix}-geofence-${geofence.id || index}`}
+          positions={geofence.polygons}
+          pathOptions={geofenceStyle}
+        >
+          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+            <div className="text-xs text-white/80">
+              <div className="font-semibold text-white">{geofence.name || "Cerca"}</div>
+            </div>
+          </Tooltip>
+        </Polygon>
+      ))}
+      {checkpoints.map((checkpoint, index) => (
+        <CircleMarker
+          key={`${prefix}-checkpoint-${index}`}
+          center={[checkpoint.lat, checkpoint.lng]}
+          radius={6}
+          pathOptions={checkpointStyle}
+        >
+          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+            <div className="text-xs text-white/80">
+              <div className="font-semibold text-white">{checkpoint.name || "Ponto"}</div>
+            </div>
+          </Tooltip>
+        </CircleMarker>
+      ))}
+    </>
+  );
+}
+
 // --- COMPONENTE PRINCIPAL ---
 
 const MonitoringMap = React.forwardRef(function MonitoringMap({
@@ -359,6 +505,11 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   onMarkerOpenDetails = null,
   mapLayer,
   addressMarker,
+  itineraryOverlay = null,
+  itineraryOverlayFocusPoint = null,
+  itineraryDebugOverlay = null,
+  itineraryDebugOverlayFocusPoint = null,
+  itineraryDebugBadge = null,
   invalidateKey = 0,
   mapPreferences = null,
 }, _ref) {
@@ -512,6 +663,46 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           Zoom limitado a {effectiveMaxZoom} (web.maxZoom). Ajuste a configuração para permitir aproximação maior.
         </div>
       ) : null}
+      {itineraryDebugBadge ? (
+        <div
+          className={`monitoring-test-banner pointer-events-none absolute left-3 top-3 z-[1300] ${
+            itineraryDebugBadge.statusTone === "confirmed"
+              ? "monitoring-test-banner--confirmed"
+              : itineraryDebugBadge.kind === "disembarked"
+                ? "monitoring-test-banner--disembarked"
+                : ""
+          }`}
+          title="Exibição para conferência visual. Pode não estar embarcado no equipamento."
+        >
+          <div className="monitoring-test-banner__text">
+            <span className="monitoring-test-banner__label">{itineraryDebugBadge.headline}</span>
+            {itineraryDebugBadge.kind === "disembarked" ? (
+              <span className="monitoring-test-banner__message">— {itineraryDebugBadge.message}</span>
+            ) : (
+              <>
+                <span className="monitoring-test-banner__message">
+                  — {itineraryDebugBadge.itineraryLabel}: {itineraryDebugBadge.itineraryName}
+                </span>
+                <span className="monitoring-test-banner__message">
+                  — {itineraryDebugBadge.plateLabel}: {itineraryDebugBadge.plate}
+                </span>
+                <span className="monitoring-test-banner__message">
+                  — {itineraryDebugBadge.statusLabelPrefix}:{" "}
+                  <span
+                    className={
+                      itineraryDebugBadge.statusTone === "confirmed"
+                        ? "monitoring-test-banner__status monitoring-test-banner__status--confirmed"
+                        : "monitoring-test-banner__status"
+                    }
+                  >
+                    {itineraryDebugBadge.statusLabel}
+                  </span>
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
       <div ref={containerRef} className="h-full w-full">
         {shouldRenderMap ? (
           <AppMap
@@ -534,6 +725,14 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
               subdomains={tileSubdomains}
             />
             <MapZoomControls variant="classic" />
+
+            <ItineraryOverlayLayer
+              overlay={itineraryDebugOverlay}
+              focusPoint={itineraryDebugOverlayFocusPoint}
+              variant="debug"
+              shouldFit={!itineraryOverlay}
+            />
+            <ItineraryOverlayLayer overlay={itineraryOverlay} focusPoint={itineraryOverlayFocusPoint} />
 
             <MarkerLayer
               markers={markers}

@@ -142,16 +142,18 @@ function resolveUserClaimHints(user) {
   return normalizeFlagHints(raw);
 }
 
-export function buildMenuAccessContext({ tenant, user } = {}) {
-  const presentationPermissions = normalizePresentationPermissions(tenant?.attributes);
-  const tenantHints = resolveTenantModuleHints(tenant?.attributes);
-  const userHints = resolveUserClaimHints(user);
+export function buildMenuAccessContext({ tenant, user, isGlobalAdmin } = {}) {
+  const isAdmin = Boolean(isGlobalAdmin || user?.role === "admin");
+  const presentationPermissions = isAdmin ? null : normalizePresentationPermissions(tenant?.attributes);
+  const tenantHints = isAdmin ? { allowlist: null, map: null } : resolveTenantModuleHints(tenant?.attributes);
+  const userHints = isAdmin ? { allowlist: null, map: null } : resolveUserClaimHints(user);
   return {
     presentationPermissions,
     tenantAllowlist: tenantHints.allowlist,
     tenantMap: tenantHints.map,
     userAllowlist: userHints.allowlist,
     userMap: userHints.map,
+    isGlobalAdmin: isAdmin,
   };
 }
 
@@ -159,6 +161,10 @@ export function canShowMenuItem({ permission, context } = {}) {
   if (!permission) return true;
   const candidates = buildPermissionCandidates(permission);
   if (!candidates.length) return true;
+
+  if (context?.isGlobalAdmin && permission?.menuKey === "admin") {
+    return true;
+  }
 
   if (context?.presentationPermissions) {
     const entry = resolvePermissionEntry(

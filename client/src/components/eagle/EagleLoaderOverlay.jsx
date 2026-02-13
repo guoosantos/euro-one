@@ -5,7 +5,6 @@ import { useEagleLoaderStore } from "../../lib/eagle-loader-store";
 
 export default function EagleLoaderOverlay() {
   const count = useEagleLoaderStore((state) => state.count);
-  const message = useEagleLoaderStore((state) => state.message);
   const isVisible = count > 0;
 
   return (
@@ -20,7 +19,6 @@ export default function EagleLoaderOverlay() {
       <div className="eagle-noise" />
       <div className="eagle-loader-content">
         <EagleSprite className="eagle-sprite eagle-sprite--loader" />
-        {message ? <div className="eagle-loader-text">{message}</div> : null}
       </div>
     </div>
   );

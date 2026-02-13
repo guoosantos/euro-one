@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { config } from "./config.js";
 import authRoutes from "./routes/auth.js";
+import bootstrapRoutes from "./routes/bootstrap.js";
 import contextRoutes from "./routes/context.js";
 import clientRoutes from "./routes/clients.js";
 import userRoutes from "./routes/users.js";
@@ -100,6 +101,7 @@ app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
 
 app.use("/api", authRoutes);
+app.use("/api", bootstrapRoutes);
 app.use("/api", contextRoutes);
 
 

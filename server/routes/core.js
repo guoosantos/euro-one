@@ -13,12 +13,13 @@ import * as deviceModel from "../models/device.js";
 import * as chipModel from "../models/chip.js";
 import * as vehicleModel from "../models/vehicle.js";
 import * as stockModel from "../models/stock-item.js";
+import * as equipmentTransferModel from "../models/equipment-transfer.js";
 import * as traccarService from "../services/traccar.js";
 import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import { syncDevicesFromTraccar } from "../services/device-sync.js";
-import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
+import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, deleteUser, getUserById, updateUser } from "../models/user.js";
@@ -28,6 +29,16 @@ import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { importEuroXlsx } from "../services/euro-xlsx-import.js";
+import { ACCESS_REASONS } from "../utils/access-reasons.js";
+import { isAdminGeneralClient } from "../utils/admin-general.js";
+import { buildInternalCode, extractInternalSequence, normalizePrefix } from "../utils/internal-code.js";
+import {
+  buildModelDeviceCounts,
+  buildModelInternalSequences,
+  mergeDevicesForModelStats,
+  resolveModelIdFromDevice,
+} from "../utils/model-stats.js";
+import { appendConditionHistory, ensureConditionHistory } from "../utils/vehicle-conditions.js";
 
 const router = express.Router();
 
@@ -38,9 +49,11 @@ const defaultDeps = {
   resolveClientId: clientMiddleware.resolveClientId,
   resolveClientIdMiddleware,
   getClientById: clientModel.getClientById,
+  listClients: clientModel.listClients,
   updateClient: clientModel.updateClient,
   listModels: modelModel.listModels,
   createModel: modelModel.createModel,
+  updateModel: modelModel.updateModel,
   getModelById: modelModel.getModelById,
   listDevices: deviceModel.listDevices,
   listDevicesFromDb: deviceModel.listDevicesFromDb,
@@ -66,6 +79,9 @@ const defaultDeps = {
   updateStockItem: stockModel.updateStockItem,
   getStockItemById: stockModel.getStockItemById,
   deleteStockItem: stockModel.deleteStockItem,
+  listEquipmentTransfers: equipmentTransferModel.listEquipmentTransfers,
+  createEquipmentTransfer: equipmentTransferModel.createEquipmentTransfer,
+  listTechnicianInventory: equipmentTransferModel.listTechnicianInventory,
   traccarProxy: traccarService.traccarProxy,
   buildTraccarUnavailableError: traccarService.buildTraccarUnavailableError,
   fetchLatestPositions: traccarDbService.fetchLatestPositions,
@@ -531,12 +547,31 @@ function invalidateDeviceCache() {
 
 function resolveModelPrefix(model) {
   const rawPrefix = model?.prefix ?? model?.internalPrefix ?? model?.codePrefix ?? null;
-  if (rawPrefix === null || rawPrefix === undefined) return null;
-  if (typeof rawPrefix === "number" && Number.isFinite(rawPrefix)) {
-    return String(rawPrefix).padStart(2, "0");
+  return normalizePrefix(rawPrefix);
+}
+
+const modelSequenceLocks = new Map();
+
+async function withModelSequenceLock(modelId, callback) {
+  if (!modelId) {
+    return callback();
   }
-  const normalized = String(rawPrefix).trim();
-  return normalized || null;
+  const key = String(modelId);
+  const previous = modelSequenceLocks.get(key) || Promise.resolve();
+  let release;
+  const next = new Promise((resolve) => {
+    release = resolve;
+  });
+  modelSequenceLocks.set(key, previous.then(() => next));
+  try {
+    await previous;
+    return await callback();
+  } finally {
+    release();
+    if (modelSequenceLocks.get(key) === next) {
+      modelSequenceLocks.delete(key);
+    }
+  }
 }
 
 function normalizeWarrantyOrigin(value) {
@@ -557,22 +592,45 @@ function computeWarrantyEndDate({ startDate, warrantyDays }) {
   return end.toISOString().slice(0, 10);
 }
 
-function resolveNextInternalCode({ clientId, prefix }) {
-  if (!clientId || !prefix) return null;
-  const devices = deps.listDevices({ clientId });
-  const regex = /-(\d+)$/;
-  let maxSequence = 0;
-  devices.forEach((device) => {
-    const internalCode = device.attributes?.internalCode || device.internalCode;
-    if (!internalCode) return;
-    const match = regex.exec(String(internalCode).trim());
-    if (!match) return;
-    const seq = Number(match[1]);
-    if (Number.isFinite(seq)) {
-      maxSequence = Math.max(maxSequence, seq);
+async function resolveNextInternalCode({ clientId, model }) {
+  const prefix = resolveModelPrefix(model);
+  if (!clientId || !prefix || !model?.id) return null;
+  return withModelSequenceLock(model.id, async () => {
+    const devices = deps.listDevices({ clientId });
+    let maxSequence = Number(model.internalSequence) || 0;
+    devices.forEach((device) => {
+      const modelId = resolveModelIdFromDevice(device);
+      if (!modelId || String(modelId) !== String(model.id)) return;
+      const internalCode = device?.attributes?.internalCode || device?.internalCode || null;
+      const seq = extractInternalSequence(internalCode, prefix);
+      if (seq && seq > maxSequence) {
+        maxSequence = seq;
+      }
+    });
+    const nextSequence = maxSequence + 1;
+    try {
+      deps.updateModel(model.id, { internalSequence: nextSequence });
+    } catch (error) {
+      console.warn("[devices] falha ao atualizar sequência interna do modelo", error?.message || error);
     }
+    return buildInternalCode(prefix, nextSequence);
   });
-  return `${prefix}-${maxSequence + 1}`;
+}
+
+async function loadDevicesForModelStats({ clientId } = {}) {
+  let dbDevices = [];
+  if (isPrismaReady()) {
+    try {
+      dbDevices = await prisma.device.findMany({
+        where: clientId ? { clientId: String(clientId) } : {},
+        select: { id: true, modelId: true, vehicleId: true, uniqueId: true, traccarId: true, attributes: true },
+      });
+    } catch (dbError) {
+      console.warn("[models] falha ao consultar devices no banco", dbError?.message || dbError);
+    }
+  }
+  const legacyDevices = deps.listDevices({ clientId });
+  return mergeDevicesForModelStats(dbDevices, legacyDevices);
 }
 
 function findDeviceByInternalCode({ clientId, internalCode }) {
@@ -589,7 +647,7 @@ function findDeviceByInternalCode({ clientId, internalCode }) {
 }
 
 function buildDeviceResponse(device, context) {
-  const { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique } = context;
+  const { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique, clientMap } = context;
   const traccarDevice =
     (device.traccarId && traccarById.get(String(device.traccarId))) || traccarByUnique.get(String(device.uniqueId));
   const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
@@ -603,11 +661,13 @@ function buildDeviceResponse(device, context) {
     statusLabel = `${usageStatusLabel} (Nunca conectado)`;
   }
 
-  const resolvedModelId = device.modelId || device.attributes?.modelId || null;
+  const resolvedModelId = resolveModelIdFromDevice(device);
   const modelFromDevice = device.model || null;
-  const model = resolvedModelId ? modelMap.get(resolvedModelId) || modelFromDevice : modelFromDevice;
-  const chip = device.chipId ? chipMap.get(device.chipId) : null;
-  const vehicle = device.vehicleId ? vehicleMap.get(device.vehicleId) : null;
+  const model = resolvedModelId ? modelMap.get(String(resolvedModelId)) || modelFromDevice : modelFromDevice;
+  const chip = device.chipId ? chipMap.get(String(device.chipId)) : null;
+  const vehicle = device.vehicleId ? vehicleMap.get(String(device.vehicleId)) : null;
+  const resolvedClientId = device.clientId || vehicle?.clientId || vehicle?.client?.id || null;
+  const client = resolvedClientId ? clientMap?.get(String(resolvedClientId)) || null : null;
   const attributes = { ...(traccarDevice?.attributes || {}), ...(device.attributes || {}) };
   const iconType = attributes.iconType || null;
   const metadataProtocol = traccarDevice?.protocol || traccarDevice?.attributes?.protocol || null;
@@ -626,7 +686,8 @@ function buildDeviceResponse(device, context) {
     traccarId: device.traccarId ? String(device.traccarId) : null,
     uniqueId: device.uniqueId,
     name: device.name,
-    clientId: device.clientId,
+    clientId: resolvedClientId,
+    clientName: client?.name || vehicle?.clientName || vehicle?.client?.name || null,
     modelId: resolvedModelId,
     modelName: model?.name || null,
     modelBrand: model?.brand || null,
@@ -647,6 +708,8 @@ function buildDeviceResponse(device, context) {
           name: vehicle.name,
           plate: vehicle.plate,
           type: vehicle.type || null,
+          clientId: vehicle.clientId || null,
+          clientName: clientMap?.get(String(vehicle.clientId || ""))?.name || null,
         }
       : null,
     usageStatus,
@@ -674,7 +737,7 @@ function buildDeviceResponse(device, context) {
 
 function buildChipResponse(chip, { deviceMap, vehicleMap }) {
   const device = chip.deviceId ? deviceMap.get(chip.deviceId) : null;
-  const vehicle = device?.vehicleId ? vehicleMap.get(device.vehicleId) : null;
+  const vehicle = device?.vehicleId ? vehicleMap.get(String(device.vehicleId)) : null;
   return {
     ...chip,
     device: device
@@ -688,11 +751,20 @@ function buildChipResponse(chip, { deviceMap, vehicleMap }) {
   };
 }
 
-function selectPrincipalDevice(devices = [], traccarById = new Map(), positionsByDeviceId = new Map()) {
+function selectPrincipalDevice(
+  devices = [],
+  traccarById = new Map(),
+  positionsByDeviceId = new Map(),
+  { preferMonitoring = true } = {},
+) {
+  const candidates = preferMonitoring
+    ? devices.filter((device) => device?.attributes?.gprsCommunication !== false)
+    : devices;
+  const pool = candidates.length ? candidates : devices;
   let selected = null;
   let latest = -Infinity;
 
-  devices.forEach((device) => {
+  pool.forEach((device) => {
     const traccarDevice = device?.traccarId ? traccarById.get(String(device.traccarId)) : null;
     const position = device?.traccarId ? positionsByDeviceId.get(String(device.traccarId)) : null;
     const referenceTime =
@@ -712,7 +784,7 @@ function selectPrincipalDevice(devices = [], traccarById = new Map(), positionsB
     }
   });
 
-  return selected || devices[0] || null;
+  return selected || pool[0] || null;
 }
 
 function buildVehicleResponse(vehicle, context) {
@@ -722,11 +794,17 @@ function buildVehicleResponse(vehicle, context) {
     positionsByDeviceId = new Map(),
     clientMap = new Map(),
   } = context;
-  const linkedDevices = Array.from(deviceMap.values()).filter(
-    (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
-  );
+  const vehicleKey = String(vehicle.id);
+  const vehicleDeviceKey = vehicle.deviceId ? String(vehicle.deviceId) : null;
+  const linkedDevices = Array.from(deviceMap.values()).filter((item) => {
+    const itemVehicleKey = item?.vehicleId ? String(item.vehicleId) : null;
+    const itemKey = item?.id ? String(item.id) : null;
+    return (itemVehicleKey && itemVehicleKey === vehicleKey) || (vehicleDeviceKey && itemKey === vehicleDeviceKey);
+  });
 
-  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById, positionsByDeviceId);
+  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById, positionsByDeviceId, {
+    preferMonitoring: true,
+  });
   const traccarDevice = principalDevice?.traccarId ? traccarById.get(String(principalDevice.traccarId)) : null;
   const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
   const principalPosition = principalDevice?.traccarId
@@ -828,6 +906,21 @@ function ensureSameClient(resource, clientId, message) {
   }
 }
 
+function resolveChipClientId(req, providedClientId, { fallbackClientId = null } = {}) {
+  const candidates = [
+    providedClientId,
+    fallbackClientId,
+    req?.clientId,
+    req?.query?.clientId,
+    req?.user?.clientId,
+  ];
+  const requestedClientId = candidates.find((value) => {
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== "";
+  });
+  return deps.resolveClientId(req, requestedClientId, { required: true });
+}
+
 function resolveLinkClientId(clientId, ...resources) {
   if (clientId != null) return clientId;
   for (const resource of resources) {
@@ -898,11 +991,18 @@ function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
   if (device.vehicleId && device.vehicleId !== vehicle.id) {
     const previousVehicle = deps.getVehicleById(device.vehicleId);
     if (previousVehicle && String(previousVehicle.clientId) === String(resolvedClientId)) {
-      deps.updateVehicle(previousVehicle.id, { deviceId: null });
+      const previousLinkedDevices = deps
+        .listDevices({ clientId: resolvedClientId })
+        .filter((item) => String(item.vehicleId || "") === String(previousVehicle.id) && String(item.id) !== String(device.id));
+      const nextPrimary = previousLinkedDevices[0] || null;
+      deps.updateVehicle(previousVehicle.id, { deviceId: nextPrimary ? nextPrimary.id : null });
     }
   }
 
-  deps.updateVehicle(vehicle.id, { deviceId: device.id });
+  const shouldSetPrimary = !vehicle.deviceId || String(vehicle.deviceId) === String(device.id);
+  if (shouldSetPrimary) {
+    deps.updateVehicle(vehicle.id, { deviceId: device.id });
+  }
   deps.updateDevice(device.id, { vehicleId: vehicle.id });
 }
 
@@ -926,13 +1026,77 @@ function detachVehicle(clientId, vehicleId) {
 router.get(
   "/models",
   authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-models" }),
-  (req, res, next) => {
+  async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query.clientId, { required: false });
     const models = deps.listModels({ clientId, includeGlobal: true });
-    res.json({ models });
+    const devices = await loadDevicesForModelStats({ clientId });
+    const counts = buildModelDeviceCounts(devices);
+    const sequences = buildModelInternalSequences(devices, models);
+
+    const payload = models.map((model) => {
+      const bucket = counts.get(String(model.id)) || { available: 0, linked: 0, total: 0 };
+      const prefix = normalizePrefix(model?.prefix ?? model?.internalPrefix ?? model?.codePrefix ?? null);
+      const maxSequence = Math.max(Number(model.internalSequence) || 0, sequences.get(String(model.id)) || 0);
+      const nextInternalCode = prefix ? buildInternalCode(prefix, maxSequence + 1) : null;
+      return {
+        ...model,
+        availableCount: bucket.available,
+        linkedCount: bucket.linked,
+        totalCount: bucket.total,
+        nextInternalCode,
+      };
+    });
+
+    res.json({ models: payload });
   } catch (error) {
     next(error);
+  }
+  },
+);
+
+router.get(
+  "/models/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-models" }),
+  async (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
+    const model = deps.getModelById(req.params.id);
+    if (!model) {
+      throw createError(404, "Modelo não encontrado");
+    }
+    const resolvedClientId = resolveLinkClientId(clientId, model);
+    if (model.clientId && resolvedClientId && String(model.clientId) !== String(resolvedClientId)) {
+      throw createError(404, "Modelo não encontrado");
+    }
+    if (model.clientId && !resolvedClientId && req.user?.role !== "admin") {
+      throw createError(404, "Modelo não encontrado");
+    }
+
+    const devices = await loadDevicesForModelStats({ clientId: resolvedClientId });
+    const countsByModel = buildModelDeviceCounts(devices);
+    const sequencesByModel = buildModelInternalSequences(devices, [model]);
+    const counts = countsByModel.get(String(model.id)) || { available: 0, linked: 0, total: 0 };
+    const prefix = normalizePrefix(model?.prefix ?? model?.internalPrefix ?? model?.codePrefix ?? null);
+    const maxSequence = Math.max(Number(model.internalSequence) || 0, sequencesByModel.get(String(model.id)) || 0);
+    const nextInternalCode = prefix ? buildInternalCode(prefix, maxSequence + 1) : null;
+
+    return res.json({
+      model: {
+        ...model,
+        availableCount: counts.available,
+        linkedCount: counts.linked,
+        totalCount: counts.total,
+        nextInternalCode,
+      },
+    });
+  } catch (error) {
+    console.error("[models] falha ao obter modelo", {
+      id: req.params.id,
+      message: error?.message || error,
+      status: error?.status || error?.statusCode,
+    });
+    return next(error);
   }
   },
 );
@@ -962,6 +1126,17 @@ router.post(
       notes: req.body?.notes,
       isClientDefault: req.body?.isClientDefault,
       defaultClientId: req.body?.defaultClientId,
+      portCounts: req.body?.portCounts,
+      entradasDI: req.body?.entradasDI,
+      saidasDO: req.body?.saidasDO,
+      rs232: req.body?.rs232,
+      rs485: req.body?.rs485,
+      can: req.body?.can,
+      lora: req.body?.lora,
+      wifi: req.body?.wifi,
+      bluetooth: req.body?.bluetooth,
+      technicalTimes: req.body?.technicalTimes,
+      productionModes: req.body?.productionModes,
       ports: Array.isArray(req.body?.ports) ? req.body.ports : [],
       clientId: clientId ?? null,
     };
@@ -1002,6 +1177,17 @@ router.put(
       notes: req.body?.notes,
       isClientDefault: req.body?.isClientDefault,
       defaultClientId: req.body?.defaultClientId,
+      portCounts: req.body?.portCounts,
+      entradasDI: req.body?.entradasDI,
+      saidasDO: req.body?.saidasDO,
+      rs232: req.body?.rs232,
+      rs485: req.body?.rs485,
+      can: req.body?.can,
+      lora: req.body?.lora,
+      wifi: req.body?.wifi,
+      bluetooth: req.body?.bluetooth,
+      technicalTimes: req.body?.technicalTimes,
+      productionModes: req.body?.productionModes,
       ports: Array.isArray(req.body?.ports) ? req.body.ports : undefined,
     };
     const model = deps.updateModel(req.params.id, payload);
@@ -1074,6 +1260,8 @@ router.post(
       }
     }
 
+    const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication;
+    const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
     const cachedDevices = deps.getCachedTraccarResources("devices");
     let traccarDevice = cachedDevices.find((device) => {
       if (traccarId && String(device?.id) === String(traccarId)) {
@@ -1146,12 +1334,18 @@ router.post(
     let vehicles = deps.listVehicles({ clientId });
     const traccarById = new Map([[String(traccarDevice.id), traccarDevice]]);
     const traccarByUnique = new Map([[String(traccarDevice.uniqueId), traccarDevice]]);
+    const clientMap = new Map();
+    const client = await deps.getClientById(clientId);
+    if (client) {
+      clientMap.set(String(clientId), client);
+    }
     const response = buildDeviceResponse(device, {
-      modelMap: new Map(models.map((item) => [item.id, item])),
-      chipMap: new Map(chips.map((item) => [item.id, item])),
-      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      modelMap: new Map(models.map((item) => [String(item.id), item])),
+      chipMap: new Map(chips.map((item) => [String(item.id), item])),
+      vehicleMap: new Map(vehicles.map((item) => [String(item.id), item])),
       traccarById,
       traccarByUnique,
+      clientMap,
     });
 
     invalidateDeviceCache();
@@ -1208,6 +1402,8 @@ router.post(
   async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication ?? req.query?.gprsCommunication;
+    const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
     const groupId = gprsCommunication ? await ensureClientTraccarGroup(clientId) : null;
 
     const traccarResponse = await deps.traccarProxy("get", "/devices", {
@@ -1244,6 +1440,176 @@ router.post(
     });
   } catch (error) {
     next(error);
+  }
+  },
+);
+
+router.post(
+  "/devices/backfill-internal-codes",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
+  deps.requireRole("admin"),
+  requireAdminGeneral,
+  async (req, res, next) => {
+  try {
+    const requestedClientId = req.body?.clientId || req.query?.clientId || null;
+    const clientId = requestedClientId
+      ? deps.resolveClientId(req, requestedClientId, { required: false })
+      : null;
+    const devices = deps.listDevices(clientId ? { clientId } : {});
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const modelById = new Map(models.map((model) => [String(model.id), model]));
+    const groups = new Map();
+    const usedCodes = new Set();
+    const summary = {
+      clientId: clientId || null,
+      totalDevices: devices.length,
+      devicesWithoutInternalCode: 0,
+      updatedDevices: 0,
+      models: [],
+      errors: [],
+    };
+
+    devices.forEach((device) => {
+      const internalCode = device?.attributes?.internalCode || device?.internalCode || null;
+      if (internalCode) {
+        usedCodes.add(String(internalCode).trim().toLowerCase());
+      } else {
+        summary.devicesWithoutInternalCode += 1;
+      }
+      const modelId = resolveModelIdFromDevice(device);
+      if (!modelId) {
+        if (!internalCode) {
+          summary.errors.push({
+            deviceId: String(device.id),
+            uniqueId: device.uniqueId || null,
+            reason: "MISSING_MODEL_ID",
+            message: "Equipamento sem modelId; ajuste manual necessário.",
+          });
+        }
+        return;
+      }
+      const key = String(modelId);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(device);
+    });
+
+    for (const [modelId, modelDevices] of groups.entries()) {
+      await withModelSequenceLock(modelId, async () => {
+        const model = modelById.get(modelId) || deps.getModelById(modelId);
+        const missingCodeDevices = modelDevices.filter((device) => !(device?.attributes?.internalCode || device?.internalCode));
+        if (!missingCodeDevices.length) return;
+        if (!model) {
+          missingCodeDevices.forEach((device) => {
+            summary.errors.push({
+              deviceId: String(device.id),
+              uniqueId: device.uniqueId || null,
+              modelId,
+              reason: "MODEL_NOT_FOUND",
+              message: "Modelo do equipamento não encontrado; ajuste manual necessário.",
+            });
+          });
+          return;
+        }
+
+        const prefix = resolveModelPrefix(model);
+        if (!prefix) {
+          missingCodeDevices.forEach((device) => {
+            summary.errors.push({
+              deviceId: String(device.id),
+              uniqueId: device.uniqueId || null,
+              modelId,
+              modelName: model.name || null,
+              reason: "MISSING_MODEL_PREFIX",
+              message: "Modelo sem prefixo para geração do código interno.",
+            });
+          });
+          summary.models.push({
+            modelId,
+            modelName: model.name || null,
+            prefix: null,
+            updated: 0,
+            pending: missingCodeDevices.length,
+          });
+          return;
+        }
+
+        let sequence = Number(model.internalSequence) || 0;
+        modelDevices.forEach((device) => {
+          const currentCode = device?.attributes?.internalCode || device?.internalCode || null;
+          const currentSequence = extractInternalSequence(currentCode, prefix);
+          if (currentSequence && currentSequence > sequence) {
+            sequence = currentSequence;
+          }
+        });
+
+        const startSequence = sequence;
+        let updated = 0;
+
+        missingCodeDevices.forEach((device) => {
+          let generated = null;
+          while (!generated) {
+            sequence += 1;
+            const candidate = buildInternalCode(prefix, sequence);
+            if (!candidate) continue;
+            if (usedCodes.has(String(candidate).toLowerCase())) continue;
+            generated = candidate;
+          }
+
+          try {
+            deps.updateDevice(device.id, {
+              attributes: { internalCode: generated },
+            });
+            usedCodes.add(String(generated).toLowerCase());
+            updated += 1;
+            summary.updatedDevices += 1;
+          } catch (updateError) {
+            summary.errors.push({
+              deviceId: String(device.id),
+              uniqueId: device.uniqueId || null,
+              modelId,
+              reason: "UPDATE_FAILED",
+              message: updateError?.message || "Falha ao atualizar equipamento.",
+            });
+          }
+        });
+
+        if (sequence > (Number(model.internalSequence) || 0)) {
+          try {
+            deps.updateModel(model.id, { internalSequence: sequence });
+          } catch (modelError) {
+            summary.errors.push({
+              modelId,
+              modelName: model.name || null,
+              reason: "MODEL_SEQUENCE_UPDATE_FAILED",
+              message: modelError?.message || "Falha ao atualizar sequência do modelo.",
+            });
+          }
+        }
+
+        summary.models.push({
+          modelId,
+          modelName: model.name || null,
+          prefix: String(prefix),
+          updated,
+          pending: missingCodeDevices.length - updated,
+          startSequence,
+          endSequence: sequence,
+        });
+        console.info("[devices] backfill internalCode por modelo", {
+          clientId: clientId || null,
+          modelId,
+          updated,
+          pending: missingCodeDevices.length - updated,
+          startSequence,
+          endSequence: sequence,
+        });
+      });
+    }
+
+    invalidateDeviceCache();
+    return res.json({ summary });
+  } catch (error) {
+    return next(error);
   }
   },
 );
@@ -1422,7 +1788,7 @@ router.get(
     );
 
     const deviceMap = new Map(devices.map((device) => [String(device.traccarId || device.id || device.uniqueId), device]));
-    const vehicleMap = new Map(vehiclesPool.map((vehicle) => [vehicle.id, vehicle]));
+    const vehicleMap = new Map(vehiclesPool.map((vehicle) => [String(vehicle.id), vehicle]));
 
     let telemetryMappings = [];
     if (deps.listTelemetryFieldMappings) {
@@ -1553,7 +1919,7 @@ router.get(
           device.lastUpdate ||
           device.updatedAt ||
           null;
-        const mergedVehicle = device.vehicle || vehicleMap.get(device.vehicleId) || vehicle || null;
+        const mergedVehicle = device.vehicle || vehicleMap.get(String(device.vehicleId)) || vehicle || null;
         const mergedClient = device.client || clientMap.get(device.clientId) || clientMap.get(mergedVehicle?.clientId) || null;
 
         if (traccarId && !devicesByTraccarId.has(traccarId)) {
@@ -1765,9 +2131,9 @@ router.get(
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
     let vehicles = access.vehicles;
-    const modelMap = new Map(models.map((item) => [item.id, item]));
-    const chipMap = new Map(chips.map((item) => [item.id, item]));
-    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+    const modelMap = new Map(models.map((item) => [String(item.id), item]));
+    const chipMap = new Map(chips.map((item) => [String(item.id), item]));
+    const vehicleMap = new Map(vehicles.map((item) => [String(item.id), item]));
     let metadata = [];
     try {
       metadata = (await deps.fetchDevicesMetadata()) || [];
@@ -1792,8 +2158,38 @@ router.get(
       }
     }
 
+    let legacyDevices = [];
+    legacyDevices = deps.listDevices({ clientId });
     if (!devices.length) {
-      devices = deps.listDevices({ clientId });
+      devices = legacyDevices;
+    } else if (legacyDevices.length) {
+      const legacyById = new Map(legacyDevices.map((item) => [String(item.id), item]));
+      const legacyByUnique = new Map(
+        legacyDevices
+          .filter((item) => item?.uniqueId)
+          .map((item) => [String(item.uniqueId), item]),
+      );
+      devices = devices.map((device) => {
+        const legacy =
+          legacyById.get(String(device.id)) ||
+          (device?.uniqueId ? legacyByUnique.get(String(device.uniqueId)) : null);
+        if (!legacy) return device;
+        const mergedAttributes = {
+          ...(legacy.attributes || {}),
+          ...(device.attributes || {}),
+        };
+        const mergedModelId = resolveModelIdFromDevice({
+          ...legacy,
+          ...device,
+          attributes: mergedAttributes,
+        });
+        return {
+          ...device,
+          vehicleId: device.vehicleId ?? legacy.vehicleId ?? null,
+          modelId: mergedModelId,
+          attributes: mergedAttributes,
+        };
+      });
     }
 
     if (access.mirrorOwnerIds.length) {
@@ -1810,6 +2206,15 @@ router.get(
         modelMap.set(String(device.model.id), device.model);
       }
     });
+
+    let clientMap = new Map();
+    try {
+      const clients = await deps.listClients();
+      clientMap = new Map((Array.isArray(clients) ? clients : []).map((client) => [String(client.id), client]));
+    } catch (clientError) {
+      const fallbackClient = clientId ? await deps.getClientById(clientId) : null;
+      clientMap = new Map(fallbackClient ? [[String(clientId), fallbackClient]] : []);
+    }
 
     const response = devices.map((device) =>
       buildDeviceResponse(
@@ -1829,6 +2234,7 @@ router.get(
           vehicleMap,
           traccarById,
           traccarByUnique: traccarByUniqueId,
+          clientMap,
         },
       ),
     );
@@ -1838,8 +2244,13 @@ router.get(
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
     }
-
-    return res.status(503).json(TRACCAR_DB_UNAVAILABLE);
+    console.error("[devices] falha ao carregar lista", {
+      message: error?.message || error,
+      code: error?.code,
+      status: error?.status || error?.statusCode,
+      stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+    });
+    return next(error);
   }
   },
 );
@@ -1855,6 +2266,8 @@ router.post(
     const { name, uniqueId, modelId, chipId, vehicleId } = req.body || {};
     const iconType = req.body?.iconType || req.body?.attributes?.iconType || null;
     const condition = req.body?.condition ?? req.body?.attributes?.condition ?? null;
+    const conditionNote = req.body?.conditionNote ?? req.body?.attributes?.conditionNote ?? "";
+    const conditionDate = req.body?.conditionDate ?? req.body?.attributes?.conditionDate ?? null;
     const rawInternalCode = req.body?.internalCode ?? req.body?.attributes?.internalCode ?? null;
     const internalCode = rawInternalCode === "" ? null : rawInternalCode;
     const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication;
@@ -1882,10 +2295,16 @@ router.post(
     }
 
     let resolvedInternalCode = internalCode ? String(internalCode).trim() : null;
+    if (resolvedInternalCode) {
+      const adminClient = req.user?.clientId ? await deps.getClientById(req.user.clientId) : null;
+      const allowOverride = req.user?.role === "admin" && isAdminGeneralClient(adminClient);
+      if (!allowOverride) {
+        throw createError(403, "Código interno é gerado automaticamente");
+      }
+    }
     if (!resolvedInternalCode && modelId) {
-      const prefix = resolveModelPrefix(model);
-      if (prefix) {
-        resolvedInternalCode = resolveNextInternalCode({ clientId, prefix });
+      if (model) {
+        resolvedInternalCode = await resolveNextInternalCode({ clientId, model });
       }
     }
     if (resolvedInternalCode) {
@@ -1896,7 +2315,7 @@ router.post(
     }
 
     const groupId = await ensureClientTraccarGroup(clientId);
-    const attributes = { ...(req.body?.attributes || {}) };
+    let attributes = { ...(existingDevice?.attributes || {}), ...(req.body?.attributes || {}) };
     if (modelId) {
       attributes.modelId = modelId;
     }
@@ -1905,9 +2324,6 @@ router.post(
     }
     if (resolvedInternalCode !== null && resolvedInternalCode !== undefined) {
       attributes.internalCode = resolvedInternalCode;
-    }
-    if (condition !== null && condition !== undefined) {
-      attributes.condition = condition;
     }
     if (rawGprs !== undefined) {
       attributes.gprsCommunication = gprsCommunication;
@@ -1930,6 +2346,15 @@ router.post(
       attributes.warrantyOrigin = resolvedOrigin;
       attributes.warrantyEndDate = computedEnd;
       attributes.warrantyStartDate = startDate;
+    }
+    attributes = ensureConditionHistory(attributes, { condition: "Novo", source: "system" });
+    if (condition !== null && condition !== undefined && String(condition).trim()) {
+      attributes = appendConditionHistory(attributes, {
+        condition: String(condition).trim(),
+        note: conditionNote,
+        createdAt: conditionDate || null,
+        source: "manual",
+      });
     }
 
     const traccarName = resolvedInternalCode || name || normalizedUniqueId;
@@ -1960,16 +2385,22 @@ router.post(
       const models = deps.listModels({ clientId, includeGlobal: true });
       const chips = deps.listChips({ clientId });
       const vehicles = deps.listVehicles({ clientId });
+      const clientMap = new Map();
+      const client = await deps.getClientById(clientId);
+      if (client) {
+        clientMap.set(String(clientId), client);
+      }
       const traccarById = traccarResult.device?.id
         ? new Map([[String(traccarResult.device.id), traccarResult.device]])
         : new Map();
       const resolvedDevice = deps.getDeviceById(updated.id) || updated;
       const response = buildDeviceResponse(resolvedDevice, {
-        modelMap: new Map(models.map((item) => [item.id, item])),
-        chipMap: new Map(chips.map((item) => [item.id, item])),
-        vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+        modelMap: new Map(models.map((item) => [String(item.id), item])),
+        chipMap: new Map(chips.map((item) => [String(item.id), item])),
+        vehicleMap: new Map(vehicles.map((item) => [String(item.id), item])),
         traccarById,
         traccarByUnique: new Map(traccarResult.device?.uniqueId ? [[traccarResult.device.uniqueId, traccarResult.device]] : []),
+        clientMap,
       });
 
       invalidateDeviceCache();
@@ -1995,19 +2426,25 @@ router.post(
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
     const vehicles = deps.listVehicles({ clientId });
+    const clientMap = new Map();
+    const client = await deps.getClientById(clientId);
+    if (client) {
+      clientMap.set(String(clientId), client);
+    }
     const traccarById = new Map();
     if (traccarResult.device?.id) {
       traccarById.set(String(traccarResult.device.id), traccarResult.device);
     }
     const resolvedDevice = deps.getDeviceById(device.id) || device;
     const response = buildDeviceResponse(resolvedDevice, {
-      modelMap: new Map(models.map((item) => [item.id, item])),
-      chipMap: new Map(chips.map((item) => [item.id, item])),
-      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      modelMap: new Map(models.map((item) => [String(item.id), item])),
+      chipMap: new Map(chips.map((item) => [String(item.id), item])),
+      vehicleMap: new Map(vehicles.map((item) => [String(item.id), item])),
       traccarById,
       traccarByUnique: traccarResult.device?.uniqueId
         ? new Map([[traccarResult.device.uniqueId, traccarResult.device]])
         : new Map([[uniqueId, traccarResult.device || {}]]),
+      clientMap,
     });
 
     invalidateDeviceCache();
@@ -2036,10 +2473,19 @@ router.put(
     ensureSameClient(device, clientId, "Equipamento não encontrado");
 
     const payload = { ...req.body };
+    const hasModelId = Object.prototype.hasOwnProperty.call(payload, "modelId");
     const hasChipId = Object.prototype.hasOwnProperty.call(payload, "chipId");
     const hasVehicleId = Object.prototype.hasOwnProperty.call(payload, "vehicleId");
+    const hasCondition = Object.prototype.hasOwnProperty.call(payload, "condition");
     const incomingChipId = hasChipId ? (payload.chipId === "" ? null : payload.chipId) : undefined;
     const incomingVehicleId = hasVehicleId ? (payload.vehicleId === "" ? null : payload.vehicleId) : undefined;
+    const incomingCondition = hasCondition ? payload.condition : undefined;
+    const incomingConditionNote = req.body?.conditionNote ?? req.body?.attributes?.conditionNote ?? "";
+    const incomingConditionDate = req.body?.conditionDate ?? req.body?.attributes?.conditionDate ?? null;
+    if (hasModelId) {
+      const rawModelId = payload.modelId === "" ? null : payload.modelId;
+      payload.modelId = rawModelId ? String(rawModelId) : null;
+    }
 
     if (hasChipId) delete payload.chipId;
     if (hasVehicleId) delete payload.vehicleId;
@@ -2047,12 +2493,12 @@ router.put(
     if (iconType) {
       payload.attributes = { ...(payload.attributes || {}), iconType };
     }
+    const existingInternalCode = device.attributes?.internalCode || device.internalCode || null;
     if (Object.prototype.hasOwnProperty.call(payload, "internalCode")) {
       payload.attributes = { ...(payload.attributes || {}), internalCode: payload.internalCode };
       delete payload.internalCode;
     }
-    if (Object.prototype.hasOwnProperty.call(payload, "condition")) {
-      payload.attributes = { ...(payload.attributes || {}), condition: payload.condition };
+    if (hasCondition) {
       delete payload.condition;
     }
     if (Object.prototype.hasOwnProperty.call(payload, "gprsCommunication")) {
@@ -2071,11 +2517,14 @@ router.put(
       if (warrantyFields.warrantyEndDate) payload.attributes.warrantyEndDate = warrantyFields.warrantyEndDate;
       if (warrantyFields.warrantyNotes) payload.attributes.warrantyNotes = warrantyFields.warrantyNotes;
     }
-    if (payload.modelId) {
-      const model = deps.getModelById(payload.modelId);
-      if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
-        throw createError(404, "Modelo informado não pertence a este cliente");
+    if (hasModelId) {
+      if (payload.modelId) {
+        const model = deps.getModelById(payload.modelId);
+        if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
+          throw createError(404, "Modelo informado não pertence a este cliente");
+        }
       }
+      payload.attributes = { ...(payload.attributes || {}), modelId: payload.modelId };
     }
 
     const warrantyTouched = Boolean(
@@ -2100,10 +2549,54 @@ router.put(
       }
       payload.attributes = nextAttributes;
     }
+    const hasConditionHistoryPatch = Boolean(
+      payload.attributes && Object.prototype.hasOwnProperty.call(payload.attributes, "conditions"),
+    );
+    if (incomingCondition !== undefined || hasConditionHistoryPatch) {
+      let nextAttributes = { ...(device.attributes || {}), ...(payload.attributes || {}) };
+      nextAttributes = ensureConditionHistory(nextAttributes, { condition: "Novo", source: "system" });
+      if (incomingCondition !== null && incomingCondition !== undefined && String(incomingCondition).trim()) {
+        nextAttributes = appendConditionHistory(nextAttributes, {
+          condition: String(incomingCondition).trim(),
+          note: incomingConditionNote,
+          createdAt: incomingConditionDate || null,
+          source: "manual",
+        });
+      }
+      payload.attributes = nextAttributes;
+    }
     if (payload.attributes?.internalCode) {
-      const existingInternal = findDeviceByInternalCode({ clientId, internalCode: payload.attributes.internalCode });
+      const requestedInternal = String(payload.attributes.internalCode).trim();
+      if (existingInternalCode && requestedInternal !== String(existingInternalCode).trim()) {
+        const adminClient = req.user?.clientId ? await deps.getClientById(req.user.clientId) : null;
+        const allowOverride = req.user?.role === "admin" && isAdminGeneralClient(adminClient);
+        if (!allowOverride) {
+          throw createError(403, "Código interno é imutável após gerado");
+        }
+      }
+      const existingInternal = findDeviceByInternalCode({ clientId, internalCode: requestedInternal });
       if (existingInternal && String(existingInternal.id) !== String(device.id)) {
         throw createError(409, "Código interno já existe neste cliente");
+      }
+    }
+
+    if (!existingInternalCode && !payload.attributes?.internalCode) {
+      const candidateModelId = resolveModelIdFromDevice({
+        ...device,
+        ...payload,
+        attributes: {
+          ...(device.attributes || {}),
+          ...(payload.attributes || {}),
+        },
+      });
+      if (candidateModelId) {
+        const model = deps.getModelById(candidateModelId);
+        if (model) {
+          const generated = await resolveNextInternalCode({ clientId, model });
+          if (generated) {
+            payload.attributes = { ...(payload.attributes || {}), internalCode: generated };
+          }
+        }
       }
     }
 
@@ -2123,7 +2616,10 @@ router.put(
       } else if (incomingVehicleId === null && device.vehicleId) {
         const previousVehicle = deps.getVehicleById(device.vehicleId);
         if (previousVehicle && String(previousVehicle.clientId) === String(clientId)) {
-          deps.updateVehicle(previousVehicle.id, { deviceId: null });
+          const remainingDevices = deps
+            .listDevices({ clientId })
+            .filter((item) => String(item.vehicleId || "") === String(previousVehicle.id) && String(item.id) !== String(device.id));
+          deps.updateVehicle(previousVehicle.id, { deviceId: remainingDevices[0] ? remainingDevices[0].id : null });
         }
         deps.updateDevice(id, { vehicleId: null });
       }
@@ -2164,17 +2660,23 @@ router.put(
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
     const vehicles = deps.listVehicles({ clientId });
+    const clientMap = new Map();
+    const client = await deps.getClientById(clientId);
+    if (client) {
+      clientMap.set(String(clientId), client);
+    }
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const traccarByUnique = new Map(traccarDevices.map((item) => [String(item.uniqueId), item]));
 
     const resolvedDevice = deps.getDeviceById(id) || updated;
     const response = buildDeviceResponse(resolvedDevice, {
-      modelMap: new Map(models.map((item) => [item.id, item])),
-      chipMap: new Map(chips.map((item) => [item.id, item])),
-      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      modelMap: new Map(models.map((item) => [String(item.id), item])),
+      chipMap: new Map(chips.map((item) => [String(item.id), item])),
+      vehicleMap: new Map(vehicles.map((item) => [String(item.id), item])),
       traccarById,
       traccarByUnique,
+      clientMap,
     });
 
     invalidateDeviceCache();
@@ -2236,7 +2738,7 @@ router.get(
     const devices = deps.listDevices({ clientId });
     const vehicles = deps.listVehicles({ clientId });
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
-    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+    const vehicleMap = new Map(vehicles.map((item) => [String(item.id), item]));
 
     let response = chips.map((chip) => buildChipResponse(chip, { deviceMap, vehicleMap }));
 
@@ -2282,7 +2784,7 @@ router.post(
   resolveClientMiddleware,
   (req, res, next) => {
   try {
-    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = resolveChipClientId(req, req.body?.clientId);
     const { iccid, phone, carrier, status, apn, apnUser, apnPass, notes, provider, deviceId } = req.body || {};
     const chip = deps.createChip({
       clientId,
@@ -2306,7 +2808,7 @@ router.post(
     const storedChip = deps.getChipById(chip.id);
     const response = buildChipResponse(storedChip, {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
-      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [String(item.id), item])),
     });
     res.status(201).json({ chip: response });
   } catch (error) {
@@ -2327,7 +2829,7 @@ router.put(
     if (!chip) {
       throw createError(404, "Chip não encontrado");
     }
-    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = resolveChipClientId(req, req.body?.clientId, { fallbackClientId: chip.clientId });
     ensureSameClient(chip, clientId, "Chip não encontrado");
 
     const payload = { ...req.body };
@@ -2347,7 +2849,7 @@ router.put(
     const vehicles = deps.listVehicles({ clientId });
     const response = buildChipResponse(deps.getChipById(updated.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
-      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [String(item.id), item])),
     });
 
     res.json({ chip: response });
@@ -2370,7 +2872,7 @@ router.delete(
     if (!chip) {
       throw createError(404, "Chip não encontrado");
     }
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: true });
+    const clientId = resolveChipClientId(req, req.query?.clientId, { fallbackClientId: chip.clientId });
     ensureSameClient(chip, clientId, "Chip não encontrado");
 
     if (chip.deviceId) {
@@ -2392,16 +2894,13 @@ router.get("/technicians", async (req, res, next) => {
       throw createError(503, "Banco de dados indisponível");
     }
     const isAdmin = req.user?.role === "admin";
-    let mirrorOwnerIds = [];
     const isManager = req.user?.role === "manager";
     const includeDetails = isAdmin || isManager;
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: !isAdmin });
     const query = String(req.query?.query || "").trim();
     const { page, pageSize, start } = parsePagination(req.query);
 
     const where = {
       role: TECHNICIAN_ROLE,
-      ...(clientId ? { clientId: String(clientId) } : {}),
       ...(query
         ? {
             OR: [
@@ -2424,7 +2923,12 @@ router.get("/technicians", async (req, res, next) => {
     const items = technicians.map((tech) => {
       const attributes = tech.attributes || {};
       if (!includeDetails) {
-        return { id: tech.id, name: tech.name };
+        return {
+          id: tech.id,
+          name: tech.name,
+          city: attributes.city || null,
+          state: attributes.state || null,
+        };
       }
       return {
         id: tech.id,
@@ -2439,6 +2943,7 @@ router.get("/technicians", async (req, res, next) => {
         type: attributes.type || null,
         profile: attributes.profile || "Técnico Completo",
         addressSearch: attributes.addressSearch || null,
+        addressPlaceId: attributes.addressPlaceId ?? attributes.placeId ?? null,
         street: attributes.street || null,
         number: attributes.number || null,
         complement: attributes.complement || null,
@@ -2470,7 +2975,6 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
       throw createError(503, "Banco de dados indisponível");
     }
     const body = req.body || {};
-    const clientId = deps.resolveClientId(req, body.clientId, { required: true });
     const name = String(body.name || "").trim();
     const email = String(body.email || "").trim();
     const phone = body.phone ? String(body.phone).trim() : "";
@@ -2480,6 +2984,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
     const type = body.type ? String(body.type).trim() : "";
     const profile = body.profile ? String(body.profile).trim() : "Técnico Completo";
     const addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
+    const addressPlaceId = body.addressPlaceId ? String(body.addressPlaceId).trim() : "";
     const street = body.street ? String(body.street).trim() : "";
     const number = body.number ? String(body.number).trim() : "";
     const complement = body.complement ? String(body.complement).trim() : "";
@@ -2500,7 +3005,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
       email,
       password,
       role: TECHNICIAN_ROLE,
-      clientId,
+      clientId: null,
       attributes: {
         phone,
         city,
@@ -2509,6 +3014,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         type,
         profile,
         addressSearch,
+        addressPlaceId,
         street,
         number,
         complement,
@@ -2535,6 +3041,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         type,
         profile,
         addressSearch,
+        addressPlaceId,
         street,
         number,
         complement,
@@ -2562,13 +3069,6 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
       throw createError(404, "Técnico não encontrado");
     }
 
-    if (req.user?.role !== "admin") {
-      const requiredClientId = deps.resolveClientId(req, body.clientId || existing.clientId, { required: true });
-      if (String(requiredClientId) !== String(existing.clientId)) {
-        throw createError(403, "Operação não permitida para este cliente");
-      }
-    }
-
     const attributes = { ...(existing.attributes || {}) };
     if (Object.prototype.hasOwnProperty.call(body, "phone")) {
       attributes.phone = body.phone ? String(body.phone).trim() : "";
@@ -2590,6 +3090,9 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
     }
     if (Object.prototype.hasOwnProperty.call(body, "addressSearch")) {
       attributes.addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "addressPlaceId")) {
+      attributes.addressPlaceId = body.addressPlaceId ? String(body.addressPlaceId).trim() : "";
     }
     if (Object.prototype.hasOwnProperty.call(body, "street")) {
       attributes.street = body.street ? String(body.street).trim() : "";
@@ -2618,6 +3121,7 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
     const payload = {
       name: body.name !== undefined ? String(body.name).trim() : undefined,
       email: body.email !== undefined ? String(body.email).trim() : undefined,
+      clientId: null,
       attributes,
     };
 
@@ -2638,6 +3142,7 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
         type: attributes.type || null,
         profile: attributes.profile || "Técnico Completo",
         addressSearch: attributes.addressSearch || null,
+        addressPlaceId: attributes.addressPlaceId ?? attributes.placeId ?? null,
         street: attributes.street || null,
         number: attributes.number || null,
         complement: attributes.complement || null,
@@ -2669,9 +3174,11 @@ router.delete(
       throw createError(404, "Técnico não encontrado");
     }
     if (req.user?.role !== "admin") {
-      const clientId = deps.resolveClientId(req, existing.clientId, { required: true });
-      if (String(clientId) !== String(existing.clientId)) {
-        throw createError(403, "Operação não permitida para este cliente");
+      if (existing.clientId) {
+        const clientId = deps.resolveClientId(req, existing.clientId, { required: true });
+        if (String(clientId) !== String(existing.clientId)) {
+          throw createError(403, "Operação não permitida para este cliente");
+        }
       }
     }
     deleteUser(existing.id);
@@ -2691,13 +3198,6 @@ router.post("/technicians/:id/login", deps.requireRole("manager", "admin"), asyn
     const existing = await getUserById(req.params.id, { includeSensitive: true });
     if (!existing || existing.role !== TECHNICIAN_ROLE) {
       throw createError(404, "Técnico não encontrado");
-    }
-
-    if (req.user?.role !== "admin") {
-      const requiredClientId = deps.resolveClientId(req, body.clientId || existing.clientId, { required: true });
-      if (String(requiredClientId) !== String(existing.clientId)) {
-        throw createError(403, "Operação não permitida para este cliente");
-      }
     }
 
     const attributes = { ...(existing.attributes || {}) };
@@ -2791,6 +3291,7 @@ router.get(
   const startedAt = Date.now();
   let includeUnlinked = false;
   let onlyLinked = true;
+  let skipPositions = false;
   let clientId = null;
   try {
     clientId = req.tenant?.clientIdResolved ?? null;
@@ -2824,23 +3325,6 @@ router.get(
     }
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
-    const deviceMap = new Map(monitoringDevices.map((item) => [item.id, item]));
-    let clientMap = new Map();
-
-    if (isPrismaAvailable()) {
-      const clientIds = Array.from(new Set(vehicles.map((vehicle) => vehicle?.clientId).filter(Boolean)));
-      if (clientIds.length) {
-        try {
-          const clients = await prisma.client.findMany({
-            where: { id: { in: clientIds.map((id) => String(id)) } },
-            select: { id: true, name: true },
-          });
-          clientMap = new Map(clients.map((client) => [String(client.id), client]));
-        } catch (prismaError) {
-          logTelemetryWarning("vehicles-clients", prismaError);
-        }
-      }
-    }
 
     const allowUnlinked = req.user?.role === "admin" || req.user?.role === "manager";
     if (req.query?.includeUnlinked !== undefined) {
@@ -2859,48 +3343,21 @@ router.get(
     } else {
       onlyLinked = !includeUnlinked;
     }
+    if (req.query?.skipPositions !== undefined) {
+      const parsedSkip = normaliseBoolean(req.query?.skipPositions);
+      if (parsedSkip === null) {
+        return respondBadRequest(res, "skipPositions deve ser booleano (true/false).");
+      }
+      skipPositions = parsedSkip;
+    }
 
     const linkedVehicleIds = new Set(
-      monitoringDevices
+      devices
         .filter((device) => device?.vehicleId)
         .map((device) => String(device.vehicleId))
         .filter(Boolean),
     );
-    const knownDeviceIds = new Set(monitoringDevices.map((device) => String(device.id)).filter(Boolean));
-
-    let positionsByDeviceId = new Map();
-    let telemetryUnavailable = false;
-    const traccarIdsToQuery = Array.from(
-      new Set(
-        monitoringDevices
-          .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
-          .filter(Boolean),
-      ),
-    );
-
-    if (traccarIdsToQuery.length) {
-      try {
-        const latestPositions = await deps.fetchLatestPositionsWithFallback(traccarIdsToQuery, null);
-        positionsByDeviceId = new Map(
-          (Array.isArray(latestPositions) ? latestPositions : [])
-            .map((position) => {
-              const key = String(
-                position.deviceId || position.deviceid || position.device?.id || position.id || position?.uniqueId || "",
-              );
-              return key ? [key, position] : null;
-            })
-            .filter(Boolean),
-        );
-        console.info("[monitoring] posições para veículos", {
-          clientId: clientId || null,
-          requested: traccarIdsToQuery.length,
-          received: positionsByDeviceId.size,
-        });
-      } catch (positionsError) {
-        telemetryUnavailable = true;
-        logTelemetryWarning("vehicles-positions", positionsError);
-      }
-    }
+    const knownDeviceIds = new Set(devices.map((device) => String(device.id)).filter(Boolean));
 
     const vehiclesToExpose = onlyLinked
       ? vehicles.filter((vehicle) => {
@@ -2923,7 +3380,80 @@ router.get(
       });
     }
 
-    let response = vehiclesToExpose.map((vehicle) => {
+    const vehiclesForResponse = query
+      ? vehiclesToExpose
+      : vehiclesToExpose.slice(start, start + pageSize);
+    const responseVehicleIds = new Set(vehiclesForResponse.map((vehicle) => String(vehicle.id)));
+    const responseDeviceIds = new Set(
+      vehiclesForResponse
+        .map((vehicle) => (vehicle?.deviceId ? String(vehicle.deviceId) : null))
+        .filter(Boolean),
+    );
+    const responseDevices = query
+      ? devices
+      : devices.filter((device) => {
+          const vehicleId = device?.vehicleId ? String(device.vehicleId) : null;
+          const deviceId = device?.id ? String(device.id) : null;
+          return (vehicleId && responseVehicleIds.has(vehicleId)) || (deviceId && responseDeviceIds.has(deviceId));
+        });
+    const responseMonitoringDevices = query
+      ? monitoringDevices
+      : responseDevices.filter((device) => device?.attributes?.gprsCommunication !== false);
+    const deviceMap = new Map(responseDevices.map((item) => [item.id, item]));
+    let clientMap = new Map();
+
+    if (isPrismaAvailable()) {
+      const clientIds = Array.from(new Set(vehiclesForResponse.map((vehicle) => vehicle?.clientId).filter(Boolean)));
+      if (clientIds.length) {
+        try {
+          const clients = await prisma.client.findMany({
+            where: { id: { in: clientIds.map((id) => String(id)) } },
+            select: { id: true, name: true },
+          });
+          clientMap = new Map(clients.map((client) => [String(client.id), client]));
+        } catch (prismaError) {
+          logTelemetryWarning("vehicles-clients", prismaError);
+        }
+      }
+    }
+
+    let positionsByDeviceId = new Map();
+    let telemetryUnavailable = false;
+    if (!skipPositions) {
+      const traccarIdsToQuery = Array.from(
+        new Set(
+          responseMonitoringDevices
+            .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+            .filter(Boolean),
+        ),
+      );
+
+      if (traccarIdsToQuery.length) {
+        try {
+          const latestPositions = await deps.fetchLatestPositionsWithFallback(traccarIdsToQuery, null);
+          positionsByDeviceId = new Map(
+            (Array.isArray(latestPositions) ? latestPositions : [])
+              .map((position) => {
+                const key = String(
+                  position.deviceId || position.deviceid || position.device?.id || position.id || position?.uniqueId || "",
+                );
+                return key ? [key, position] : null;
+              })
+              .filter(Boolean),
+          );
+          console.info("[monitoring] posições para veículos", {
+            clientId: clientId || null,
+            requested: traccarIdsToQuery.length,
+            received: positionsByDeviceId.size,
+          });
+        } catch (positionsError) {
+          telemetryUnavailable = true;
+          logTelemetryWarning("vehicles-positions", positionsError);
+        }
+      }
+    }
+
+    let response = vehiclesForResponse.map((vehicle) => {
       try {
         const built = buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId, clientMap });
         return telemetryUnavailable ? { ...built, telemetryStatus: "unavailable" } : built;
@@ -2963,8 +3493,8 @@ router.get(
         return haystack.includes(query);
       });
     }
-    const total = response.length;
-    const paged = response.slice(start, start + pageSize);
+    const total = query ? response.length : vehiclesToExpose.length;
+    const paged = query ? response.slice(start, start + pageSize) : response;
     const responsePayload = {
       vehicles: paged,
       page,
@@ -2975,6 +3505,9 @@ router.get(
     };
     if (accessibleOnly) {
       responsePayload.meta = { restricted: mirrorRestricted };
+      if (!query && total === 0) {
+        responsePayload.reason = ACCESS_REASONS.NO_VEHICLES_ASSIGNED;
+      }
     }
     res.json(responsePayload);
   } catch (error) {
@@ -3123,6 +3656,48 @@ router.get(
     }
     next(error);
   }
+  },
+);
+
+router.get(
+  "/vehicles/:id/history",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles" }),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const vehicle = deps.getVehicleById(id);
+      if (!vehicle) {
+        throw createError(404, resolveMirrorVehicleNotFoundMessage(req));
+      }
+      ensureVehicleMirrorAccess(req, id);
+      const clientId = deps.resolveClientId(
+        req,
+        req.query?.clientId || vehicle.clientId || null,
+        { required: req.user.role !== "admin" },
+      );
+      ensureSameClient(vehicle, clientId, resolveMirrorVehicleNotFoundMessage(req));
+      const categories = req.query?.categories
+        ? String(req.query.categories)
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+        : null;
+      const events = listAuditEvents({
+        clientId,
+        vehicleId: id,
+        from: req.query?.from,
+        to: req.query?.to,
+        categories,
+      });
+      const sorted = events.sort((a, b) => {
+        const aTime = new Date(a.sentAt || a.respondedAt || a.createdAt || 0).getTime();
+        const bTime = new Date(b.sentAt || b.respondedAt || b.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
+      res.json({ data: sorted });
+    } catch (error) {
+      next(error);
+    }
   },
 );
 
@@ -3303,7 +3878,10 @@ router.delete(
       deps.updateDevice(device.id, { vehicleId: null });
     }
     if (vehicle.deviceId && String(vehicle.deviceId) === String(device.id)) {
-      deps.updateVehicle(vehicle.id, { deviceId: null });
+      const remainingDevices = deps
+        .listDevices({ clientId: resolvedClientId })
+        .filter((item) => String(item.vehicleId || "") === String(vehicle.id) && String(item.id) !== String(device.id));
+      deps.updateVehicle(vehicle.id, { deviceId: remainingDevices[0] ? remainingDevices[0].id : null });
     }
     const devices = deps.listDevices({ clientId: resolvedClientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
@@ -3519,6 +4097,61 @@ router.delete(
     ensureSameClient(item, clientId, "Item não encontrado");
     deps.deleteStockItem(id);
     res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+  },
+);
+
+router.get(
+  "/equipment-transfers",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-requests" }),
+  (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const requestId = req.query?.requestId ? String(req.query.requestId) : undefined;
+    const technicianId = req.query?.technicianId ? String(req.query.technicianId) : undefined;
+    const items = deps.listEquipmentTransfers({ clientId, requestId, technicianId });
+    res.json({ items });
+  } catch (error) {
+    next(error);
+  }
+  },
+);
+
+router.post(
+  "/equipment-transfers",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-requests", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const payload = {
+      ...req.body,
+      clientId,
+      createdBy: req.user?.id || req.user?.email || req.user?.name || null,
+    };
+    const item = deps.createEquipmentTransfer(payload);
+    res.status(201).json({ item });
+  } catch (error) {
+    next(error);
+  }
+  },
+);
+
+router.get(
+  "/technician-inventory",
+  authorizePermission({ menuKey: "fleet", pageKey: "services", subKey: "service-requests" }),
+  (req, res, next) => {
+  try {
+    const technicianId = req.query?.technicianId ? String(req.query.technicianId) : "";
+    if (!technicianId) {
+      throw createError(400, "technicianId é obrigatório");
+    }
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const items = deps.listTechnicianInventory({ technicianId, clientId });
+    res.json({ items });
   } catch (error) {
     next(error);
   }

@@ -28,6 +28,7 @@ export const CoreApi = {
     const response = await api.get(API_ROUTES.models, { params });
     return response?.data || null;
   },
+  getModel: (id, params) => http(`models/${id}`, { params }),
   createModel: (payload) => http("models", { method: "POST", payload }),
   updateModel: (id, payload) => http(`models/${id}`, { method: "PUT", payload }),
   listDevices: async (params) => {
@@ -47,6 +48,7 @@ export const CoreApi = {
   },
   importDevice: (payload) => http("devices/import", { method: "POST", payload }),
   syncDevicesFromTraccar: (payload) => http("devices/sync", { method: "POST", payload }),
+  backfillDeviceInternalCodes: (payload) => http("devices/backfill-internal-codes", { method: "POST", payload }),
   listChips: async (params) => {
     const data = await http("chips", { params });
     return normaliseListPayload(data);
@@ -80,6 +82,7 @@ export const CoreApi = {
     return response?.data ?? null;
   },
   searchVehicles: (params) => http("vehicles", { params }),
+  getVehicleHistory: (vehicleId, params) => http(`vehicles/${vehicleId}/history`, { params }),
   listVehicleAttributes: async (params) => {
     const data = await http("vehicle-attributes", { params });
     return normaliseListPayload(data);
@@ -96,6 +99,9 @@ export const CoreApi = {
   createStockItem: (payload) => http("stock", { method: "POST", payload }),
   updateStockItem: (id, payload) => http(`stock/${id}`, { method: "PUT", payload }),
   deleteStockItem: (id, params) => http(`stock/${id}`, { method: "DELETE", params }),
+  listEquipmentTransfers: (params) => http("equipment-transfers", { params }).then((data) => data?.items || []),
+  createEquipmentTransfer: (payload) => http("equipment-transfers", { method: "POST", payload }),
+  listTechnicianInventory: (params) => http("technician-inventory", { params }).then((data) => data?.items || []),
   importEuroXlsx: (payload) => http("euro/import-xlsx", { method: "POST", payload }),
   // tasks
   listTasks: (paramsOrOptions) => {

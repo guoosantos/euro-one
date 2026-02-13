@@ -37,32 +37,6 @@
         "parameters": []
       },
       {
-        "id": "positionSingle",
-        "code": "positionSingle",
-        "name": "Solicitar posição",
-        "description": "Solicita uma posição instantânea ao rastreador.",
-        "type": "positionSingle",
-        "tags": ["posicao"],
-        "parameters": []
-      },
-      {
-        "id": "positionPeriodic",
-        "code": "positionPeriodic",
-        "name": "Atualização periódica",
-        "description": "Define o intervalo de envio de posições.",
-        "type": "positionPeriodic",
-        "tags": ["posicao", "config"],
-        "parameters": [
-          {
-            "key": "frequency",
-            "label": "Intervalo (segundos)",
-            "type": "number",
-            "min": 10,
-            "defaultValue": 60
-          }
-        ]
-      },
-      {
         "id": "setSpeedLimit",
         "code": "setSpeedLimit",
         "name": "Limite de velocidade",
@@ -254,6 +228,389 @@
             "defaultValue": 0
           }
         ]
+      },
+      {
+        "id": "iotm-output2-10s",
+        "code": "iotm-output2-10s",
+        "name": "Acionar Saída 2 (10 segundos)",
+        "description": "Ativa a saída 2 por 10 segundos.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 2, "action": "on", "durationMs": 10000 }
+      },
+      {
+        "id": "iotm-output2-off",
+        "code": "iotm-output2-off",
+        "name": "Desacionar Saída 2",
+        "description": "Desliga a saída 2.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 2, "action": "off", "durationMs": 0 }
+      },
+      {
+        "id": "iotm-output1-500ms",
+        "code": "iotm-output1-500ms",
+        "name": "Acionar Saída 1 (500 ms)",
+        "description": "Ativa a saída 1 por 500 ms.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 1, "action": "on", "durationMs": 500 }
+      },
+      {
+        "id": "iotm-output1-off",
+        "code": "iotm-output1-off",
+        "name": "Desligar Saída 1",
+        "description": "Desliga a saída 1.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 1, "action": "off", "durationMs": 0 }
+      },
+      {
+        "id": "iotm-output2-500ms",
+        "code": "iotm-output2-500ms",
+        "name": "Acionar Saída 2 (500 ms)",
+        "description": "Ativa a saída 2 por 500 ms.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 2, "action": "on", "durationMs": 500 }
+      },
+      {
+        "id": "iotm-output3-500ms",
+        "code": "iotm-output3-500ms",
+        "name": "Acionar Saída 3 (500 ms)",
+        "description": "Ativa a saída 3 por 500 ms.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 3, "action": "on", "durationMs": 500 }
+      },
+      {
+        "id": "iotm-output3-off",
+        "code": "iotm-output3-off",
+        "name": "Desligar Saída 3",
+        "description": "Desliga a saída 3.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 3, "action": "off", "durationMs": 0 }
+      },
+      {
+        "id": "iotm-output4-500ms",
+        "code": "iotm-output4-500ms",
+        "name": "Acionar Saída 4 (500 ms)",
+        "description": "Ativa a saída 4 por 500 ms.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 4, "action": "on", "durationMs": 500 }
+      },
+      {
+        "id": "iotm-output4-off",
+        "code": "iotm-output4-off",
+        "name": "Desligar Saída 4",
+        "description": "Desliga a saída 4.",
+        "type": "outputControl",
+        "baseCommand": "outputControl",
+        "tags": ["saida", "iotm"],
+        "parameters": [],
+        "fixedParams": { "output": 4, "action": "off", "durationMs": 0 }
+      },
+      {
+        "id": "iotm-device-reset",
+        "code": "iotm-device-reset",
+        "name": "Reset do dispositivo",
+        "description": "Reinicia o dispositivo IOTM.",
+        "type": "custom",
+        "tags": ["iotm", "reset"],
+        "parameters": [],
+        "fixedParams": { "data": "0E 00" }
+      },
+      {
+        "id": "iotm-records-format",
+        "code": "iotm-records-format",
+        "name": "Apagar memória (registros)",
+        "description": "Formata os registros do dispositivo.",
+        "type": "custom",
+        "tags": ["iotm", "memoria"],
+        "parameters": [],
+        "fixedParams": { "data": "0F 00" }
+      },
+      {
+        "id": "iotm-events-format",
+        "code": "iotm-events-format",
+        "name": "Apagar memória (eventos)",
+        "description": "Formata os eventos do dispositivo.",
+        "type": "custom",
+        "tags": ["iotm", "memoria"],
+        "parameters": [],
+        "fixedParams": { "data": "10 00" }
+      },
+      {
+        "id": "iotm-records-events-format",
+        "code": "iotm-records-events-format",
+        "name": "Apagar registros e eventos",
+        "description": "Formata registros e eventos do dispositivo.",
+        "type": "custom",
+        "tags": ["iotm", "memoria"],
+        "parameters": [],
+        "fixedParams": { "data": "11 00" }
+      },
+      {
+        "id": "iotm-fmset-connect",
+        "code": "iotm-fmset-connect",
+        "name": "Forçar conexão FMSet",
+        "description": "Força o dispositivo a conectar ao FMSet.",
+        "type": "custom",
+        "tags": ["iotm", "fmset"],
+        "parameters": [],
+        "fixedParams": { "data": "12 00" }
+      },
+      {
+        "id": "iotm-gps-reset",
+        "code": "iotm-gps-reset",
+        "name": "Reset GPS",
+        "description": "Reinicia o receptor GPS do dispositivo.",
+        "type": "custom",
+        "tags": ["iotm", "gps", "reset"],
+        "parameters": [],
+        "fixedParams": { "data": "13 00" }
+      },
+      {
+        "id": "iotm-can-unlock",
+        "code": "iotm-can-unlock",
+        "name": "Desbloquear via CAN",
+        "description": "Desbloqueia via CAN. Informe o payload completo (ex: 05 00 10).",
+        "type": "custom",
+        "tags": ["iotm", "can"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload HEX (inclui Output ID)",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "iotm-can-lock",
+        "code": "iotm-can-lock",
+        "name": "Bloquear via CAN",
+        "description": "Bloqueia via CAN. Informe o payload completo (ex: 06 00 10).",
+        "type": "custom",
+        "tags": ["iotm", "can"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload HEX (inclui Output ID)",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "iotm-can-dump-can1",
+        "code": "iotm-can-dump-can1",
+        "name": "Remote Dump CAN1",
+        "description": "Força log do barramento CAN1 por até 20 segundos.",
+        "type": "custom",
+        "tags": ["iotm", "can"],
+        "parameters": [],
+        "fixedParams": { "data": "07 01" }
+      },
+      {
+        "id": "iotm-can-dump-can2",
+        "code": "iotm-can-dump-can2",
+        "name": "Remote Dump CAN2",
+        "description": "Força log do barramento CAN2 por até 20 segundos.",
+        "type": "custom",
+        "tags": ["iotm", "can"],
+        "parameters": [],
+        "fixedParams": { "data": "07 02" }
+      },
+      {
+        "id": "iotm-static-signal1-on",
+        "code": "iotm-static-signal1-on",
+        "name": "Static Signal 1 (ON)",
+        "description": "Define o Static Signal 1 como ligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "08 01" }
+      },
+      {
+        "id": "iotm-static-signal1-off",
+        "code": "iotm-static-signal1-off",
+        "name": "Static Signal 1 (OFF)",
+        "description": "Define o Static Signal 1 como desligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "08 00" }
+      },
+      {
+        "id": "iotm-static-signal2-on",
+        "code": "iotm-static-signal2-on",
+        "name": "Static Signal 2 (ON)",
+        "description": "Define o Static Signal 2 como ligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "09 01" }
+      },
+      {
+        "id": "iotm-static-signal2-off",
+        "code": "iotm-static-signal2-off",
+        "name": "Static Signal 2 (OFF)",
+        "description": "Define o Static Signal 2 como desligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "09 00" }
+      },
+      {
+        "id": "iotm-static-signal3-on",
+        "code": "iotm-static-signal3-on",
+        "name": "Static Signal 3 (ON)",
+        "description": "Define o Static Signal 3 como ligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "0A 01" }
+      },
+      {
+        "id": "iotm-static-signal3-off",
+        "code": "iotm-static-signal3-off",
+        "name": "Static Signal 3 (OFF)",
+        "description": "Define o Static Signal 3 como desligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "0A 00" }
+      },
+      {
+        "id": "iotm-static-signal4-on",
+        "code": "iotm-static-signal4-on",
+        "name": "Static Signal 4 (ON)",
+        "description": "Define o Static Signal 4 como ligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "0B 01" }
+      },
+      {
+        "id": "iotm-static-signal4-off",
+        "code": "iotm-static-signal4-off",
+        "name": "Static Signal 4 (OFF)",
+        "description": "Define o Static Signal 4 como desligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "0B 00" }
+      },
+      {
+        "id": "iotm-static-signal5-on",
+        "code": "iotm-static-signal5-on",
+        "name": "Static Signal 5 (ON)",
+        "description": "Define o Static Signal 5 como ligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "0C 01" }
+      },
+      {
+        "id": "iotm-static-signal5-off",
+        "code": "iotm-static-signal5-off",
+        "name": "Static Signal 5 (OFF)",
+        "description": "Define o Static Signal 5 como desligado.",
+        "type": "custom",
+        "tags": ["iotm", "sinal"],
+        "parameters": [],
+        "fixedParams": { "data": "0C 00" }
+      },
+      {
+        "id": "iotm-script-remote",
+        "code": "iotm-script-remote",
+        "name": "Script remoto",
+        "description": "Executa comando remoto via script. Informe o payload completo (ex: 0D 01 02 03).",
+        "type": "custom",
+        "tags": ["iotm", "script"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload HEX (inclui Output ID)",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "iotm-odometer-set",
+        "code": "iotm-odometer-set",
+        "name": "Ajustar odômetro",
+        "description": "Ajusta o odômetro. Informe o payload completo (ex: 14 00 00 FA 42).",
+        "type": "custom",
+        "tags": ["iotm", "odometro"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload HEX (inclui Output ID)",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "iotm-tachograph-driver-card1",
+        "code": "iotm-tachograph-driver-card1",
+        "name": "Tacógrafo: baixar cartão 1",
+        "description": "Força download do cartão do motorista 1.",
+        "type": "custom",
+        "tags": ["iotm", "tacografo"],
+        "parameters": [],
+        "fixedParams": { "data": "15 01" }
+      },
+      {
+        "id": "iotm-tachograph-driver-card2",
+        "code": "iotm-tachograph-driver-card2",
+        "name": "Tacógrafo: baixar cartão 2",
+        "description": "Força download do cartão do motorista 2.",
+        "type": "custom",
+        "tags": ["iotm", "tacografo"],
+        "parameters": [],
+        "fixedParams": { "data": "15 02" }
+      },
+      {
+        "id": "iotm-tachograph-ddd-driver1",
+        "code": "iotm-tachograph-ddd-driver1",
+        "name": "Tacógrafo: baixar DDD 1",
+        "description": "Força download do DDD do motorista 1.",
+        "type": "custom",
+        "tags": ["iotm", "tacografo"],
+        "parameters": [],
+        "fixedParams": { "data": "15 03" }
+      },
+      {
+        "id": "iotm-tachograph-ddd-driver2",
+        "code": "iotm-tachograph-ddd-driver2",
+        "name": "Tacógrafo: baixar DDD 2",
+        "description": "Força download do DDD do motorista 2.",
+        "type": "custom",
+        "tags": ["iotm", "tacografo"],
+        "parameters": [],
+        "fixedParams": { "data": "15 04" }
       }
     ],
     "suntech": [

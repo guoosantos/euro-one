@@ -139,7 +139,7 @@ function persistAdminScope(value) {
   }
 }
 
-export function Topbar({ title }) {
+export function Topbar({ title, hideTenantSwitch = false }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
   const toggleTheme = useUI((state) => state.toggleTheme);
@@ -147,7 +147,7 @@ export function Topbar({ title }) {
   const {
     tenantId,
     tenantScope,
-    switchContext,
+    switchClientAndReset,
     tenant,
     tenants,
     hasAdminAccess,
@@ -175,7 +175,7 @@ export function Topbar({ title }) {
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
   const { telemetry = [] } = useTelemetry();
-  const { vehicles = [] } = useVehicles();
+  const { vehicles = [] } = useVehicles({ includeTelemetry: false });
   const effectiveTenantId = tenantId === "" ? null : tenantId;
   const isGlobalScope = hasAdminAccess && (tenantScope === "ALL" || effectiveTenantId === null);
   const searchTerm = debouncedQuery.trim();
@@ -325,74 +325,87 @@ export function Topbar({ title }) {
     }
     setSwitchLocked(true);
     switchTimerRef.current = setTimeout(() => {
+      const redirectToSafeRoute = () => {
+        if (location?.pathname !== "/monitoring") {
+          navigate("/monitoring");
+        }
+      };
       if (hasAdminAccess) {
         if (nextId === ADMIN_ALL_OPTION_ID) {
           setAdminScope(ADMIN_SCOPE_ALL);
           persistAdminScope(ADMIN_SCOPE_ALL);
           setStoredMirrorOwnerId(null);
-          switchContext({
+          switchClientAndReset({
             nextTenantId: null,
             nextOwnerClientId: null,
             nextMirrorMode: "self",
           });
+          redirectToSafeRoute();
           return;
         }
         if (nextId === ADMIN_GENERAL_OPTION_ID) {
           setAdminScope(ADMIN_SCOPE_EURO);
           persistAdminScope(ADMIN_SCOPE_EURO);
           setStoredMirrorOwnerId(null);
-          switchContext({
+          switchClientAndReset({
             nextTenantId: homeClientId ?? null,
             nextOwnerClientId: null,
             nextMirrorMode: "self",
           });
+          redirectToSafeRoute();
           return;
         }
         setAdminScope(ADMIN_SCOPE_ALL);
         persistAdminScope(ADMIN_SCOPE_ALL);
         setStoredMirrorOwnerId(null);
-        switchContext({
+        switchClientAndReset({
           nextTenantId: nextId,
           nextOwnerClientId: null,
           nextMirrorMode: "self",
         });
+        redirectToSafeRoute();
         return;
       }
       if (isMirrorSelectable) {
         if (nextId === "all") {
           setStoredMirrorOwnerId("all");
-          switchContext({
+          switchClientAndReset({
             nextTenantId: homeClientId ?? tenantId,
             nextOwnerClientId: "all",
             nextMirrorMode: "target",
           });
+          redirectToSafeRoute();
           return;
         }
         if (!nextId || String(nextId) === String(homeClientId ?? "")) {
-          switchContext({
+          switchClientAndReset({
             nextTenantId: nextId,
             nextOwnerClientId: null,
             nextMirrorMode: "self",
           });
+          redirectToSafeRoute();
           return;
         }
         if (mirrorOwnerIds.has(String(nextId))) {
           setStoredMirrorOwnerId(String(nextId));
-          switchContext({
+          switchClientAndReset({
             nextTenantId: nextId,
             nextOwnerClientId: String(nextId),
             nextMirrorMode: "target",
           });
+          redirectToSafeRoute();
           return;
         }
-        switchContext({
+        switchClientAndReset({
           nextTenantId: nextId,
           nextOwnerClientId: null,
           nextMirrorMode: "self",
         });
+        redirectToSafeRoute();
         return;
       }
-      switchContext({ nextTenantId: nextId, nextOwnerClientId: null });
+      switchClientAndReset({ nextTenantId: nextId, nextOwnerClientId: null });
+      redirectToSafeRoute();
     }, 220);
   };
 
@@ -607,7 +620,7 @@ export function Topbar({ title }) {
       : { filter: "brightness(0)" };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-surface backdrop-blur">
+    <header className="sticky top-0 z-[9998] border-b border-border bg-surface backdrop-blur">
       <div className="flex w-full items-center gap-4 px-4 py-3 md:px-6 lg:px-8">
         <div className="flex flex-1 items-center gap-3">
           <button type="button" className="btn md:hidden" onClick={toggleSidebar} aria-label={t("topbar.openMenu")}>
@@ -646,7 +659,7 @@ export function Topbar({ title }) {
           </label>
 
           {focused && query.trim() ? (
-            <div className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
+            <div className="absolute left-0 right-0 top-full z-[9999] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               {searchResults.length ? (
                 <ul>
                   {searchResults.map((item) => {
@@ -680,7 +693,7 @@ export function Topbar({ title }) {
               )}
             </div>
           ) : focused ? (
-            <div className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
+            <div className="absolute left-0 right-0 top-full z-[9999] mt-2 overflow-hidden rounded-xl border border-border bg-surface shadow-soft">
               <div className="px-4 py-3 text-sm text-sub">
                 Digite para buscar veículos…
               </div>
@@ -689,19 +702,21 @@ export function Topbar({ title }) {
         </form>
 
         <div className="flex items-center gap-2">
-          <div className="hidden items-center md:flex">
-            <TenantCombobox
-              className="min-w-[220px]"
-              value={selectValue}
-              options={tenantOptions}
-              onChange={handleTenantSelect}
-              placeholder={t("topbar.tenantPlaceholder")}
-              emptyLabel={t("topbar.tenantEmpty")}
-              ariaLabel={t("topbar.tenantAriaLabel")}
-              toggleLabel={t("topbar.tenantToggle")}
-              disabled={contextSwitching || switchLocked || !canSwitchTenant || tenantOptions.length <= 1}
-            />
-          </div>
+          {!hideTenantSwitch && (
+            <div className="hidden items-center md:flex">
+              <TenantCombobox
+                className="min-w-[220px]"
+                value={selectValue}
+                options={tenantOptions}
+                onChange={handleTenantSelect}
+                placeholder={t("topbar.tenantPlaceholder")}
+                emptyLabel={t("topbar.tenantEmpty")}
+                ariaLabel={t("topbar.tenantAriaLabel")}
+                toggleLabel={t("topbar.tenantToggle")}
+                disabled={contextSwitching || switchLocked || !canSwitchTenant || tenantOptions.length <= 1}
+              />
+            </div>
+          )}
 
           <div className="relative hidden items-center gap-2 md:flex">
             <Languages size={18} className="text-sub" />

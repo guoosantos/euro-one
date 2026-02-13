@@ -5,6 +5,7 @@ import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
 
@@ -22,7 +23,8 @@ const isHexLikePayload = (value) => {
   return /^[0-9a-fA-F]+$/.test(compact) && compact.length % 2 === 0;
 };
 
-export default function CreateCommands({ readOnly = false }) {
+export default function CreateCommands({ readOnly = false, onCommandsUpdated }) {
+  const { tenantId, tenantScope, homeClientId } = useTenant();
   const [protocols, setProtocols] = useState([]);
   const [protocolsLoading, setProtocolsLoading] = useState(false);
   const [customCommands, setCustomCommands] = useState([]);
@@ -36,6 +38,10 @@ export default function CreateCommands({ readOnly = false }) {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const { confirmDelete } = useConfirmDialog();
+  const resolvedClientId = useMemo(() => {
+    if (tenantScope !== "ALL" && tenantId) return tenantId;
+    return homeClientId ?? null;
+  }, [homeClientId, tenantId, tenantScope]);
 
   const showToast = useCallback((message, type = "success") => {
     if (toastTimeoutRef.current) {
@@ -68,10 +74,18 @@ export default function CreateCommands({ readOnly = false }) {
   }, []);
 
   const fetchCustomCommands = useCallback(async () => {
+    if (!resolvedClientId) {
+      setCustomCommands([]);
+      setCommandsError(new Error("Selecione um cliente no topo para listar comandos personalizados."));
+      setCommandsLoading(false);
+      return;
+    }
     setCommandsLoading(true);
     setCommandsError(null);
     try {
-      const response = await api.get(API_ROUTES.commandsCustom, { params: { includeHidden: true } });
+      const response = await api.get(API_ROUTES.commandsCustom, {
+        params: { includeHidden: true, clientId: resolvedClientId },
+      });
       const items = Array.isArray(response?.data?.data) ? response.data.data : [];
       setCustomCommands(items);
     } catch (error) {
@@ -79,7 +93,7 @@ export default function CreateCommands({ readOnly = false }) {
     } finally {
       setCommandsLoading(false);
     }
-  }, []);
+  }, [resolvedClientId]);
 
   useEffect(() => {
     fetchProtocols().catch(() => {});
@@ -128,6 +142,10 @@ export default function CreateCommands({ readOnly = false }) {
       showToast("Acesso somente leitura.", "warning");
       return;
     }
+    if (!resolvedClientId) {
+      showToast("Selecione um cliente no topo para salvar o comando.", "warning");
+      return;
+    }
     const name = form.name.trim();
     const protocol = form.protocol.trim();
     const payload = String(form.payload ?? "");
@@ -157,6 +175,7 @@ export default function CreateCommands({ readOnly = false }) {
     setSaving(true);
     try {
       const body = {
+        clientId: resolvedClientId,
         name,
         description: form.description.trim() || null,
         protocol,
@@ -166,12 +185,15 @@ export default function CreateCommands({ readOnly = false }) {
       };
 
       if (editingId) {
-        await api.put(`${API_ROUTES.commandsCustom}/${editingId}`, body);
+        await api.put(`${API_ROUTES.commandsCustom}/${editingId}`, body, {
+          params: { clientId: resolvedClientId },
+        });
       } else {
         await api.post(API_ROUTES.commandsCustom, body);
       }
       showToast("Comando salvo com sucesso.");
       await fetchCustomCommands();
+      onCommandsUpdated?.();
       resetForm();
     } catch (error) {
       showToast(error?.response?.data?.message || error?.message || "Erro ao salvar comando", "error");
@@ -185,6 +207,10 @@ export default function CreateCommands({ readOnly = false }) {
       showToast("Acesso somente leitura.", "warning");
       return;
     }
+    if (!resolvedClientId) {
+      showToast("Selecione um cliente no topo para excluir comandos.", "warning");
+      return;
+    }
     await confirmDelete({
       title: "Excluir comando personalizado",
       message: "Tem certeza que deseja excluir o comando personalizado? Essa ação não pode ser desfeita.",
@@ -192,9 +218,12 @@ export default function CreateCommands({ readOnly = false }) {
       onConfirm: async () => {
         setDeletingId(commandId);
         try {
-          await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
+          await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`, {
+            params: { clientId: resolvedClientId },
+          });
           showToast("Excluído com sucesso.");
           await fetchCustomCommands();
+          onCommandsUpdated?.();
           if (editingId === commandId) {
             resetForm();
           }

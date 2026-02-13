@@ -308,7 +308,7 @@ export async function createUser({
   const normalizedEmail = normaliseEmail(email);
   const normalizedUsername = username ? normaliseUsername(username) : null;
   const validatedRole = assertRole(role);
-  if (validatedRole !== "admin" && !clientId) {
+  if (validatedRole !== "admin" && validatedRole !== "technician" && !clientId) {
     throw createError(400, "Usuários não administradores devem estar vinculados a um cliente");
   }
 
@@ -326,7 +326,7 @@ export async function createUser({
           usernameNormalized: normalizedUsername,
           passwordHash,
           role: validatedRole,
-          clientId: validatedRole === "admin" ? (clientId ?? null) : clientId,
+          clientId: validatedRole === "admin" ? (clientId ?? null) : clientId ?? null,
           attributes,
         },
       });
@@ -345,7 +345,7 @@ export async function createUser({
     usernameNormalized: normalizedUsername,
     passwordHash,
     role: validatedRole,
-    clientId: validatedRole === "admin" ? (clientId ?? null) : clientId,
+    clientId: validatedRole === "admin" ? (clientId ?? null) : clientId ?? null,
     attributes,
     createdAt: now,
     updatedAt: now,

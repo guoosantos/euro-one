@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight, ChevronUp, Menu } from "lucide-react";
 
 import { sidebarGroupIcons } from "../lib/sidebarGroupIcons";
@@ -15,7 +15,7 @@ import { UserMenuItems } from "./popovers/UserMenuPopover.jsx";
 // Discovery note (Epic A): sidebar navigation will be reorganized into
 // collapsible section headers without changing the top fixed block.
 
-const ACCENT_FALLBACK = "#39bdf8";
+const ACCENT_FALLBACK = "#2b78b1";
 const DEFAULT_SECTIONS_OPEN = {
   negocios: false,
   principais: false,
@@ -32,6 +32,32 @@ const DEFAULT_SUBMENUS_OPEN = {
   relatorios: false,
   analises: false,
 };
+const SIDEBAR_STORAGE_KEYS = {
+  sections: "euro-one.sidebar.sections-open",
+  submenus: "euro-one.sidebar.submenus-open",
+};
+
+function readStoredState(key, fallback) {
+  if (typeof window === "undefined") return { ...fallback };
+  try {
+    const raw = window.localStorage?.getItem(key);
+    if (!raw) return { ...fallback };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { ...fallback };
+    return { ...fallback, ...parsed };
+  } catch (_error) {
+    return { ...fallback };
+  }
+}
+
+function persistState(key, value) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(key, JSON.stringify(value));
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
 
 function toRgba(color, alpha = 1) {
   if (!color || typeof color !== "string" || !color.startsWith("#")) {
@@ -52,6 +78,21 @@ function toRgba(color, alpha = 1) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function normalizePath(value) {
+  if (!value) return "/";
+  const raw = String(value);
+  const withSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  if (withSlash === "/") return "/";
+  return withSlash.replace(/\/+$/, "");
+}
+
+function matchesPath(target, current) {
+  if (!target || !current) return false;
+  if (current === target) return true;
+  if (target !== "/" && current.startsWith(`${target}/`)) return true;
+  return false;
+}
+
 function getInitials(value) {
   const normalized = String(value || "").trim().replace(/\s+/g, " ");
   if (!normalized) return "EU";
@@ -67,26 +108,25 @@ function getInitials(value) {
   return `${first}${last}`.toUpperCase();
 }
 
-  const linkClass =
-  (collapsed) =>
-  ({ isActive }) =>
-    `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
-      collapsed ? "justify-center" : "justify-start"
-    } ${
-      isActive
-        ? "bg-white/10 text-text shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
-        : "text-sub hover:bg-layer hover:text-text"
-    }`;
-
-const linkStyle =
-  (accentColor) =>
-  ({ isActive }) =>
+const linkClass = (collapsed, isActive) =>
+  `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring-selected)] ${
+    collapsed ? "justify-center" : "justify-start"
+  } ${
     isActive
-      ? {
-          backgroundColor: toRgba(accentColor, 0.18),
-          boxShadow: `0 0 0 1px ${toRgba(accentColor, 0.4)}`,
-        }
-      : undefined;
+      ? "bg-transparent text-text"
+      : "text-sub hover:bg-layer hover:text-text"
+  }`;
+
+const linkStyle = (accentColor, isActive) =>
+  isActive
+    ? {
+        backgroundColor: toRgba(accentColor, 0.12),
+        boxShadow: `inset 3px 0 0 ${toRgba(accentColor, 0.85)}, 0 0 0 1px ${toRgba(
+          accentColor,
+          0.25,
+        )}`,
+      }
+    : undefined;
 
 export default function Sidebar() {
   const collapsed = useUI((state) => state.sidebarCollapsed);
@@ -94,12 +134,12 @@ export default function Sidebar() {
   const setSidebarCollapsed = useUI((state) => state.setSidebarCollapsed);
   const [openProfile, setOpenProfile] = useState(false);
   const profileMenuRef = useRef(null);
-  const [openSections, setOpenSections] = useState(() => ({
-    ...DEFAULT_SECTIONS_OPEN,
-  }));
-  const [openSubmenus, setOpenSubmenus] = useState(() => ({
-    ...DEFAULT_SUBMENUS_OPEN,
-  }));
+  const [openSections, setOpenSections] = useState(() =>
+    readStoredState(SIDEBAR_STORAGE_KEYS.sections, DEFAULT_SECTIONS_OPEN),
+  );
+  const [openSubmenus, setOpenSubmenus] = useState(() =>
+    readStoredState(SIDEBAR_STORAGE_KEYS.submenus, DEFAULT_SUBMENUS_OPEN),
+  );
   const location = useLocation();
 
   const {
@@ -120,12 +160,13 @@ export default function Sidebar() {
   const hasBrandColor = Boolean(homeClient?.brandColor);
   const avatarStyle = hasBrandColor
     ? {
-        backgroundColor: `${homeClient.brandColor}1a`,
+        backgroundColor: "var(--surface-2)",
+        border: `1px solid ${toRgba(homeClient.brandColor, 0.45)}`,
         color: homeClient.brandColor,
       }
     : undefined;
-  const navLinkClass = linkClass(collapsed);
-  const activeStyle = linkStyle(accentColor);
+  const navLinkClass = (isActive) => linkClass(collapsed, isActive);
+  const activeStyle = (isActive) => linkStyle(accentColor, isActive);
   const adminUsersPermission = getPermission({ menuKey: "admin", pageKey: "users" });
   const adminClientsPermission = getPermission({ menuKey: "admin", pageKey: "clients" });
   const adminMirrorsPermission = getPermission({ menuKey: "admin", pageKey: "mirrors" });
@@ -208,9 +249,12 @@ export default function Sidebar() {
   );
 
   useEffect(() => {
-    setOpenSections({ ...DEFAULT_SECTIONS_OPEN });
-    setOpenSubmenus({ ...DEFAULT_SUBMENUS_OPEN });
-  }, []);
+    persistState(SIDEBAR_STORAGE_KEYS.sections, openSections);
+  }, [openSections]);
+
+  useEffect(() => {
+    persistState(SIDEBAR_STORAGE_KEYS.submenus, openSubmenus);
+  }, [openSubmenus]);
 
   const toggleSection = (key) => {
     setOpenSections((state) => ({ ...state, [key]: state[key] === false ? true : !state[key] }));
@@ -220,8 +264,7 @@ export default function Sidebar() {
     setOpenSubmenus((state) => ({ ...state, [key]: state[key] === false ? true : !state[key] }));
   };
 
-  const currentPath = location.pathname;
-  const isLinkActive = (link) => Boolean(link?.to && currentPath.startsWith(link.to));
+  const currentPath = normalizePath(location.pathname);
 
   const menuSections = useMemo(() => {
     const sections = MENU_REGISTRY.map((section) => ({
@@ -234,27 +277,58 @@ export default function Sidebar() {
     return sections;
   }, [filterMenuItem]);
 
+  const flatLinks = useMemo(() => {
+    const links = [];
+    menuSections.forEach((section) => {
+      section.items.forEach((item) => {
+        if (item.children?.length) {
+          item.children.forEach((child) => links.push(child));
+        } else {
+          links.push(item);
+        }
+      });
+    });
+    return links;
+  }, [menuSections]);
+
+  const activeLink = useMemo(() => {
+    const candidates = flatLinks
+      .filter((link) => link?.to && matchesPath(normalizePath(link.to), currentPath))
+      .sort((left, right) => normalizePath(right.to).length - normalizePath(left.to).length);
+    return candidates[0] || null;
+  }, [currentPath, flatLinks]);
+
+  const isLinkSelected = useCallback(
+    (link) => {
+      if (!activeLink || !link?.to) return false;
+      return normalizePath(activeLink.to) === normalizePath(link.to);
+    },
+    [activeLink],
+  );
+
   const renderNavLink = (link) => {
     const translated = translateLabel(link.label);
+    const isActive = isLinkSelected(link);
     return (
-    <NavLink
-      key={link.key ?? link.to}
-      to={link.to}
-      className={navLinkClass}
-      style={activeStyle}
-      {...navLabelProps(translated)}
-    >
-      <link.icon size={linkIconSize} />
-      <span className={labelVisibilityClass}>{translated}</span>
-    </NavLink>
+      <Link
+        key={link.key ?? link.to}
+        to={link.to}
+        className={navLinkClass(isActive)}
+        style={activeStyle(isActive)}
+        aria-current={isActive ? "page" : undefined}
+        {...navLabelProps(translated)}
+      >
+        <link.icon size={linkIconSize} />
+        <span className={labelVisibilityClass}>{translated}</span>
+      </Link>
     );
   };
 
   const renderMenuItem = (item) => {
     if (!item) return null;
     if (item.children?.length) {
-      const isOpen = openSubmenus[item.key] !== false;
-      const hasActiveChild = item.children.some((child) => isLinkActive(child));
+      const hasActiveChild = item.children.some((child) => isLinkSelected(child));
+      const isOpen = hasActiveChild || openSubmenus[item.key] !== false;
       const translatedLabel = translateLabel(item.label);
 
       return (
@@ -263,7 +337,7 @@ export default function Sidebar() {
             type="button"
             className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition ${
               hasActiveChild
-                ? "bg-white/10 text-text shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+                ? "bg-layer/70 text-text"
                 : "text-sub hover:bg-layer hover:text-text"
             }`}
             onClick={() => toggleSubmenu(item.key)}
@@ -413,8 +487,9 @@ export default function Sidebar() {
 
         <div
           ref={profileMenuRef}
-          className={`rounded-xl ${
-            collapsed ? "bg-transparent p-2 shadow-none" : "bg-surface p-3 shadow-soft"
+          data-collapsed={collapsed ? "true" : "false"}
+          className={`sidebar-user-card rounded-xl ${
+            collapsed ? "bg-transparent p-2 shadow-none" : "p-3"
           }`}
         >
           <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-between"}`}>

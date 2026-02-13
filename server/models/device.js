@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { getVehicleById } from "./vehicle.js";
 
 const STORAGE_KEY = "devices";
 const devices = new Map();
@@ -63,6 +64,21 @@ function findDeviceRecord(id) {
   return devices.get(key) || byTraccarId.get(key) || null;
 }
 
+function normalizeClientId(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+function resolveDeviceClientId(record) {
+  const directClientId = normalizeClientId(record?.clientId);
+  if (directClientId) return directClientId;
+  const vehicleId = record?.vehicleId ? String(record.vehicleId) : null;
+  if (!vehicleId) return null;
+  const vehicle = getVehicleById(vehicleId);
+  return normalizeClientId(vehicle?.clientId);
+}
+
 function removeIndexes(record) {
   if (!record) return;
   if (record.uniqueId) {
@@ -88,7 +104,10 @@ export function listDevices({ clientId } = {}) {
   if (!clientId) {
     return list.map(clone);
   }
-  return list.filter((device) => String(device.clientId) === String(clientId)).map(clone);
+  const scopedClientId = String(clientId);
+  return list
+    .filter((device) => String(resolveDeviceClientId(device) || "") === scopedClientId)
+    .map(clone);
 }
 
 export function getDeviceById(id) {
@@ -126,7 +145,19 @@ export async function findDeviceByUniqueIdInDb(uniqueId, { clientId, matchAnyCli
 async function syncDeviceToPrisma(record) {
   if (!isPrismaReady() || !record?.id || !record?.uniqueId) return;
   try {
-    const clientId = String(record.clientId);
+    const clientId = resolveDeviceClientId(record);
+    if (!clientId) {
+      console.warn("[devices] dispositivo sem clientId válido; ignorando sync", {
+        deviceId: record.id,
+        uniqueId: record.uniqueId,
+        vehicleId: record.vehicleId || null,
+      });
+      return;
+    }
+    if (String(record.clientId || "") !== String(clientId)) {
+      record.clientId = String(clientId);
+      syncStorage();
+    }
     const uniqueId = String(record.uniqueId);
 
     const client = await prisma.client.findUnique({ where: { id: clientId } });

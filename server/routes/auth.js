@@ -13,6 +13,7 @@ import {
   isDemoModeEnabled,
   shouldUseDemoFallback,
 } from "../services/fallback-data.js";
+import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 
 const router = express.Router();
 
@@ -322,6 +323,19 @@ const handleLogin = async (req, res, next) => {
       const cookieOptions = buildAuthCookieOptions(remember);
       res.cookie("token", token, cookieOptions);
       console.info("[auth] sessão criada", { userId: sessionUser.id, clientId: resolvedClientId });
+      recordAuditEvent({
+        clientId: resolvedClientId,
+        category: "access",
+        action: "LOGIN",
+        status: "Concluído",
+        sentAt: new Date().toISOString(),
+        user: { id: sessionUser.id, name: sessionUser.name || sessionUser.email || null },
+        ipAddress: resolveRequestIp(req),
+        details: {
+          userAgent: req.headers["user-agent"] || null,
+          origin: req.headers.origin || null,
+        },
+      });
       return res.json({
         token,
         user: { ...sessionUser, clientId: tokenPayload.clientId },
@@ -537,6 +551,22 @@ router.post("/refresh", authenticate, (req, res, next) => handleRefresh(req, res
 router.post("/auth/refresh", authenticate, (req, res, next) => handleRefresh(req, res, next));
 
 const handleLogout = (req, res) => {
+  try {
+    recordAuditEvent({
+      clientId: req.user?.clientId ?? null,
+      category: "access",
+      action: "LOGOUT",
+      status: "Concluído",
+      sentAt: new Date().toISOString(),
+      user: { id: req.user?.id ?? null, name: req.user?.name || req.user?.email || null },
+      ipAddress: resolveRequestIp(req),
+      details: {
+        userAgent: req.headers["user-agent"] || null,
+      },
+    });
+  } catch (error) {
+    console.warn("[auth] falha ao registrar logout no audit", error?.message || error);
+  }
   res.clearCookie("token");
   res.status(204).send();
 };

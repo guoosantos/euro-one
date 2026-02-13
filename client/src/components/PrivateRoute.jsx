@@ -9,7 +9,7 @@ export default function PrivateRoute() {
   const location = useLocation();
 
   if (initialising || loading) {
-    return <Loading message="Carregando sessão..." />;
+    return <Loading message="Carregando sessão..." onRetry={() => window.location.reload()} />;
   }
 
   if (error || apiUnavailable) {

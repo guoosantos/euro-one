@@ -15,6 +15,7 @@ persisted.forEach((entry) => {
     resolvedAt: entry.resolvedAt || entry.resolved_at || null,
     resolvedBy: entry.resolvedBy || entry.resolved_by || null,
     resolvedByName: entry.resolvedByName || entry.resolved_by_name || null,
+    notes: entry.notes || entry.note || null,
   });
 });
 
@@ -43,7 +44,10 @@ export function getEventResolution(eventId, { clientId } = {}) {
   return clone(records.get(key));
 }
 
-export function markEventResolved(eventId, { clientId = null, resolvedBy = null, resolvedByName = null } = {}) {
+export function markEventResolved(
+  eventId,
+  { clientId = null, resolvedBy = null, resolvedByName = null, notes = null } = {},
+) {
   const normalizedId = String(eventId || "").trim();
   if (!normalizedId) {
     throw createError(400, "ID do evento é obrigatório");
@@ -55,6 +59,7 @@ export function markEventResolved(eventId, { clientId = null, resolvedBy = null,
     resolvedAt: new Date().toISOString(),
     resolvedBy: resolvedBy != null ? String(resolvedBy) : null,
     resolvedByName: resolvedByName || null,
+    notes: notes || null,
   };
 
   const key = buildKey(normalizedId, clientId);

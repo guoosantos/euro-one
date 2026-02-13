@@ -38,6 +38,9 @@ export function getApiBaseUrl() {
 }
 
 const unauthorizedHandlers = new Set();
+let unauthorizedHandled = false;
+let refreshPromise = null;
+let refreshBlocked = false;
 
 export function registerUnauthorizedHandler(handler) {
   if (typeof handler !== "function") return () => {};
@@ -53,6 +56,24 @@ function notifyUnauthorized(error) {
       console.warn("Falha ao notificar 401", notifyError);
     }
   });
+}
+
+function resetAuthGuards() {
+  unauthorizedHandled = false;
+  refreshBlocked = false;
+}
+
+function handleUnauthorized(response) {
+  if (unauthorizedHandled) return;
+  unauthorizedHandled = true;
+  clearStoredSession();
+  notifyUnauthorized(response);
+  if (typeof window !== "undefined") {
+    const pathname = window.location?.pathname || "";
+    if (!pathname.startsWith("/login")) {
+      window.location.assign("/login");
+    }
+  }
 }
 
 function getStorage() {
@@ -92,6 +113,7 @@ export function setStoredSession(session) {
     if (session?.user) {
       storage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
     }
+    resetAuthGuards();
   } catch (error) {
     console.warn("Falha ao persistir sessão", error);
   }
@@ -126,7 +148,12 @@ export function resolveAuthorizationHeader() {
 }
 
 function friendlyErrorMessage(status, payload, statusText) {
-  const serverMessage = payload?.message || payload?.error || payload?.errorMessage || null;
+  const serverMessage =
+    payload?.message ||
+    payload?.error?.message ||
+    (typeof payload?.error === "string" ? payload.error : null) ||
+    payload?.errorMessage ||
+    null;
   if (serverMessage) return serverMessage;
   if (status === 401) return "Sessão expirada. Faça login novamente.";
   if (status === 403) return "Você não tem permissão para realizar esta ação.";
@@ -135,6 +162,7 @@ function friendlyErrorMessage(status, payload, statusText) {
 }
 
 const MIRROR_READ_ALLOWLIST = [
+  "/bootstrap",
   "/context",
   "/permissions/context",
   "/protocols",
@@ -143,7 +171,6 @@ const MIRROR_READ_ALLOWLIST = [
   "/alerts",
   "/reports",
   "/events",
-  "/commands",
   "/devices",
   "/drivers",
   "/geofences",
@@ -168,8 +195,10 @@ const MIRROR_READ_ALLOWLIST = [
   "/core/technicians",
 ];
 const MIRROR_WRITE_ALLOWLIST = [];
+const MIRROR_READ_BLOCKLIST = ["/commands"];
 
 const DEDUPE_GET_PATHS = new Set([
+  "/bootstrap",
   "/context",
   "/session",
   "/permissions/context",
@@ -185,6 +214,20 @@ const DEDUPE_GET_PATHS = new Set([
   "/positions/last",
 ]);
 const DEDUPE_TTL_MS = 4000;
+const SWR_FRESH_MS = 8_000;
+const SWR_MAX_AGE_MS = 45_000;
+const SWR_GET_PATHS = new Set([
+  ...DEDUPE_GET_PATHS,
+  "/vehicles",
+  "/devices",
+  "/positions",
+  "/geofences",
+  "/geofence-groups",
+  "/routes",
+  "/itineraries",
+  "/events",
+  "/alerts",
+]);
 const getDedupeCache = (() => {
   const cache = new Map();
   return {
@@ -197,8 +240,33 @@ const getDedupeCache = (() => {
     delete(key) {
       cache.delete(key);
     },
+    clear() {
+      cache.clear();
+    },
   };
 })();
+const inflightGetCache = new Map();
+const swrCache = new Map();
+let globalAbortController = new AbortController();
+
+export function abortInflightRequests(reason = "manual") {
+  try {
+    globalAbortController.abort(new Error(reason));
+  } catch (_error) {
+    try {
+      globalAbortController.abort();
+    } catch (_err) {
+      // ignore
+    }
+  }
+  globalAbortController = new AbortController();
+}
+
+export function clearApiCaches() {
+  getDedupeCache.clear();
+  inflightGetCache.clear();
+  swrCache.clear();
+}
 
 export function resolveMirrorOwnerClientId(session) {
   if (session?.user?.role === "admin") return null;
@@ -248,6 +316,9 @@ function shouldAttemptAuthRefresh(status, payload, statusText) {
 function shouldAttachMirrorClientId(targetPath, method = "GET") {
   const pathname = resolvePathname(targetPath);
   const normalised = pathname.replace(/^\/api\//, "/");
+  if (MIRROR_READ_BLOCKLIST.some((prefix) => normalised.startsWith(prefix))) {
+    return false;
+  }
   const methodUpper = String(method || "GET").toUpperCase();
   if (methodUpper === "GET" || methodUpper === "HEAD") {
     return MIRROR_READ_ALLOWLIST.some((prefix) => normalised.startsWith(prefix));
@@ -269,7 +340,7 @@ function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClient
           [nextParams.clientId, nextParams.tenantId, nextParams.ownerClientId].some(
             (value) => value !== undefined && value !== null && String(value) === String(userClientId),
           )))) ||
-    (!isReadMethod && shouldAttach);
+    (!isReadMethod && (shouldAttach || mirrorOwnerClientId));
   if (shouldStripTarget) {
     if (Object.prototype.hasOwnProperty.call(nextParams, "clientId")) {
       delete nextParams.clientId;
@@ -286,6 +357,23 @@ function resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClient
     nextParams.clientId = mirrorOwnerClientId;
   }
   return Object.keys(nextParams).length ? nextParams : undefined;
+}
+
+function stripWriteContextPayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (payload instanceof FormData || payload instanceof Blob || payload instanceof ArrayBuffer) {
+    return payload;
+  }
+  if (Array.isArray(payload)) return payload;
+  const next = { ...payload };
+  let changed = false;
+  ["clientId", "tenantId", "ownerClientId"].forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(next, key)) {
+      delete next[key];
+      changed = true;
+    }
+  });
+  return changed ? next : payload;
 }
 
 function buildUrl(path, params, { apiPrefix = true } = {}) {
@@ -319,6 +407,45 @@ function buildUrl(path, params, { apiPrefix = true } = {}) {
   return url.toString();
 }
 
+async function runAuthRefresh({ apiPrefix }) {
+  if (refreshBlocked) {
+    const blockedError = new Error("Refresh bloqueado");
+    blockedError.status = 401;
+    throw blockedError;
+  }
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const refreshResponse = await request({
+          method: "POST",
+          url: "/auth/refresh",
+          data: {},
+          apiPrefix,
+          authRetryCount: 1,
+          skipAuthRefresh: true,
+          skipMirrorClient: true,
+          skipSWRCache: true,
+        });
+        const refreshedToken = refreshResponse?.data?.token;
+        const refreshedUser = refreshResponse?.data?.user;
+        if (refreshedToken) {
+          setStoredSession({ token: refreshedToken, user: refreshedUser || getStoredSession()?.user || null });
+        }
+        return refreshResponse;
+      } catch (error) {
+        const status = Number(error?.status || error?.response?.status);
+        if (status === 401) {
+          refreshBlocked = true;
+        }
+        throw error;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
 async function request({
   method = "GET",
   url,
@@ -333,6 +460,7 @@ async function request({
   skipAuthRefresh = false,
   skipMirrorClient = false,
   dedupeBypass = false,
+  skipSWRCache = false,
 }) {
   const controller = new AbortController();
   const abortReason = new Error("Request timeout");
@@ -342,84 +470,132 @@ async function request({
     controller.abort(abortReason);
   }, timeout);
 
-  const forwardAbort = () => {
+  const forwardAbort = (reason) => {
     try {
-      controller.abort(signal?.reason);
+      controller.abort(reason);
     } catch (_abortError) {
       controller.abort();
     }
   };
 
-  if (signal) {
-    if (signal.aborted) {
-      forwardAbort();
-    } else {
-      signal.addEventListener("abort", forwardAbort);
+  const abortListeners = [];
+  const attachAbortSignal = (targetSignal) => {
+    if (!targetSignal) return;
+    const handler = () => forwardAbort(targetSignal?.reason);
+    if (targetSignal.aborted) {
+      handler();
+      return;
     }
-  }
+    targetSignal.addEventListener("abort", handler);
+    abortListeners.push({ signal: targetSignal, handler });
+  };
+
+  attachAbortSignal(signal);
+  attachAbortSignal(globalAbortController.signal);
 
   const methodUpper = method.toUpperCase();
+  const isReadMethod = methodUpper === "GET" || methodUpper === "HEAD";
   const storedSession = getStoredSession();
   const userClientId = storedSession?.user?.clientId ?? null;
   const mirrorOwnerClientId = skipMirrorClient ? null : resolveMirrorOwnerClientId(storedSession);
   // Em modo mirror, anexamos o clientId do OWNER apenas para rotas allowlisted de leitura.
+  const shouldAttachMirror =
+    !skipMirrorClient && mirrorOwnerClientId && shouldAttachMirrorClientId(url, methodUpper);
+  const shouldStripWriteContext = Boolean(!isReadMethod && mirrorOwnerClientId && !skipMirrorClient);
   const nextParams = resolveMirrorQueryParams({ mirrorOwnerClientId, params, url, userClientId, method: methodUpper });
+  const requestData = shouldStripWriteContext ? stripWriteContextPayload(data) : data;
 
   const finalUrl = buildUrl(url, nextParams, { apiPrefix });
-  if (methodUpper === "GET" && !dedupeBypass) {
-    const pathname = resolvePathname(finalUrl);
-    const normalised = pathname.replace(/^\/api\//, "/");
-    if (DEDUPE_GET_PATHS.has(normalised)) {
-      const cacheKey = `${normalised}|${finalUrl}`;
-      const cached = getDedupeCache.get(cacheKey);
-      const now = Date.now();
-      if (cached && now - cached.ts < DEDUPE_TTL_MS) {
-        return cached.promise;
-      }
-      const promise = request({
-        method,
-        url,
-        params,
-        data,
-        headers,
-        timeout,
-        apiPrefix,
-        signal,
-        responseType,
-        authRetryCount,
-        skipAuthRefresh,
-        dedupeBypass: true,
-      });
-      getDedupeCache.set(cacheKey, { ts: now, promise });
-      try {
-        const response = await promise;
-        getDedupeCache.set(cacheKey, { ts: Date.now(), promise: Promise.resolve(response) });
-        return response;
-      } catch (error) {
-        getDedupeCache.delete(cacheKey);
-        throw error;
+  const pathname = resolvePathname(finalUrl);
+  const normalisedPath = pathname.replace(/^\/api\//, "/");
+  const cacheKey = `${normalisedPath}|${finalUrl}`;
+
+  if (isReadMethod && !skipSWRCache && SWR_GET_PATHS.has(normalisedPath)) {
+    const cached = swrCache.get(cacheKey);
+    if (cached) {
+      const age = Date.now() - cached.ts;
+      if (age < SWR_MAX_AGE_MS) {
+        if (age > SWR_FRESH_MS && !cached.revalidating) {
+          cached.revalidating = true;
+          swrCache.set(cacheKey, cached);
+          request({
+            method,
+            url,
+            params,
+            data: requestData,
+            headers,
+            timeout,
+            apiPrefix,
+            signal,
+            responseType,
+            authRetryCount,
+            skipAuthRefresh,
+            skipMirrorClient,
+            dedupeBypass: true,
+            skipSWRCache: true,
+          })
+            .then((response) => {
+              swrCache.set(cacheKey, { ts: Date.now(), response, revalidating: false });
+            })
+            .catch(() => {
+              const entry = swrCache.get(cacheKey);
+              if (entry) {
+                swrCache.set(cacheKey, { ...entry, revalidating: false });
+              }
+            });
+        }
+        return cached.response;
       }
     }
+  }
+
+  if (methodUpper === "GET" && !dedupeBypass && DEDUPE_GET_PATHS.has(normalisedPath)) {
+    const cached = getDedupeCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < DEDUPE_TTL_MS) {
+      return cached.promise;
+    }
+    const promise = request({
+      method,
+      url,
+      params,
+      data: requestData,
+      headers,
+      timeout,
+      apiPrefix,
+      signal,
+      responseType,
+      authRetryCount,
+      skipAuthRefresh,
+      skipMirrorClient,
+      dedupeBypass: true,
+      skipSWRCache: true,
+    });
+    getDedupeCache.set(cacheKey, { ts: now, promise });
+    try {
+      const response = await promise;
+      getDedupeCache.set(cacheKey, { ts: Date.now(), promise: Promise.resolve(response) });
+      return response;
+    } catch (error) {
+      getDedupeCache.delete(cacheKey);
+      throw error;
+    }
+  }
+
+  if (isReadMethod && !dedupeBypass) {
+    const inflight = inflightGetCache.get(cacheKey);
+    if (inflight) return inflight;
   }
   const resolvedHeaders = new Headers(headers);
   const authorization = resolveAuthorizationHeader();
   if (authorization && !resolvedHeaders.has("Authorization")) {
     resolvedHeaders.set("Authorization", authorization);
   }
-  if (
-    !skipMirrorClient &&
-    mirrorOwnerClientId &&
-    shouldAttachMirrorClientId(url, methodUpper) &&
-    !resolvedHeaders.has("X-Owner-Client-Id")
-  ) {
+  if (shouldAttachMirror && !resolvedHeaders.has("X-Owner-Client-Id")) {
     resolvedHeaders.set("X-Owner-Client-Id", mirrorOwnerClientId);
   }
   if (!resolvedHeaders.has("X-Mirror-Mode")) {
-    if (resolvedHeaders.has("X-Owner-Client-Id")) {
-      resolvedHeaders.set("X-Mirror-Mode", "target");
-    } else if (storedSession?.user?.mirrorContextMode !== "target") {
-      resolvedHeaders.set("X-Mirror-Mode", "self");
-    }
+    resolvedHeaders.set("X-Mirror-Mode", shouldAttachMirror ? "target" : "self");
   }
 
   const init = {
@@ -430,18 +606,18 @@ async function request({
     ...(methodUpper === "GET" ? { cache: "no-store" } : {}),
   };
 
-  if (data !== undefined && data !== null) {
-    if (data instanceof FormData || data instanceof Blob || data instanceof ArrayBuffer) {
-      init.body = data;
+  if (requestData !== undefined && requestData !== null) {
+    if (requestData instanceof FormData || requestData instanceof Blob || requestData instanceof ArrayBuffer) {
+      init.body = requestData;
     } else {
-      init.body = JSON.stringify(data);
+      init.body = JSON.stringify(requestData);
       if (!resolvedHeaders.has("Content-Type")) {
         resolvedHeaders.set("Content-Type", "application/json");
       }
     }
   }
 
-  try {
+  const runFetch = async () => {
     const response = await fetch(finalUrl, init);
     clearTimeout(timer);
 
@@ -482,22 +658,11 @@ async function request({
         !skipAuthRefresh &&
         authRetryCount < 1 &&
         !isAuthRefreshPath(url) &&
+        !refreshBlocked &&
         shouldAttemptAuthRefresh(response.status, payload, response.statusText);
       if (canRefresh) {
         try {
-          const refreshResponse = await request({
-            method: "POST",
-            url: "/auth/refresh",
-            data: {},
-            apiPrefix,
-            authRetryCount: authRetryCount + 1,
-            skipAuthRefresh: true,
-          });
-          const refreshedToken = refreshResponse?.data?.token;
-          const refreshedUser = refreshResponse?.data?.user;
-          if (refreshedToken) {
-            setStoredSession({ token: refreshedToken, user: refreshedUser || storedSession?.user || null });
-          }
+          await runAuthRefresh({ apiPrefix });
           return await request({
             method,
             url,
@@ -510,6 +675,8 @@ async function request({
             responseType,
             authRetryCount: authRetryCount + 1,
             skipAuthRefresh: true,
+            skipMirrorClient,
+            skipSWRCache: true,
           });
         } catch (_refreshError) {
           // Se o refresh falhar, seguimos com o fluxo padrão de erro.
@@ -517,17 +684,24 @@ async function request({
       }
 
       if (response.status === 401) {
-        clearStoredSession();
-        notifyUnauthorized(normalised);
-        if (typeof window !== "undefined") {
-          window.alert?.("Sessão expirada. Faça login novamente.");
-          window.location.assign("/login");
-        }
+        handleUnauthorized(normalised);
       }
       throw error;
     }
 
+    if (isReadMethod && SWR_GET_PATHS.has(normalisedPath)) {
+      swrCache.set(cacheKey, { ts: Date.now(), response: normalised, revalidating: false });
+    }
     return normalised;
+  };
+
+  const runPromise = runFetch();
+  if (isReadMethod && !dedupeBypass) {
+    inflightGetCache.set(cacheKey, runPromise);
+  }
+
+  try {
+    return await runPromise;
   } catch (error) {
     clearTimeout(timer);
     const isAborted =
@@ -553,13 +727,22 @@ async function request({
       );
       friendly.status = 503;
       friendly.code = "API_UNREACHABLE";
+      friendly.baseUrl = BASE_URL;
+      friendly.endpoint = url;
       throw friendly;
     }
     throw error;
   } finally {
-    if (signal) {
-      signal.removeEventListener("abort", forwardAbort);
+    if (isReadMethod && !dedupeBypass) {
+      inflightGetCache.delete(cacheKey);
     }
+    abortListeners.forEach(({ signal: target, handler }) => {
+      try {
+        target.removeEventListener("abort", handler);
+      } catch (_err) {
+        // ignore
+      }
+    });
   }
 }
 

@@ -1,12 +1,13 @@
 import express from "express";
 import createError from "http-errors";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { randomUUID } from "crypto";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, updateDevice } from "../models/device.js";
-import { getVehicleById } from "../models/vehicle.js";
+import { getVehicleById, updateVehicle } from "../models/vehicle.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
 
@@ -698,6 +699,23 @@ router.post(
     ensurePrisma();
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const body = req.body || {};
+    const rawType = body.type ? String(body.type).trim() : "";
+    const normalizedType = rawType.toLowerCase();
+    const isWithdrawal = normalizedType.includes("retirada");
+    const conditionValue = body.condition || body.conditionValue || body.conditionStatus || null;
+    const conditionNote = body.conditionNote || body.conditionObservation || body.conditionObs || "";
+    const conditionAtRaw = body.conditionAt || body.conditionDate || body.conditionTimestamp || null;
+    const externalRef = body.externalRef ? String(body.externalRef) : null;
+
+    if (externalRef) {
+      const existing = await prisma.serviceOrder.findFirst({
+        where: { clientId, externalRef },
+        include: { vehicle: { select: { id: true, plate: true, name: true } } },
+      });
+      if (existing) {
+        return res.status(200).json({ ok: true, item: existing, duplicated: true });
+      }
+    }
 
     const referenceDate = parseNullableDate(body.startAt) || new Date();
     const normalizedEquipments = normalizeEquipmentsData(body.equipmentsData || body.equipments);
@@ -721,6 +739,9 @@ router.post(
     }
     if ((body.checklistItems || body.checklist) && !normalizedChecklist) {
       throw createError(400, "Checklist inválido ou malformado");
+    }
+    if (isWithdrawal && !String(conditionValue || "").trim()) {
+      throw createError(400, "Informe a condição para retirada");
     }
 
     const resolvedVehicleId = body.vehiclePlate
@@ -801,6 +822,45 @@ router.post(
           equipmentsData: created.equipmentsData,
         })
       : { linked: 0 };
+
+    if (isWithdrawal && created?.vehicleId) {
+      const createdAt = parseNullableDate(conditionAtRaw) || new Date();
+      const entry = {
+        id: randomUUID(),
+        condition: String(conditionValue || "").trim(),
+        note: String(conditionNote || "").trim(),
+        createdAt: createdAt.toISOString(),
+        source: "service-order",
+        serviceOrderId: created.id,
+      };
+      const vehicleRecord = getVehicleById(created.vehicleId);
+      if (vehicleRecord) {
+        const existing = Array.isArray(vehicleRecord.attributes?.conditions) ? vehicleRecord.attributes.conditions : [];
+        const nextConditions = [entry, ...existing];
+        updateVehicle(vehicleRecord.id, {
+          attributes: { ...(vehicleRecord.attributes || {}), conditions: nextConditions },
+        });
+      } else if (isPrismaAvailable()) {
+        try {
+          const dbVehicle = await prisma.vehicle.findUnique({
+            where: { id: String(created.vehicleId) },
+            select: { attributes: true },
+          });
+          const existing = Array.isArray(dbVehicle?.attributes?.conditions) ? dbVehicle.attributes.conditions : [];
+          const nextConditions = [entry, ...existing];
+          await prisma.vehicle.update({
+            where: { id: String(created.vehicleId) },
+            data: { attributes: { ...(dbVehicle?.attributes || {}), conditions: nextConditions } },
+          });
+        } catch (conditionError) {
+          console.warn("[service-orders] falha ao registrar condição de retirada", {
+            message: conditionError?.message || conditionError,
+            vehicleId: created.vehicleId,
+            serviceOrderId: created.id,
+          });
+        }
+      }
+    }
 
     return res.status(201).json({
       ok: true,

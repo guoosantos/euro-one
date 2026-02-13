@@ -17,7 +17,7 @@ function clone(record) {
   return { ...record, attachments: Array.isArray(record.attachments) ? [...record.attachments] : [] };
 }
 
-export async function listTasks({ id, clientId, vehicleId, driverId, status, type, from, to } = {}) {
+export async function listTasks({ id, clientId, vehicleId, driverId, status, type, category, from, to } = {}) {
   const statuses = status
     ? Array.isArray(status)
       ? status.map(String)
@@ -36,6 +36,7 @@ export async function listTasks({ id, clientId, vehicleId, driverId, status, typ
       vehicleId: vehicleId ? String(vehicleId) : undefined,
       driverId: driverId ? String(driverId) : undefined,
       type: type ? String(type) : undefined,
+      category: category ? String(category) : undefined,
       status: statuses && statuses.length ? { in: statuses } : undefined,
       startTimeExpected: fromDate ? { gte: fromDate } : undefined,
       endTimeExpected: toDate ? { lte: toDate } : undefined,
@@ -79,7 +80,15 @@ export async function createTask(payload) {
     slaExceptionReason = null,
     ownerName = null,
     technicianName = null,
+    assignedTechnicianId = null,
     assignedTeam = null,
+    schedulingId = null,
+    workOrderId = null,
+    vehicleBrand = null,
+    vehicleYear = null,
+    vehicleColor = null,
+    selectedEquipments = null,
+    isRescheduled = false,
     rescheduleReason = null,
     cancelReason = null,
   } = payload || {};
@@ -123,7 +132,15 @@ export async function createTask(payload) {
       status: payload?.status || "pendente",
       ownerName,
       technicianName,
+      assignedTechnicianId: assignedTechnicianId ? String(assignedTechnicianId) : null,
       assignedTeam,
+      schedulingId: schedulingId ? String(schedulingId) : null,
+      workOrderId: workOrderId ? String(workOrderId) : null,
+      vehicleBrand: vehicleBrand ? String(vehicleBrand) : null,
+      vehicleYear: vehicleYear ? String(vehicleYear) : null,
+      vehicleColor: vehicleColor ? String(vehicleColor) : null,
+      selectedEquipments: selectedEquipments ?? null,
+      isRescheduled: Boolean(isRescheduled),
       rescheduleReason,
       cancelReason,
       attachments: Array.isArray(payload?.attachments) ? [...payload.attachments] : [],
@@ -180,7 +197,32 @@ export async function updateTask(id, updates = {}) {
     status: safeUpdates.status || existing.status,
     ownerName: safeUpdates.ownerName ?? existing.ownerName,
     technicianName: safeUpdates.technicianName ?? existing.technicianName,
+    assignedTechnicianId:
+      safeUpdates.assignedTechnicianId !== undefined
+        ? safeUpdates.assignedTechnicianId
+          ? String(safeUpdates.assignedTechnicianId)
+          : null
+        : existing.assignedTechnicianId,
     assignedTeam: safeUpdates.assignedTeam ?? existing.assignedTeam,
+    schedulingId:
+      safeUpdates.schedulingId !== undefined
+        ? safeUpdates.schedulingId
+          ? String(safeUpdates.schedulingId)
+          : null
+        : existing.schedulingId,
+    workOrderId:
+      safeUpdates.workOrderId !== undefined
+        ? safeUpdates.workOrderId
+          ? String(safeUpdates.workOrderId)
+          : null
+        : existing.workOrderId,
+    vehicleBrand: safeUpdates.vehicleBrand ?? existing.vehicleBrand,
+    vehicleYear: safeUpdates.vehicleYear ?? existing.vehicleYear,
+    vehicleColor: safeUpdates.vehicleColor ?? existing.vehicleColor,
+    selectedEquipments:
+      safeUpdates.selectedEquipments !== undefined ? safeUpdates.selectedEquipments : existing.selectedEquipments,
+    isRescheduled:
+      safeUpdates.isRescheduled !== undefined ? Boolean(safeUpdates.isRescheduled) : existing.isRescheduled,
     rescheduleReason: safeUpdates.rescheduleReason ?? existing.rescheduleReason,
     cancelReason: safeUpdates.cancelReason ?? existing.cancelReason,
     attachments: Array.isArray(safeUpdates.attachments) ? [...safeUpdates.attachments] : existing.attachments,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
@@ -102,7 +102,7 @@ async function fetchMirrorOwnerBundle({
 } = {}) {
   const headers = ownerId ? { "X-Owner-Client-Id": ownerId } : undefined;
   const requests = [
-    CoreApi.listVehicles({ params: { accessible: true }, headers }).catch(() => []),
+    CoreApi.listVehicles({ params: { accessible: true, skipPositions: true }, headers }).catch(() => []),
     canAccessMonitoring
       ? safeApi.get(API_ROUTES.lastPositions, {
           headers,
@@ -236,6 +236,8 @@ export default function Home() {
   const {
     tenantId,
     tenant,
+    tenantScope,
+    tenants,
     canAccess,
     mirrorContextMode,
     activeMirrorOwnerClientId,
@@ -243,8 +245,8 @@ export default function Home() {
   } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
   const canAccessMonitoring = canAccess("primary", "monitoring");
-  const canAccessAlerts = canAccess("primary", "monitoring", "alerts");
-  const canAccessConjugatedAlerts = canAccess("primary", "monitoring", "alerts-conjugated");
+  const canAccessAlerts = canAccessMonitoring || canAccess("primary", "events");
+  const canAccessConjugatedAlerts = canAccessAlerts;
   const mirrorOwnerIds = useMemo(
     () =>
       Array.isArray(mirrorOwners)
@@ -267,6 +269,7 @@ export default function Home() {
     mirrorContextMode === "target" && mirrorOwnerTenantId && !isMirrorAll,
   );
   const effectiveTenantId = isMirrorAll ? null : (mirrorOwnerTenantId || tenantId);
+  const isAllTenantsScope = tenantScope === "ALL";
   const tasksTenantOverride = isMirrorAll ? null : undefined;
   const pendingAlertParams = useMemo(() => ({ status: "pending" }), []);
   const conjugatedAlertParams = useMemo(() => ({ windowHours: 5 }), []);
@@ -287,7 +290,7 @@ export default function Home() {
     params: pendingAlertParams,
     enabled: canAccessMonitoring && canAccessAlerts,
   });
-  const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
+  const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading, refresh: refreshConjugatedAlerts } = useConjugatedAlerts({
     params: conjugatedAlertParams,
     enabled: canAccessMonitoring && canAccessConjugatedAlerts,
   });
@@ -433,10 +436,7 @@ export default function Home() {
     [effectiveVehicles, positionByDevice],
   );
 
-  const linkedVehicles = useMemo(
-    () => vehicleTelemetry.filter((item) => Boolean(item.deviceKey)),
-    [vehicleTelemetry],
-  );
+  const linkedVehicles = useMemo(() => vehicleTelemetry, [vehicleTelemetry]);
 
   const deviceTenantMap = useMemo(() => {
     const map = new Map();
@@ -460,22 +460,32 @@ export default function Home() {
 
   const fleetDevices = useMemo(
     () =>
-      linkedVehicles.map((entry) => ({
-        ...entry.device,
-        id: entry.deviceKey,
-        deviceId: entry.deviceKey,
-        uniqueId: entry.device?.uniqueId ?? entry.deviceKey,
-        name: entry.vehicle?.name ?? entry.device?.name,
-        plate: entry.vehicle?.plate ?? entry.device?.plate,
-        vehicleId: entry.vehicle?.id ?? entry.device?.vehicleId,
-        clientId:
-          entry.vehicle?.clientId ??
-          entry.vehicle?.client?.id ??
-          entry.vehicle?.tenantId ??
-          entry.device?.clientId ??
-          entry.device?.tenantId ??
-          tenantFallbackId,
-      })),
+      linkedVehicles.map((entry, index) => {
+        const vehicleId =
+          entry.vehicle?.id ??
+          entry.vehicle?.vehicleId ??
+          entry.device?.vehicleId ??
+          entry.device?.id ??
+          null;
+        const fallbackKey = vehicleId ? `vehicle-${vehicleId}` : `vehicle-${index}`;
+        const deviceKey = entry.deviceKey ?? fallbackKey;
+        return {
+          ...entry.device,
+          id: deviceKey,
+          deviceId: deviceKey,
+          uniqueId: entry.device?.uniqueId ?? deviceKey,
+          name: entry.vehicle?.name ?? entry.device?.name,
+          plate: entry.vehicle?.plate ?? entry.device?.plate,
+          vehicleId: entry.vehicle?.id ?? entry.device?.vehicleId ?? vehicleId ?? null,
+          clientId:
+            entry.vehicle?.clientId ??
+            entry.vehicle?.client?.id ??
+            entry.vehicle?.tenantId ??
+            entry.device?.clientId ??
+            entry.device?.tenantId ??
+            tenantFallbackId,
+        };
+      }),
     [linkedVehicles, tenantFallbackId],
   );
 
@@ -520,8 +530,93 @@ export default function Home() {
       }),
     [table, vehicleByDeviceId],
   );
+  const [allTenantsCommunication, setAllTenantsCommunication] = useState({
+    loading: false,
+    items: [],
+    error: null,
+  });
 
-  const communicationBuckets = useMemo(() => buildOfflineBuckets(decoratedTable), [decoratedTable]);
+  useEffect(() => {
+    let active = true;
+
+    const loadAllTenantsDevices = async () => {
+      if (!canAccessMonitoring || !isAllTenantsScope || mirrorContextMode === "target") {
+        if (active) {
+          setAllTenantsCommunication((prev) => ({
+            ...prev,
+            loading: false,
+            items: [],
+            error: null,
+          }));
+        }
+        return;
+      }
+
+      const tenantIds = Array.isArray(tenants)
+        ? Array.from(new Set(tenants.map((item) => item?.id).filter(Boolean).map(String)))
+        : [];
+
+      if (tenantIds.length === 0) {
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+
+      if (active) {
+        setAllTenantsCommunication((prev) => ({ ...prev, loading: true, error: null }));
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          tenantIds.map(async (clientId) => {
+            const devices = await CoreApi.listDevices({ clientId });
+            return (Array.isArray(devices) ? devices : []).map((device) => ({
+              ...device,
+              clientId: device?.clientId ?? clientId,
+            }));
+          }),
+        );
+
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && Array.isArray(result.value)) {
+            merged.push(...result.value);
+          }
+        });
+
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: merged, error: null });
+        }
+      } catch (error) {
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: [], error });
+        }
+      }
+    };
+
+    loadAllTenantsDevices();
+
+    return () => {
+      active = false;
+    };
+  }, [canAccessMonitoring, isAllTenantsScope, mirrorContextMode, tenants]);
+
+  const communicationSource = useMemo(() => {
+    if (isAllTenantsScope && mirrorContextMode !== "target") {
+      return {
+        items: allTenantsCommunication.items,
+        loading: allTenantsCommunication.loading,
+      };
+    }
+    return { items: decoratedTable, loading: false };
+  }, [allTenantsCommunication.items, allTenantsCommunication.loading, decoratedTable, isAllTenantsScope, mirrorContextMode]);
+
+  const communicationStats = useMemo(
+    () => buildCommunicationBuckets(communicationSource.items, { dedupeByClient: isAllTenantsScope }),
+    [communicationSource.items, isAllTenantsScope],
+  );
+  const communicationBuckets = communicationStats.buckets;
   const routeMetrics = useMemo(
     () => buildRouteMetrics(decoratedTable, effectiveTasks, vehicleByDeviceId),
     [decoratedTable, effectiveTasks, vehicleByDeviceId],
@@ -552,12 +647,151 @@ export default function Home() {
       system: true,
     };
   }, [showTelemetryWarning, tenant?.name, tenantId]);
+  const monitoringAlertFallback = useMemo(() => {
+    if (!canAccessMonitoring) return [];
+    return decoratedTable
+      .map((row) => {
+        const position = row?.position || row?.device?.position || null;
+        const alarm =
+          position?.attributes?.alarm ||
+          position?.attributes?.event ||
+          position?.alarm ||
+          row?.device?.alarm ||
+          row?.alerts?.[0] ||
+          null;
+        if (!alarm) return null;
+        const label = normalizeAlertLabel(alarm);
+        return {
+          id: `monitoring-${row.deviceId || row.id || row.vehicleId || label}`,
+          deviceId: row.deviceId || row.id || null,
+          vehicleId: row.vehicleId || null,
+          vehicleLabel: row.vehicle?.name || row.plate || null,
+          plate: row.vehicle?.plate || row.plate || null,
+          createdAt:
+            position?.serverTime ||
+            position?.deviceTime ||
+            position?.fixTime ||
+            position?.time ||
+            row?.lastUpdate ||
+            new Date().toISOString(),
+          eventLabel: label,
+          address: position?.address || row?.address || null,
+        };
+      })
+      .filter(Boolean);
+  }, [canAccessMonitoring, decoratedTable]);
   const alertRows = useMemo(() => {
     const base = Array.isArray(effectivePendingAlerts) ? effectivePendingAlerts : [];
-    if (!telemetryAlert || !canAccessAlerts) return base;
-    return [telemetryAlert, ...base];
-  }, [canAccessAlerts, effectivePendingAlerts, telemetryAlert]);
-  const conjugatedAlertRows = useMemo(() => effectiveConjugatedAlerts, [effectiveConjugatedAlerts]);
+    const seen = new Set(
+      base.map((alert) => String(alert?.deviceId || alert?.vehicleId || alert?.id || "")),
+    );
+    const fallback = (monitoringAlertFallback || []).filter((entry) => {
+      const key = String(entry?.deviceId || entry?.vehicleId || entry?.id || "");
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const merged = [...base, ...fallback];
+    if (!telemetryAlert || !canAccessAlerts) return merged;
+    return [telemetryAlert, ...merged];
+  }, [canAccessAlerts, effectivePendingAlerts, monitoringAlertFallback, telemetryAlert]);
+  const conjugatedAlertRows = useMemo(
+    () => (Array.isArray(effectiveConjugatedAlerts) ? effectiveConjugatedAlerts : []),
+    [effectiveConjugatedAlerts],
+  );
+
+  const [conjugatedPopupOpen, setConjugatedPopupOpen] = useState(false);
+  const [conjugatedHandlingNote, setConjugatedHandlingNote] = useState("");
+  const [conjugatedHandlingError, setConjugatedHandlingError] = useState(null);
+  const [conjugatedHandlingLoading, setConjugatedHandlingLoading] = useState(false);
+  const conjugatedReminderRef = useRef(null);
+
+  const unresolvedConjugatedAlerts = useMemo(
+    () => conjugatedAlertRows.filter((row) => !row?.resolved),
+    [conjugatedAlertRows],
+  );
+
+  useEffect(() => {
+    if (!canAccessMonitoring) return;
+    if (unresolvedConjugatedAlerts.length === 0) {
+      setConjugatedPopupOpen(false);
+      return;
+    }
+    setConjugatedPopupOpen(true);
+  }, [canAccessMonitoring, unresolvedConjugatedAlerts.length]);
+
+  useEffect(() => {
+    if (!canAccessMonitoring || unresolvedConjugatedAlerts.length === 0) {
+      if (conjugatedReminderRef.current) {
+        clearInterval(conjugatedReminderRef.current);
+        conjugatedReminderRef.current = null;
+      }
+      return;
+    }
+    if (conjugatedReminderRef.current) {
+      clearInterval(conjugatedReminderRef.current);
+    }
+    conjugatedReminderRef.current = setInterval(() => {
+      if (unresolvedConjugatedAlerts.length === 0) return;
+      setConjugatedPopupOpen(true);
+    }, 180_000);
+    return () => {
+      if (conjugatedReminderRef.current) {
+        clearInterval(conjugatedReminderRef.current);
+        conjugatedReminderRef.current = null;
+      }
+    };
+  }, [canAccessMonitoring, unresolvedConjugatedAlerts.length]);
+
+  useEffect(() => {
+    if (!conjugatedPopupOpen) {
+      setConjugatedHandlingError(null);
+    }
+  }, [conjugatedPopupOpen]);
+
+  const handleResolveConjugatedAlerts = useCallback(async () => {
+    if (conjugatedHandlingLoading) return;
+    const note = conjugatedHandlingNote.trim();
+    if (!note) {
+      setConjugatedHandlingError("Informe uma observação para concluir a tratativa.");
+      return;
+    }
+    if (unresolvedConjugatedAlerts.length === 0) return;
+
+    setConjugatedHandlingLoading(true);
+    setConjugatedHandlingError(null);
+    try {
+      const results = await Promise.allSettled(
+        unresolvedConjugatedAlerts.map((row) =>
+          safeApi.patch(API_ROUTES.eventResolve(row.id), {
+            notes: note,
+            vehicleId: row.vehicleId ?? null,
+            deviceId: row.deviceId ?? null,
+          }),
+        ),
+      );
+      const failed = results.filter(
+        (result) => result.status === "rejected" || result.value?.error,
+      );
+      if (failed.length) {
+        throw new Error("Não foi possível registrar todas as tratativas.");
+      }
+      setConjugatedHandlingNote("");
+      setConjugatedPopupOpen(false);
+      refreshConjugatedAlerts?.();
+    } catch (error) {
+      const message = error?.message || "Falha ao salvar tratativa.";
+      setConjugatedHandlingError(message);
+    } finally {
+      setConjugatedHandlingLoading(false);
+    }
+  }, [
+    conjugatedHandlingLoading,
+    conjugatedHandlingNote,
+    refreshConjugatedAlerts,
+    unresolvedConjugatedAlerts,
+  ]);
 
 
   const renderCommunicationSummary = (expanded = false) => (
@@ -601,6 +835,17 @@ export default function Home() {
               ))}
             </tbody>
           </table>
+          {communicationSource.loading && (
+            <div className="mt-3 text-xs text-white/50">Carregando dados de comunicação…</div>
+          )}
+          {!communicationSource.loading && communicationStats.totalWithData === 0 && (
+            <div className="mt-3 text-xs text-white/50">Sem dados no período.</div>
+          )}
+          {!communicationSource.loading && communicationStats.missingCount > 0 && communicationStats.totalWithData > 0 && (
+            <div className="mt-3 text-xs text-white/50">
+              {communicationStats.missingCount} veículo(s) sem registro de comunicação.
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -755,7 +1000,7 @@ export default function Home() {
         <div className="py-6">
           <DataState state="info" tone="muted" title="Sem permissão para ver alertas conjugados" />
         </div>
-      ) : conjugatedAlertRows.length === 0 ? (
+      ) : unresolvedConjugatedAlerts.length === 0 ? (
         <div className="py-6">
           <DataState state="empty" tone="muted" title="Nenhum alerta crítico nas últimas 5 horas" />
         </div>
@@ -772,7 +1017,7 @@ export default function Home() {
               </tr>
             </thead>
             <tbody>
-              {conjugatedAlertRows.slice(0, expanded ? conjugatedAlertRows.length : 8).map((row) => (
+              {unresolvedConjugatedAlerts.slice(0, expanded ? unresolvedConjugatedAlerts.length : 8).map((row) => (
                 <tr
                   key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
@@ -788,8 +1033,8 @@ export default function Home() {
                   </td>
                   <td className="py-2 pr-4 text-white/70">{formatDate(row.eventTime, locale)}</td>
                   <td className="py-2 pr-4 text-white/70">{row.eventLabel || "—"}</td>
-                  <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
-                  <td className="py-2 pr-4 text-white/70">{row.severity || "Crítica"}</td>
+                    <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
+                    <td className="py-2 pr-4 text-white/70">{row.severity || "Crítica"}</td>
                 </tr>
               ))}
             </tbody>
@@ -817,6 +1062,85 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
+      {conjugatedPopupOpen && unresolvedConjugatedAlerts.length > 0 && (
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-4xl rounded-2xl border border-red-500/40 bg-[#0f141c] text-white shadow-3xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-red-300">Alerta conjugado</p>
+                <h2 className="text-lg font-semibold">Atenção: alertas críticos ativos</h2>
+                <p className="text-xs text-white/60">
+                  Este alerta reaparecerá a cada 3 minutos até ser tratado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConjugatedPopupOpen(false)}
+                className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
+              >
+                Fechar
+              </button>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
+              <div className="space-y-3">
+                {unresolvedConjugatedAlerts.map((row) => (
+                  <div key={row.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-white">
+                          {row.vehicleLabel || row.plate || row.vehicleId || "Veículo"}
+                        </div>
+                        <div className="text-xs text-white/60">
+                          {formatDate(row.eventTime, locale)} · {row.eventLabel || "Evento crítico"}
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-red-400/40 bg-red-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-red-200">
+                        {row.severity || "Crítica"}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-xs text-white/60">{formatAddress(row.address) || "Endereço indisponível"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="border-t border-white/10 px-6 py-4">
+              <label className="text-xs uppercase tracking-[0.12em] text-white/50">
+                Observação obrigatória
+              </label>
+              <textarea
+                value={conjugatedHandlingNote}
+                onChange={(event) => {
+                  setConjugatedHandlingNote(event.target.value);
+                  if (conjugatedHandlingError) setConjugatedHandlingError(null);
+                }}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                rows={3}
+                placeholder="Descreva a tratativa aplicada."
+              />
+              {conjugatedHandlingError && (
+                <p className="mt-2 text-xs text-red-200/80">{conjugatedHandlingError}</p>
+              )}
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConjugatedPopupOpen(false)}
+                  className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResolveConjugatedAlerts}
+                  disabled={conjugatedHandlingLoading}
+                  className="rounded-lg border border-red-500/40 bg-red-500/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-red-100 hover:border-red-400/60 disabled:opacity-60"
+                >
+                  {conjugatedHandlingLoading ? "Salvando..." : "Concluir tratativa"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <PageHeader />
       {mirrorPartial && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
@@ -854,7 +1178,7 @@ export default function Home() {
         />
         <StatCard
           title="Alertas conjugados"
-          value={!canAccessMonitoring ? "—" : effectiveConjugatedLoading ? "…" : conjugatedAlertRows.length}
+          value={!canAccessMonitoring ? "—" : effectiveConjugatedLoading ? "…" : unresolvedConjugatedAlerts.length}
           hint="Alertas graves/críticos nas últimas 5 horas"
           variant="alert"
           onClick={canAccessMonitoring ? () => setSelectedCard("critical") : undefined}
@@ -870,7 +1194,7 @@ export default function Home() {
 function StatCard({ title, value, hint, variant = "default", onClick }) {
   const palette = {
     default: "bg-[#12161f] border border-white/5",
-    alert: "bg-red-500/10 border border-red-500/30",
+    alert: "alert-card",
   };
 
   return (
@@ -952,28 +1276,105 @@ function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()
   return { totalWithRoute, withoutSignal, withSignal, routeDelay, routeDeviation, blocked };
 }
 
-function buildOfflineBuckets(table = []) {
-  const now = Date.now();
-  const offlineVehicles = table.filter((item) => item.status === "offline" || item.status === "blocked");
+function resolveCommunicationTimestamp(entry) {
+  if (!entry) return null;
+  const device = entry.device || entry;
+  const vehicle = entry.vehicle || null;
+  const position = entry.position || device?.lastPosition || device?.position || null;
+  const candidate =
+    position?.serverTime ||
+    position?.deviceTime ||
+    position?.fixTime ||
+    position?.gpsTime ||
+    position?.time ||
+    device?.lastCommunication ||
+    device?.lastUpdate ||
+    device?.traccar?.lastUpdate ||
+    vehicle?.lastCommunication ||
+    vehicle?.lastUpdate ||
+    entry?.lastUpdate ||
+    null;
 
-  const withLast = offlineVehicles.map((vehicle) => {
-    const lastUpdate = vehicle.lastUpdate ? Date.parse(vehicle.lastUpdate) : null;
-    const minutes = lastUpdate ? (now - lastUpdate) / (1000 * 60) : Infinity;
-    return { ...vehicle, offlineMinutes: minutes };
-  });
+  if (!candidate) return null;
+  const ts = typeof candidate === "number" ? candidate : Date.parse(candidate);
+  return Number.isFinite(ts) ? ts : null;
+}
 
-  return COMMUNICATION_BUCKETS.map((bucket) => ({
+function resolveCommunicationClientId(entry) {
+  const device = entry?.device || entry || {};
+  const vehicle = entry?.vehicle || null;
+  return (
+    entry?.clientId ||
+    device?.clientId ||
+    device?.tenantId ||
+    vehicle?.clientId ||
+    vehicle?.tenantId ||
+    vehicle?.client?.id ||
+    entry?.tenantId ||
+    null
+  );
+}
+
+function resolveCommunicationKey(entry) {
+  const device = entry?.device || entry || {};
+  return (
+    entry?.id ||
+    entry?.deviceId ||
+    entry?.uniqueId ||
+    device?.traccarId ||
+    device?.deviceId ||
+    device?.id ||
+    device?.uniqueId ||
+    null
+  );
+}
+
+function buildCommunicationBuckets(entries = [], { now = Date.now(), dedupeByClient = false } = {}) {
+  const buckets = COMMUNICATION_BUCKETS.map((bucket) => ({
     label: bucket.label,
     filterKey: bucket.key,
-    vehicles: withLast.filter(
-      (vehicle) => vehicle.offlineMinutes >= bucket.minMinutes && vehicle.offlineMinutes < bucket.maxMinutes,
-    ),
+    vehicles: [],
+    minMinutes: bucket.minMinutes,
+    maxMinutes: bucket.maxMinutes,
   }));
+  const missing = [];
+  const seen = new Set();
+
+  (Array.isArray(entries) ? entries : []).forEach((entry, index) => {
+    const clientId = resolveCommunicationClientId(entry);
+    const key = resolveCommunicationKey(entry) ?? `row-${index}`;
+    const compositeKey = dedupeByClient ? `${clientId ?? "unknown"}:${key}` : String(key);
+    if (seen.has(compositeKey)) return;
+    seen.add(compositeKey);
+
+    const ts = resolveCommunicationTimestamp(entry);
+    if (!ts) {
+      missing.push(entry);
+      return;
+    }
+    const minutes = Math.max(0, (now - ts) / (1000 * 60));
+    const bucket = buckets.find((item) => minutes >= item.minMinutes && minutes < item.maxMinutes) || buckets[buckets.length - 1];
+    bucket.vehicles.push(entry);
+  });
+
+  return {
+    buckets,
+    missingCount: missing.length,
+    total: seen.size,
+    totalWithData: Math.max(0, seen.size - missing.length),
+  };
 }
 
 function percentage(value, total) {
-  if (!total) return "0%";
-  return `${Math.round((Number(value || 0) / total) * 100)}%`;
+  if (!total) return "0";
+  return String(Math.round((Number(value || 0) / total) * 100));
+}
+
+function normalizeAlertLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Alerta ativo";
+  const normalized = raw.replace(/[_]+/g, " ").toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function formatDate(value, locale = "pt-BR") {

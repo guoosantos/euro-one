@@ -5,7 +5,7 @@ import { loadCollection, saveCollection } from "../services/storage.js";
 const STORAGE_KEY = "xdm_deployments";
 const deployments = loadCollection(STORAGE_KEY, []);
 
-const ACTIVE_STATUSES = new Set(["QUEUED", "SYNCING", "DEPLOYING"]);
+const ACTIVE_STATUSES = new Set(["QUEUED", "SYNCING", "DEPLOYING", "STARTED", "RUNNING"]);
 
 function clone(record) {
   if (!record) return null;

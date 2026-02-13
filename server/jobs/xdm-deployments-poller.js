@@ -1,20 +1,42 @@
 import { listDeploymentsByStatus, updateDeployment, appendDeploymentLog } from "../models/xdm-deployment.js";
+import { resolveDeviceConfirmationStatus } from "../services/xdm/deployment-confirmation.js";
 import XdmClient from "../services/xdm/xdm-client.js";
 
 const POLL_INTERVAL_MS = Number(process.env.XDM_DEPLOYMENT_POLL_INTERVAL_MS) || 10_000;
 const TIMEOUT_MS = Number(process.env.XDM_DEPLOYMENT_TIMEOUT_MS) || 15 * 60_000;
+const CONFIRM_TIMEOUT_MS = Number(process.env.XDM_DEPLOYMENT_CONFIRM_TIMEOUT_MS) || 6 * 60 * 60_000;
+const ACTIVE_DEPLOYMENT_STATUSES = ["QUEUED", "SYNCING", "DEPLOYING", "STARTED", "RUNNING"];
+const AWAITING_CONFIRMATION_STATUSES = ["DEPLOYED", "CLEARED"];
+const TERMINAL_STATUSES = new Set(["FAILED", "TIMEOUT", "CONFIRMED"]);
 
-function isFinalStatus(status) {
-  return status === "DEPLOYED" || status === "FAILED" || status === "TIMEOUT";
+function isAwaitingConfirmationStatus(status) {
+  return AWAITING_CONFIRMATION_STATUSES.includes(String(status || "").toUpperCase());
 }
 
 function mapRolloutStatus(status) {
   if (!status) return null;
   const value = String(status).toLowerCase();
-  if (value.includes("finished") || value.includes("completed") || value.includes("success")) {
+  if (
+    value.includes("finished") ||
+    value.includes("completed") ||
+    value.includes("success") ||
+    value.includes("applied") ||
+    value.includes("confirmed") ||
+    value.includes("deployed") ||
+    value.includes("cleared")
+  ) {
     return "DEPLOYED";
   }
-  if (value.includes("failed") || value.includes("canceled") || value.includes("terminated")) {
+  if (
+    value.includes("failed") ||
+    value.includes("error") ||
+    value.includes("invalid") ||
+    value.includes("rejected") ||
+    value.includes("timeout") ||
+    value.includes("canceled") ||
+    value.includes("cancelled") ||
+    value.includes("terminated")
+  ) {
     return "FAILED";
   }
   return null;
@@ -54,19 +76,67 @@ async function fetchRolloutStatus({ rolloutId, correlationId }) {
   return mapRolloutStatus(response?.status || response?.state || response?.metadata);
 }
 
+async function fetchDeviceConfirmation({ deviceUid, correlationId, startedAt }) {
+  if (!deviceUid) return null;
+  const normalizedUid = String(deviceUid).trim();
+  const xdmClient = new XdmClient();
+  let details = null;
+  try {
+    details = await xdmClient.request(
+      "GET",
+      `/api/external/v3/devicesSdk/${normalizedUid}/details`,
+      null,
+      { correlationId },
+    );
+  } catch (error) {
+    try {
+      details = await xdmClient.request(
+        "GET",
+        `/api/external/v1/devicesSdk/${normalizedUid}/details`,
+        null,
+        { correlationId },
+      );
+    } catch (fallbackError) {
+      console.warn("[xdm] falha ao consultar confirmação no devicesSdk", {
+        correlationId,
+        deviceUid: normalizedUid,
+        message: fallbackError?.message || fallbackError,
+      });
+      return null;
+    }
+  }
+  return resolveDeviceConfirmationStatus({ details, startedAt });
+}
+
 async function pollDeploymentStatus() {
-  const deployments = listDeploymentsByStatus(["DEPLOYING"]);
+  const activeDeployments = listDeploymentsByStatus(ACTIVE_DEPLOYMENT_STATUSES);
+  const awaitingConfirmations = listDeploymentsByStatus(AWAITING_CONFIRMATION_STATUSES).filter(
+    (deployment) => !deployment?.confirmedAt && !deployment?.deviceConfirmedAt,
+  );
+  const deployments = [...activeDeployments, ...awaitingConfirmations];
   if (!deployments.length) return;
 
   for (const deployment of deployments) {
-    if (isFinalStatus(deployment.status)) continue;
+    const deploymentStatus = String(deployment.status || "").toUpperCase();
+    if (TERMINAL_STATUSES.has(deploymentStatus)) continue;
 
-    const startedAt = new Date(deployment.startedAt || 0).getTime();
-    if (Number.isFinite(startedAt) && Date.now() - startedAt > TIMEOUT_MS) {
+    const startedAtMs = new Date(deployment.startedAt || 0).getTime();
+    const nowIso = new Date().toISOString();
+    const providerCheckAttempts = Number(deployment.providerCheckAttempts || 0) + 1;
+    const baseCheckFields = {
+      lastProviderCheckAt: nowIso,
+      providerCheckAttempts,
+    };
+
+    const maxWaitMs = isAwaitingConfirmationStatus(deploymentStatus) ? CONFIRM_TIMEOUT_MS : TIMEOUT_MS;
+    if (Number.isFinite(startedAtMs) && Date.now() - startedAtMs > maxWaitMs) {
       updateDeployment(deployment.id, {
+        ...baseCheckFields,
         status: "TIMEOUT",
-        finishedAt: new Date().toISOString(),
-        errorMessage: "Timeout ao aguardar deploy",
+        finishedAt: nowIso,
+        errorMessage: isAwaitingConfirmationStatus(deploymentStatus)
+          ? "Timeout ao aguardar confirmação do equipamento"
+          : "Timeout ao aguardar deploy",
       });
       appendDeploymentLog(deployment.id, { step: "POLL_STATUS", status: "timeout" });
       continue;
@@ -75,23 +145,102 @@ async function pollDeploymentStatus() {
     const correlationId = deployment.correlationId || deployment.id;
     const deviceUid = deployment.deviceImei;
     const rolloutId = deployment.xdmDeploymentId;
+    let currentStatus = deploymentStatus;
 
-    let status = await fetchDeviceState({ rolloutId, deviceUid, correlationId });
-    if (!status) {
-      status = await fetchRolloutStatus({ rolloutId, correlationId });
+    if (ACTIVE_DEPLOYMENT_STATUSES.includes(deploymentStatus)) {
+      let rolloutStatus = await fetchDeviceState({ rolloutId, deviceUid, correlationId });
+      if (!rolloutStatus) {
+        rolloutStatus = await fetchRolloutStatus({ rolloutId, correlationId });
+      }
+
+      if (!rolloutStatus) {
+        updateDeployment(deployment.id, baseCheckFields);
+        appendDeploymentLog(deployment.id, { step: "POLL_STATUS", status: "pending" });
+      } else {
+        const normalizedStatus =
+          deployment?.action === "DISEMBARK" && rolloutStatus === "DEPLOYED" ? "CLEARED" : rolloutStatus;
+        const rolloutUpdates = {
+          ...baseCheckFields,
+          status: normalizedStatus,
+          finishedAt: normalizedStatus === "FAILED" ? nowIso : deployment.finishedAt || null,
+          errorMessage: normalizedStatus === "FAILED" ? "Falha no deploy" : null,
+        };
+        updateDeployment(deployment.id, rolloutUpdates);
+        appendDeploymentLog(deployment.id, { step: "POLL_STATUS", status: normalizedStatus });
+        currentStatus = normalizedStatus;
+        if (normalizedStatus === "FAILED") {
+          continue;
+        }
+      }
+    } else {
+      updateDeployment(deployment.id, baseCheckFields);
     }
 
-    if (!status) {
-      appendDeploymentLog(deployment.id, { step: "POLL_STATUS", status: "pending" });
+    if (!isAwaitingConfirmationStatus(currentStatus)) {
       continue;
     }
 
-    updateDeployment(deployment.id, {
-      status,
-      finishedAt: new Date().toISOString(),
-      errorMessage: status === "DEPLOYED" ? null : "Falha no deploy",
+    const confirmation = await fetchDeviceConfirmation({
+      deviceUid,
+      correlationId,
+      startedAt: deployment.startedAt || null,
     });
-    appendDeploymentLog(deployment.id, { step: "POLL_STATUS", status });
+    if (!confirmation) {
+      appendDeploymentLog(deployment.id, {
+        step: "POLL_CONFIRMATION",
+        status: "pending",
+        reason: "provider_unavailable",
+      });
+      continue;
+    }
+
+    const confirmationFields = {
+      providerConfirmationState: confirmation.state || null,
+      providerConfirmedAt:
+        confirmation.confirmedAt ||
+        (Number.isFinite(confirmation.updateMs) ? new Date(confirmation.updateMs).toISOString() : null),
+    };
+
+    if (confirmation.status === "failed") {
+      updateDeployment(deployment.id, {
+        ...confirmationFields,
+        status: "FAILED",
+        finishedAt: nowIso,
+        errorMessage: "Falha na atualização do equipamento",
+        errorDetails: confirmation.state || null,
+      });
+      appendDeploymentLog(deployment.id, {
+        step: "POLL_CONFIRMATION",
+        status: "failed",
+        providerState: confirmation.state || null,
+      });
+      continue;
+    }
+
+    if (confirmation.status === "confirmed" && confirmation.confirmedAt) {
+      updateDeployment(deployment.id, {
+        ...confirmationFields,
+        status: "CONFIRMED",
+        confirmedAt: confirmation.confirmedAt,
+        deviceConfirmedAt: confirmation.confirmedAt,
+        finishedAt: confirmation.confirmedAt,
+        errorMessage: null,
+      });
+      appendDeploymentLog(deployment.id, {
+        step: "POLL_CONFIRMATION",
+        status: "confirmed",
+        providerState: confirmation.state || null,
+        confirmedAt: confirmation.confirmedAt,
+      });
+      continue;
+    }
+
+    updateDeployment(deployment.id, confirmationFields);
+    appendDeploymentLog(deployment.id, {
+      step: "POLL_CONFIRMATION",
+      status: "pending",
+      providerState: confirmation.state || null,
+    });
   }
 }
 

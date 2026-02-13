@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import Button from "../ui/Button";
+import Input from "../ui/Input";
+import Select from "../ui/Select";
 import { CoreApi } from "../lib/coreApi.js";
+import api from "../lib/api.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 import safeApi from "../lib/safe-api.js";
@@ -20,6 +23,7 @@ import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import { usePageToast } from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
+import { buildPortList } from "../lib/device-ports.js";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -220,8 +224,9 @@ function AdminBindingsTab({
 
 export default function VehicleDetailsPage() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const { tenantId, tenantScope, user, tenants, setTenantId } = useTenant();
+  const { tenantId, tenantScope, user, tenants, switchClientAndReset } = useTenant();
   const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
   const { confirmDelete } = useConfirmDialog();
   const { isAdminGeneral } = useAdminGeneralAccess();
@@ -229,10 +234,16 @@ export default function VehicleDetailsPage() {
   const [vehicle, setVehicle] = useState(null);
   const [devices, setDevices] = useState([]);
   const [chips, setChips] = useState([]);
+  const [models, setModels] = useState([]);
   const [vehicleAttributes, setVehicleAttributes] = useState([]);
   const [clients, setClients] = useState([]);
+  const [serviceOrders, setServiceOrders] = useState([]);
+  const [serviceOrdersLoading, setServiceOrdersLoading] = useState(false);
+  const [serviceOrdersError, setServiceOrdersError] = useState(null);
+  const [serviceOrdersPage, setServiceOrdersPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingPorts, setSavingPorts] = useState(false);
   const [error, setError] = useState(null);
   const [accessDenied, setAccessDenied] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -241,21 +252,69 @@ export default function VehicleDetailsPage() {
   const [chipDeviceId, setChipDeviceId] = useState("");
   const [activeTab, setActiveTab] = useState("resumo");
   const [equipmentTab, setEquipmentTab] = useState("equipamentos");
+  const [vehiclePortLabels, setVehiclePortLabels] = useState({});
   const [lastPositionAddress, setLastPositionAddress] = useState(null);
   const [lastPositionLoading, setLastPositionLoading] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  const [historyType, setHistoryType] = useState("all");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
   const geocodeCacheRef = useRef(new Map());
+  const serviceOrdersPageSize = 6;
+  const historyPageSize = 8;
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const isMirrorContextActive = Boolean(user?.activeMirrorOwnerClientId);
 
-  const trackedDeviceIds = useMemo(() => {
+  const linkedDeviceCandidates = useMemo(() => {
     if (!vehicle) return [];
-    const list = Array.isArray(vehicle.devices) ? vehicle.devices : [];
-    return list
-      .map((item) => toDeviceKey(item.traccarId ?? item.id ?? item.uniqueId))
-      .filter(Boolean);
-  }, [vehicle]);
+    const vehicleId = vehicle?.id ? String(vehicle.id) : null;
+    const deduped = new Map();
+
+    const pushDevice = (device) => {
+      if (!device) return;
+      const key = toDeviceKey(device.traccarId ?? device.id ?? device.uniqueId);
+      if (!key || deduped.has(key)) return;
+      deduped.set(key, { ...device, __deviceKey: key });
+    };
+
+    if (vehicleId && Array.isArray(devices)) {
+      devices.forEach((device) => {
+        if (device?.vehicleId && String(device.vehicleId) === vehicleId) {
+          pushDevice(device);
+        }
+      });
+    }
+
+    if (vehicle?.deviceId && Array.isArray(devices)) {
+      const byId = devices.find((device) => String(device?.id) === String(vehicle.deviceId));
+      pushDevice(byId);
+    }
+
+    if (Array.isArray(vehicle?.devices)) {
+      vehicle.devices.forEach(pushDevice);
+    }
+    if (vehicle?.device) {
+      pushDevice(vehicle.device);
+    }
+    if (vehicle?.primaryDevice) {
+      pushDevice(vehicle.primaryDevice);
+    }
+
+    return Array.from(deduped.values());
+  }, [devices, vehicle]);
+
+  const trackedDeviceIds = useMemo(
+    () =>
+      linkedDeviceCandidates
+        .map((item) => item.__deviceKey || toDeviceKey(item.traccarId ?? item.id ?? item.uniqueId))
+        .filter(Boolean),
+    [linkedDeviceCandidates],
+  );
 
   const { getDevicePosition, getDeviceStatus, getDeviceLastSeen, getDeviceCoordinates } = useTraccarDevices({
     deviceIds: trackedDeviceIds,
@@ -305,6 +364,16 @@ export default function VehicleDetailsPage() {
     return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
   }, [lastPositionInfo.timestamp]);
 
+  const formatServiceOrderDate = useCallback((value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  }, []);
+
   useEffect(() => {
     const { lat, lng } = lastPositionInfo;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -350,8 +419,7 @@ export default function VehicleDetailsPage() {
   }, [lastPositionInfo]);
 
   const linkedDevices = useMemo(() => {
-    const list = Array.isArray(vehicle?.devices) ? vehicle.devices : [];
-    return list
+    return linkedDeviceCandidates
       .map((device) => {
         const position = getDevicePosition(device) || {};
         const lastSeen = getDeviceLastSeen(device, position);
@@ -364,7 +432,31 @@ export default function VehicleDetailsPage() {
         const bTime = b.lastUpdate ? new Date(b.lastUpdate).getTime() : 0;
         return bTime - aTime;
       });
-  }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, vehicle]);
+  }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, linkedDeviceCandidates]);
+
+  const modelById = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(models) ? models : []).forEach((model) => {
+      if (model?.id) {
+        map.set(String(model.id), model);
+      }
+    });
+    return map;
+  }, [models]);
+
+  const primaryDevice = linkedDevices[0] || null;
+  const primaryModelId = primaryDevice?.modelId || primaryDevice?.attributes?.modelId || null;
+  const primaryModel = primaryModelId ? modelById.get(String(primaryModelId)) : null;
+  const vehiclePortList = useMemo(
+    () =>
+      buildPortList({
+        model: primaryModel,
+        telemetry: primaryDevice?.position?.attributes || {},
+        deviceLabels: primaryDevice?.attributes?.portLabels || {},
+        vehicleLabels: vehiclePortLabels || {},
+      }),
+    [primaryDevice?.attributes?.portLabels, primaryDevice?.position?.attributes, primaryModel, vehiclePortLabels],
+  );
 
   useEffect(() => {
     if (!linkedDevices.length) {
@@ -508,15 +600,17 @@ export default function VehicleDetailsPage() {
     try {
       const params = resolvedClientId ? { clientId: resolvedClientId } : {};
       params.accessible = true;
+      params.skipPositions = true;
       if (isAdmin) {
         params.includeUnlinked = true;
       } else {
         params.onlyLinked = true;
       }
-      const [vehicleList, deviceList, chipList, clientList, attributeList] = await Promise.all([
+      const [vehicleList, deviceList, chipList, modelList, clientList, attributeList] = await Promise.all([
         CoreApi.listVehicles(params),
         CoreApi.listDevices(params),
         CoreApi.listChips(params),
+        CoreApi.models(resolvedClientId ? { clientId: resolvedClientId, includeGlobal: true } : undefined),
         isAdmin
           ? safeApi.get(API_ROUTES.clients).then(({ data }) => data?.clients || [])
           : Promise.resolve([]),
@@ -525,6 +619,7 @@ export default function VehicleDetailsPage() {
       setVehicle(vehicleList.find((item) => String(item.id) === String(id)) || null);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
       setChips(Array.isArray(chipList) ? chipList : []);
+      setModels(Array.isArray(modelList) ? modelList : []);
       setClients(Array.isArray(clientList) ? clientList : []);
       setVehicleAttributes(Array.isArray(attributeList) ? attributeList : []);
     } catch (requestError) {
@@ -533,6 +628,7 @@ export default function VehicleDetailsPage() {
         setVehicle(null);
         setDevices([]);
         setChips([]);
+        setModels([]);
         setClients([]);
         setVehicleAttributes([]);
         setFeedback(null);
@@ -553,10 +649,10 @@ export default function VehicleDetailsPage() {
       tenants.find((item) => String(item.id) !== String(tenantId)) ||
       tenants[0];
     if (nextTenant) {
-      setTenantId(nextTenant.id ?? null);
+      switchClientAndReset({ nextTenantId: nextTenant.id ?? null });
     }
     navigate("/vehicles");
-  }, [navigate, setTenantId, tenantId, tenants]);
+  }, [navigate, switchClientAndReset, tenantId, tenants]);
 
   const handleLinkDevice = async (deviceId) => {
     if (!vehicle || !deviceId) return;
@@ -611,6 +707,55 @@ export default function VehicleDetailsPage() {
     loadData();
   }, [resolvedClientId, id]);
 
+  useEffect(() => {
+    setVehiclePortLabels(vehicle?.attributes?.portLabels || {});
+  }, [vehicle?.id, vehicle?.attributes?.portLabels]);
+
+  const loadServiceOrders = useCallback(async () => {
+    if (!vehicle?.id) return;
+    setServiceOrdersLoading(true);
+    setServiceOrdersError(null);
+    try {
+      const params = {
+        vehicleId: vehicle.id,
+        clientId: resolvedClientId || vehicle.clientId || undefined,
+      };
+      const response = await api.get("core/service-orders", { params });
+      const list = Array.isArray(response?.data?.items) ? response.data.items : [];
+      setServiceOrders(list);
+      setServiceOrdersPage(1);
+    } catch (requestError) {
+      console.error("Falha ao carregar ordens de serviço do veículo", requestError);
+      setServiceOrders([]);
+      setServiceOrdersError(new Error("Não foi possível carregar as ordens de serviço."));
+    } finally {
+      setServiceOrdersLoading(false);
+    }
+  }, [resolvedClientId, vehicle?.clientId, vehicle?.id]);
+
+  const loadHistory = useCallback(async () => {
+    if (!vehicle?.id) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const params = {
+        clientId: resolvedClientId || vehicle.clientId || undefined,
+        ...(historyFrom ? { from: historyFrom } : {}),
+        ...(historyTo ? { to: historyTo } : {}),
+      };
+      const response = await CoreApi.getVehicleHistory(vehicle.id, params);
+      const list = response?.data || response?.items || response?.events || response || [];
+      setHistoryEntries(Array.isArray(list) ? list : []);
+      setHistoryPage(1);
+    } catch (requestError) {
+      console.error("Falha ao carregar histórico do veículo", requestError);
+      setHistoryEntries([]);
+      setHistoryError(new Error("Não foi possível carregar o histórico."));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyFrom, historyTo, resolvedClientId, vehicle?.clientId, vehicle?.id]);
+
   const handleSaveVehicle = async (payload) => {
     if (!vehicle) return;
     const clientId = payload.clientId || vehicle.clientId || resolvedClientId;
@@ -627,6 +772,29 @@ export default function VehicleDetailsPage() {
       reportError(requestError, "Falha ao salvar veículo");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveVehiclePorts = async () => {
+    if (!vehicle) return;
+    const clientId = resolvedClientId || vehicle.clientId;
+    if (!clientId) {
+      reportError("Selecione o cliente antes de salvar as portas");
+      return;
+    }
+    setSavingPorts(true);
+    try {
+      const nextAttributes = {
+        ...(vehicle.attributes || {}),
+        portLabels: vehiclePortLabels || {},
+      };
+      await CoreApi.updateVehicle(vehicle.id, { clientId, attributes: nextAttributes });
+      await loadData();
+      reportSuccess("Portas do veículo atualizadas.");
+    } catch (requestError) {
+      reportError(requestError, "Falha ao salvar portas do veículo");
+    } finally {
+      setSavingPorts(false);
     }
   };
 
@@ -696,13 +864,274 @@ export default function VehicleDetailsPage() {
     const baseTabs = [
       { id: "resumo", label: "Resumo" },
       { id: "equipamentos", label: "Equipamentos" },
+      { id: "configuracao", label: "Configuração do Veículo" },
       { id: "os", label: "Ordens de Serviço" },
+      { id: "historico", label: "Histórico" },
     ];
     if (isAdmin) {
       baseTabs.push({ id: "admin", label: "Editar" });
     }
     return baseTabs;
   }, [isAdmin]);
+
+  const historyTypeOptions = useMemo(
+    () => [
+      { value: "all", label: "Todos" },
+      { value: "vinculo", label: "Vínculos" },
+      { value: "tratativa", label: "Tratativas" },
+      { value: "veiculo", label: "Alterações" },
+      { value: "outro", label: "Outros" },
+    ],
+    [],
+  );
+
+  const normalizeHistoryType = useCallback((entry) => {
+    const action = String(entry?.action || "").toUpperCase();
+    if (String(entry?.category || "") === "alert-handling") return "tratativa";
+    if (action.includes("VINCULAR") || action.includes("DESVINCULAR")) return "vinculo";
+    if (String(entry?.category || "") === "vehicle") return "veiculo";
+    return "outro";
+  }, []);
+
+  const normalizedHistoryEntries = useMemo(() => {
+    const list = Array.isArray(historyEntries) ? historyEntries : [];
+    return list
+      .map((entry) => {
+        const timestamp = entry?.sentAt || entry?.respondedAt || entry?.createdAt || null;
+        const type = normalizeHistoryType(entry);
+        const handlingNotes =
+          entry?.details?.handlingNotes ||
+          entry?.details?.notes ||
+          entry?.details?.handlingAction ||
+          entry?.details?.handlingCause ||
+          null;
+        const plate = entry?.details?.plate ? `Placa: ${entry.details.plate}` : null;
+        const description = handlingNotes || plate || entry?.status || "—";
+        return {
+          ...entry,
+          __type: type,
+          __timestamp: timestamp,
+          __description: description,
+        };
+      })
+      .sort((a, b) => {
+        const aMs = a.__timestamp ? new Date(a.__timestamp).getTime() : 0;
+        const bMs = b.__timestamp ? new Date(b.__timestamp).getTime() : 0;
+        return bMs - aMs;
+      });
+  }, [historyEntries, normalizeHistoryType]);
+
+  const filteredHistoryEntries = useMemo(() => {
+    if (historyType === "all") return normalizedHistoryEntries;
+    return normalizedHistoryEntries.filter((entry) => entry.__type === historyType);
+  }, [historyType, normalizedHistoryEntries]);
+
+  const historyPageCount = useMemo(() => {
+    if (!filteredHistoryEntries.length) return 1;
+    return Math.ceil(filteredHistoryEntries.length / historyPageSize);
+  }, [filteredHistoryEntries.length, historyPageSize]);
+
+  const pagedHistoryEntries = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+    return filteredHistoryEntries.slice(start, start + historyPageSize);
+  }, [filteredHistoryEntries, historyPage, historyPageSize]);
+
+  const sortedServiceOrders = useMemo(() => {
+    if (!Array.isArray(serviceOrders)) return [];
+    return [...serviceOrders].sort((a, b) => {
+      const aDate = new Date(a?.startAt || a?.createdAt || a?.updatedAt || 0).getTime();
+      const bDate = new Date(b?.startAt || b?.createdAt || b?.updatedAt || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [serviceOrders]);
+
+  const pagedServiceOrders = useMemo(() => {
+    const start = (serviceOrdersPage - 1) * serviceOrdersPageSize;
+    return sortedServiceOrders.slice(start, start + serviceOrdersPageSize);
+  }, [serviceOrdersPage, serviceOrdersPageSize, sortedServiceOrders]);
+
+  const serviceOrdersPageCount = useMemo(() => {
+    if (!sortedServiceOrders.length) return 1;
+    return Math.ceil(sortedServiceOrders.length / serviceOrdersPageSize);
+  }, [serviceOrdersPageSize, sortedServiceOrders.length]);
+
+  useEffect(() => {
+    if (activeTab !== "os") return;
+    loadServiceOrders();
+  }, [activeTab, loadServiceOrders]);
+
+  const renderHistoryPanel = () => (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={historyType} onChange={(event) => setHistoryType(event.target.value)}>
+          {historyTypeOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+        <Input
+          type="datetime-local"
+          value={historyFrom}
+          onChange={(event) => setHistoryFrom(event.target.value)}
+        />
+        <Input
+          type="datetime-local"
+          value={historyTo}
+          onChange={(event) => setHistoryTo(event.target.value)}
+        />
+        <button
+          type="button"
+          onClick={loadHistory}
+          className="rounded-xl bg-white/10 px-4 py-2 text-xs text-white/70 transition hover:bg-white/15"
+        >
+          Atualizar
+        </button>
+      </div>
+
+      {historyError && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          {historyError.message}
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border border-white/10">
+        <DataTable>
+          <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+            <tr className="text-left">
+              <th className="px-4 py-3">Data/Hora</th>
+              <th className="px-4 py-3">Tipo</th>
+              <th className="px-4 py-3">Ação</th>
+              <th className="px-4 py-3">Usuário</th>
+              <th className="px-4 py-3">Detalhes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {historyLoading && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-sm text-white/60">
+                  Carregando histórico...
+                </td>
+              </tr>
+            )}
+            {!historyLoading && pagedHistoryEntries.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6">
+                  <EmptyState title="Nenhum histórico encontrado." />
+                </td>
+              </tr>
+            )}
+            {!historyLoading &&
+              pagedHistoryEntries.map((entry) => (
+                <tr key={entry.id} className="hover:bg-white/5">
+                  <td className="px-4 py-3 text-sm text-white/80">
+                    {formatServiceOrderDate(entry.__timestamp)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-white/70">
+                    {historyTypeOptions.find((option) => option.value === entry.__type)?.label || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-white/70">{entry.action || "—"}</td>
+                  <td className="px-4 py-3 text-sm text-white/70">
+                    {entry.user?.name || entry.user?.id || "Sistema"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-white/70">{entry.__description}</td>
+                </tr>
+              ))}
+          </tbody>
+        </DataTable>
+      </div>
+
+      {historyPageCount > 1 && (
+        <div className="flex items-center justify-between text-xs text-white/60">
+          <span>
+            Página {historyPage} de {historyPageCount}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHistoryPage((prev) => Math.max(prev - 1, 1))}
+              disabled={historyPage <= 1}
+              className="rounded-lg border border-white/10 px-3 py-1 text-white/70 transition hover:border-white/30 disabled:opacity-50"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() => setHistoryPage((prev) => Math.min(prev + 1, historyPageCount))}
+              disabled={historyPage >= historyPageCount}
+              className="rounded-lg border border-white/10 px-3 py-1 text-white/70 transition hover:border-white/30 disabled:opacity-50"
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  useEffect(() => {
+    if (activeTab === "historico") {
+      loadHistory();
+    }
+  }, [activeTab, loadHistory]);
+
+  useEffect(() => {
+    if (activeTab !== "historico") return;
+    setHistoryPage(1);
+  }, [activeTab, historyType, historyFrom, historyTo]);
+
+  useEffect(() => {
+    const normalizedPath = String(location.pathname || "");
+    const searchParams = new URLSearchParams(location.search || "");
+    const normalizeTab = (value) => String(value || "").trim().toLowerCase();
+    const tabParam = normalizeTab(searchParams.get("tab"));
+    const subTabParam = normalizeTab(
+      searchParams.get("subtab") || searchParams.get("adminTab") || searchParams.get("activeSubTab"),
+    );
+    const stateSubTab = normalizeTab(location.state?.activeSubTab || location.state?.adminTab);
+    const isLegacyEditPath = /\/(vehicles|veiculos)\/[^/]+\/(edit|editar)$/i.test(normalizedPath);
+    const isLegacyHistoryTarget =
+      tabParam === "history" ||
+      tabParam === "historico" ||
+      subTabParam === "history" ||
+      subTabParam === "historico" ||
+      stateSubTab === "history" ||
+      stateSubTab === "historico";
+    const wantsEditTab =
+      isLegacyEditPath ||
+      tabParam === "edit" ||
+      tabParam === "editar" ||
+      tabParam === "admin" ||
+      isLegacyHistoryTarget;
+
+    if (isAdmin && wantsEditTab && activeTab !== "admin") {
+      setActiveTab("admin");
+    }
+
+    const hasLegacyState = Boolean(location.state?.activeSubTab || location.state?.adminTab);
+    const legacyQueryKeys = ["tab", "subtab", "adminTab", "activeSubTab"];
+    const cleanedSearchParams = new URLSearchParams(searchParams);
+    let hasLegacyQuery = false;
+    legacyQueryKeys.forEach((key) => {
+      if (cleanedSearchParams.has(key)) {
+        cleanedSearchParams.delete(key);
+        hasLegacyQuery = true;
+      }
+    });
+
+    if (!isLegacyEditPath && !hasLegacyQuery && !hasLegacyState) return;
+
+    const canonicalBase = normalizedPath.startsWith("/veiculos/") ? "/veiculos" : "/vehicles";
+    const canonicalPath = `${canonicalBase}/${id}`;
+    const nextSearch = cleanedSearchParams.toString();
+    navigate(
+      {
+        pathname: canonicalPath,
+        search: nextSearch ? `?${nextSearch}` : "",
+      },
+      { replace: true },
+    );
+  }, [activeTab, id, isAdmin, location.pathname, location.search, location.state, navigate]);
 
   return (
     <div className="space-y-6">
@@ -1041,17 +1470,191 @@ export default function VehicleDetailsPage() {
                   </div>
                 </div>
               )}
+
+            </DataCard>
+          )}
+
+          {activeTab === "configuracao" && (
+            <DataCard className="space-y-4">
+              <div className="px-4 pt-4">
+                <h2 className="text-sm font-semibold text-white">Configuração do Veículo</h2>
+                <p className="text-xs text-white/60">Portas e parâmetros específicos do veículo.</p>
+              </div>
+              <div className="space-y-4 px-4 pb-4">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-4">
+                  <div className="text-xs uppercase tracking-[0.12em] text-white/50">Portas</div>
+                  {!primaryDevice && (
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                      Vincule um equipamento para configurar as portas deste veículo.
+                    </div>
+                  )}
+                  {primaryDevice && vehiclePortList.length === 0 && (
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                      Nenhuma porta encontrada para o equipamento vinculado.
+                    </div>
+                  )}
+                  {primaryDevice && vehiclePortList.length > 0 && (
+                    <div className="grid gap-3">
+                      {vehiclePortList.map((port) => (
+                        <div key={port.key} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs uppercase tracking-[0.12em] text-white/50">{port.key}</div>
+                            {port.stateLabel ? (
+                              <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70">
+                                {port.stateLabel}
+                              </span>
+                            ) : null}
+                          </div>
+                          <Input
+                            value={vehiclePortLabels?.[port.key] ?? port.label}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setVehiclePortLabels((current) => {
+                                const next = { ...(current || {}) };
+                                if (value.trim()) {
+                                  next[port.key] = value;
+                                } else {
+                                  delete next[port.key];
+                                }
+                                return next;
+                              });
+                            }}
+                            placeholder={port.defaultLabel}
+                            className="mt-2"
+                          />
+                          <div className="mt-2 text-xs text-white/40">Nome padrão: {port.defaultLabel}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {primaryDevice && (
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveVehiclePorts}
+                        disabled={savingPorts}
+                        className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+                      >
+                        {savingPorts ? "Salvando..." : "Salvar portas"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-white/60">
+                  Espaço reservado para outras configurações do veículo.
+                </div>
+              </div>
             </DataCard>
           )}
 
           {activeTab === "os" && (
-            <DataCard>
-              <EmptyState title="Nenhuma ordem de serviço registrada." subtitle="Crie uma nova OS para este veículo." />
+            <DataCard className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-white">Ordens de Serviço</h2>
+                <button
+                  type="button"
+                  onClick={loadServiceOrders}
+                  className="rounded-xl bg-white/10 px-3 py-2 text-xs text-white/70 transition hover:bg-white/15"
+                >
+                  Atualizar
+                </button>
+              </div>
+
+              {serviceOrdersError && (
+                <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                  {serviceOrdersError.message}
+                </div>
+              )}
+
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <DataTable>
+                  <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+                    <tr className="text-left">
+                      <th className="px-4 py-3">OS</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Técnico</th>
+                      <th className="px-4 py-3">Data</th>
+                      <th className="px-4 py-3">Endereço</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {serviceOrdersLoading && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-sm text-white/60">
+                          Carregando ordens de serviço...
+                        </td>
+                      </tr>
+                    )}
+                    {!serviceOrdersLoading && pagedServiceOrders.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6">
+                          <EmptyState
+                            title="Nenhuma ordem de serviço registrada."
+                            subtitle="Crie uma nova OS para este veículo."
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    {!serviceOrdersLoading &&
+                      pagedServiceOrders.map((order) => (
+                        <tr key={order.id} className="hover:bg-white/5">
+                          <td className="px-4 py-3">
+                            <Link
+                              to={`/services/${order.id}`}
+                              className="text-sm text-sky-200 hover:text-sky-100"
+                            >
+                              {order.osInternalId || order.id?.slice(0, 8)}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-white/80">{order.status || "—"}</td>
+                          <td className="px-4 py-3 text-sm text-white/70">{order.technicianName || "—"}</td>
+                          <td className="px-4 py-3 text-sm text-white/70">
+                            {formatServiceOrderDate(order.startAt || order.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-white/70">{order.address || "—"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </DataTable>
+              </div>
+
+              {serviceOrdersPageCount > 1 && (
+                <div className="flex items-center justify-between text-xs text-white/60">
+                  <span>
+                    Página {serviceOrdersPage} de {serviceOrdersPageCount}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setServiceOrdersPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={serviceOrdersPage <= 1}
+                      className="rounded-lg border border-white/10 px-3 py-1 text-white/70 transition hover:border-white/30 disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setServiceOrdersPage((prev) => Math.min(prev + 1, serviceOrdersPageCount))}
+                      disabled={serviceOrdersPage >= serviceOrdersPageCount}
+                      className="rounded-lg border border-white/10 px-3 py-1 text-white/70 transition hover:border-white/30 disabled:opacity-50"
+                    >
+                      Próxima
+                    </button>
+                  </div>
+                </div>
+              )}
+            </DataCard>
+          )}
+
+          {activeTab === "historico" && (
+            <DataCard className="space-y-4">
+              <h2 className="text-sm font-semibold text-white">Histórico do veículo</h2>
+              {renderHistoryPanel()}
             </DataCard>
           )}
 
           {activeTab === "admin" && (
-            <DataCard>
+            <DataCard className="space-y-4">
               <AdminBindingsTab
                 vehicle={vehicle}
                 vehicleAttributes={vehicleAttributes}

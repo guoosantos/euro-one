@@ -261,6 +261,7 @@ export default function ReportsPositions() {
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortState, setSortState] = useState({ key: "gpsTime", dir: "desc" });
   const [positions, setPositions] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -482,18 +483,20 @@ export default function ReportsPositions() {
       addressRadius: filter?.radius,
       page: pageParam,
       limit: limitParam,
+      sortBy: sortState.key || undefined,
+      sortDir: sortState.dir || undefined,
     }),
-    [effectivePageSize, from, selectedVehicleId, to],
+    [effectivePageSize, from, selectedVehicleId, sortState.dir, sortState.key, to],
   );
 
   const handleGenerate = useCallback(
     async (event) => {
       event?.preventDefault?.();
       setFeedback(null);
-      if (!selectedVehicleId) {
-        setFormError("Selecione exatamente um veículo.");
-        return;
-      }
+    if (!selectedVehicleId || !selectedVehicle) {
+      setFormError("Selecione exatamente um veículo.");
+      return;
+    }
       if (!from || !to) {
         setFormError("Selecione o período completo.");
         return;
@@ -535,6 +538,20 @@ export default function ReportsPositions() {
       })
       .catch(() => {});
   }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
+
+  useEffect(() => {
+    if (!hasGenerated || loading || !selectedVehicleId) return;
+    const filter = lastResolvedFilter || (addressQuery.trim() ? addressFilter : null);
+    const params = buildQueryParams(filter, 1, effectivePageSize);
+    baseQueryRef.current = params;
+    setPage(1);
+    fetchPage(params)
+      .then((normalized) => {
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+      })
+      .catch(() => {});
+  }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, hasGenerated, loading, lastResolvedFilter, selectedVehicleId, sortState]);
 
 
   const handlePageChange = useCallback(
@@ -589,7 +606,7 @@ export default function ReportsPositions() {
 
   const resolveExportPayload = async () => {
     setFormError("");
-    if (!selectedVehicleId) {
+    if (!selectedVehicleId || !selectedVehicle) {
       setFormError("Selecione exatamente um veículo.");
       return null;
     }
@@ -617,6 +634,8 @@ export default function ReportsPositions() {
         columns: columnsToExport,
         availableColumns: availableColumnKeys,
         columnDefinitions: columnDefinitionsPayload,
+        sortBy: sortState.key || undefined,
+        sortDir: sortState.dir || undefined,
         addressFilter: resolvedFilter
           ? {
               lat: resolvedFilter.lat,
@@ -745,6 +764,15 @@ export default function ReportsPositions() {
     });
   };
 
+  const handleSortChange = useCallback((key) => {
+    setSortState((current) => {
+      if (current.key !== key) {
+        return { key, dir: "asc" };
+      }
+      return { key, dir: current.dir === "asc" ? "desc" : "asc" };
+    });
+  }, []);
+
   const openPdfModal = (format = "pdf") => {
     setPdfColumns(visibleColumns.map((column) => column.key));
     setExportFormat(format);
@@ -766,11 +794,13 @@ export default function ReportsPositions() {
         <PageHeader
           right={(
             <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-              <button
-                type="submit"
-                disabled={loading || geocoding || !selectedVehicleId}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-              >
+                <button
+                  type="submit"
+                  disabled={loading || geocoding || !selectedVehicleId || !selectedVehicle}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+                  loading ? "btn-report-loading" : "bg-primary hover:bg-primary/90"
+                }`}
+                >
                 {loading ? "Gerando…" : "Gerar relatório"}
               </button>
               <button
@@ -946,6 +976,10 @@ export default function ReportsPositions() {
           columnWidths={columnPrefs?.widths}
           onColumnWidthChange={handleColumnWidthChange}
           liveGeocode={false}
+          sortKey={sortState.key}
+          sortDir={sortState.dir}
+          onSortChange={handleSortChange}
+          sortableColumns={["deviceTime", "serverTime", "gpsTime"]}
         />
       </section>
       {hasGenerated && (

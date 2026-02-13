@@ -9,26 +9,36 @@ import {
   Eye,
   FileUp,
   LayoutGrid,
+  Layers,
+  List,
   MousePointer2,
   PanelRight,
   Pencil,
-  RefreshCw,
   Save,
   Trash2,
   Undo2,
-  X,
 } from "lucide-react";
 
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
+import api from "../lib/api.js";
+import { API_ROUTES } from "../lib/api-routes.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
-import { useTenant } from "../lib/tenant-context.jsx";
+import { useTenant, setStoredMirrorOwnerId } from "../lib/tenant-context.jsx";
 import { resolveMapPreferences } from "../lib/map-config.js";
+import { resolveMirrorHeaders } from "../lib/mirror-params.js";
+import { useTranslation } from "../lib/i18n.js";
+import { isAdminGeneralClientName, normalizeAdminClientName } from "../lib/admin-general.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
 import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
-import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
+import {
+  ENABLED_MAP_LAYERS,
+  MAP_LAYER_FALLBACK,
+  MAP_LAYER_STORAGE_KEYS,
+  getValidMapLayer,
+} from "../lib/mapLayers.js";
 import AppMap from "../components/map/AppMap.jsx";
 import MapToolbar from "../components/map/MapToolbar.jsx";
 import Button from "../ui/Button";
@@ -42,6 +52,33 @@ const DEFAULT_ZOOM = 12;
 const DEFAULT_CONFIG = "entry";
 const DEFAULT_ACTION = "block";
 const TARGET_ACTIONS = ["unlock", "unlink_itinerary"];
+const ADMIN_SCOPE_STORAGE_KEY = "euro-one.admin.scope";
+const ADMIN_SCOPE_ALL = "all";
+const ADMIN_SCOPE_EURO = "euro";
+const ADMIN_ALL_OPTION_ID = "all";
+const ADMIN_GENERAL_OPTION_ID = "admin-general";
+
+function readAdminScope() {
+  if (typeof window === "undefined") return ADMIN_SCOPE_ALL;
+  try {
+    return window.localStorage?.getItem(ADMIN_SCOPE_STORAGE_KEY) || ADMIN_SCOPE_ALL;
+  } catch (_error) {
+    return ADMIN_SCOPE_ALL;
+  }
+}
+
+function persistAdminScope(value) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!value) {
+      window.localStorage?.removeItem(ADMIN_SCOPE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage?.setItem(ADMIN_SCOPE_STORAGE_KEY, value);
+  } catch (_error) {
+    // ignore
+  }
+}
 
 function normalizeConfig(value) {
   const normalized = String(value || "").toLowerCase();
@@ -263,7 +300,7 @@ function GeofenceHandles({ geofence, onUpdatePolygon, onUpdateCircle }) {
   return null;
 }
 
-function ToolbarButton({ icon: Icon, active = false, title, className = "", ...props }) {
+function ToolbarButton({ icon: Icon, active = false, title, className = "", iconSize = 16, ...props }) {
   return (
     <button
       type="button"
@@ -271,8 +308,16 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
       title={title}
       {...props}
     >
-      <Icon size={16} />
+      <Icon size={iconSize} />
     </button>
+  );
+}
+
+function SidebarCard({ children, className = "" }) {
+  return (
+    <div className={`pointer-events-auto rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl ${className}`.trim()}>
+      {children}
+    </div>
   );
 }
 
@@ -284,14 +329,90 @@ function GeofencePanel({
   emptyText,
   searchTerm,
   onSearch,
+  clientOptions,
+  selectedClientId,
+  onClientChange,
+  clientContextBadge,
+  clientSelectDisabled = false,
   hiddenIds,
   onToggleVisibility,
   onFocus,
   onEdit,
   onDelete,
+  canManage,
   onClose,
 }) {
+  const listRef = useRef(null);
+  const scrollRafRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [rowHeight, setRowHeight] = useState(72);
+  const rowGap = 10;
+  const rowSize = rowHeight + rowGap;
+  const totalItems = geofences.length;
+
+  const handleScroll = useCallback((event) => {
+    const nextScrollTop = event.currentTarget.scrollTop;
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setScrollTop(nextScrollTop);
+    });
+  }, []);
+
+  const measureRow = useCallback(
+    (node) => {
+      if (!node) return;
+      const height = node.getBoundingClientRect?.().height || node.offsetHeight || 0;
+      if (height && Math.abs(height - rowHeight) > 1) {
+        setRowHeight(height);
+      }
+    },
+    [rowHeight],
+  );
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const container = listRef.current;
+    if (!container) return undefined;
+    const updateViewport = () => {
+      setViewportHeight(container.clientHeight || 0);
+    };
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, [open, totalItems]);
+
+  useEffect(() => {
+    if (!open) return;
+    const container = listRef.current;
+    if (!container) return;
+    container.scrollTop = 0;
+    setScrollTop(0);
+  }, [open, searchTerm, totalItems]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current) {
+        window.cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
+  }, []);
+
   if (!open) return null;
+
+  const overscan = 6;
+  const canVirtualize = totalItems > 80 && rowSize > 0 && viewportHeight > 0;
+  const startIndex = canVirtualize
+    ? Math.max(0, Math.floor(scrollTop / rowSize) - overscan)
+    : 0;
+  const endIndex = canVirtualize
+    ? Math.min(totalItems - 1, Math.ceil((scrollTop + viewportHeight) / rowSize) + overscan)
+    : Math.max(0, totalItems - 1);
+  const visibleItems = canVirtualize ? geofences.slice(startIndex, endIndex + 1) : geofences;
+  const paddingTop = canVirtualize ? startIndex * rowSize : 0;
+  const paddingBottom = canVirtualize ? Math.max(0, (totalItems - endIndex - 1) * rowSize) : 0;
 
   return (
     <div className="geofence-panel">
@@ -307,19 +428,50 @@ function GeofencePanel({
       </div>
 
       <div className="mt-3 space-y-2">
+        {(Array.isArray(clientOptions) && clientOptions.length > 0) || clientContextBadge ? (
+          <div className="space-y-2">
+            {Array.isArray(clientOptions) && clientOptions.length > 0 ? (
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Cliente</p>
+                <Select
+                  value={selectedClientId ?? ""}
+                  onChange={(event) => onClientChange?.(event.target.value)}
+                  disabled={clientSelectDisabled}
+                  className="map-compact-input mt-1"
+                >
+                  {clientOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
+            {clientContextBadge && (
+              <span className="map-status-pill bg-white/5 text-white/70">{clientContextBadge}</span>
+            )}
+          </div>
+        ) : null}
         <Input
           value={searchTerm}
           onChange={(event) => onSearch(event.target.value)}
           placeholder={searchPlaceholder}
           className="map-compact-input"
         />
-        <div className="geofence-panel-list">
-          {geofences.map((geo) => {
+        <div
+          ref={listRef}
+          className="geofence-panel-list"
+          onScroll={handleScroll}
+          style={{ paddingTop, paddingBottom }}
+        >
+          {visibleItems.map((geo, index) => {
             const visible = !hiddenIds.has(geo.id);
+            const needsMeasure = index === 0 && canVirtualize;
             return (
               <div
                 key={geo.id}
                 className="geofence-panel-item"
+                ref={needsMeasure ? measureRow : null}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -341,8 +493,18 @@ function GeofencePanel({
                       {visible ? "Visível" : "Oculto"}
                     </button>
                     <ToolbarButton icon={Eye} title="Ver no mapa" onClick={() => onFocus(geo)} />
-                    <ToolbarButton icon={Pencil} title="Editar" onClick={() => onEdit(geo)} />
-                    <ToolbarButton icon={Trash2} title="Excluir" onClick={() => onDelete(geo)} />
+                    <ToolbarButton
+                      icon={Pencil}
+                      title={canManage ? "Editar" : "Selecione um cliente para editar"}
+                      onClick={() => onEdit(geo)}
+                      disabled={!canManage}
+                    />
+                    <ToolbarButton
+                      icon={Trash2}
+                      title={canManage ? "Excluir" : "Selecione um cliente para excluir"}
+                      onClick={() => onDelete(geo)}
+                      disabled={!canManage}
+                    />
                   </div>
                 </div>
               </div>
@@ -367,7 +529,6 @@ export default function Geofences({ variant = "geofences" }) {
   const searchPlaceholder = `Buscar ${entityLabelLower}`;
   const savedVerb = isTargetView ? "salvos" : "salvas";
   const mapRef = useRef(null);
-  const userActionRef = useRef(false);
   const importInputRef = useRef(null);
   const polygonFinalizeRef = useRef(false);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -378,20 +539,289 @@ export default function Geofences({ variant = "geofences" }) {
   const [hoverPoint, setHoverPoint] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [viewMode, setViewMode] = useState("default");
   const [hiddenIds, setHiddenIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
   const { confirmDelete } = useConfirmDialog();
-  const { tenantId, tenantScope, user, tenant } = useTenant();
+  const { t } = useTranslation();
+  const {
+    tenantId,
+    user,
+    tenant,
+    tenants,
+    switchClientAndReset,
+    hasAdminAccess,
+    canSwitchTenant,
+    homeClientId,
+    homeClient,
+    mirrorContextMode,
+    mirrorModeEnabled,
+    activeMirror,
+    activeMirrorOwnerClientId,
+    mirrorOwners,
+    isMirrorReceiver,
+    contextSwitching,
+  } = useTenant();
+  const [adminScope, setAdminScope] = useState(() => readAdminScope());
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const isMirrorTarget = mirrorContextMode === "target";
+  const mirrorAllSelected = isMirrorTarget && String(mirrorOwnerClientId ?? "") === "all";
+  const mirrorSelectedClientId =
+    isMirrorTarget && !mirrorAllSelected && mirrorOwnerClientId
+      ? String(mirrorOwnerClientId)
+      : null;
+  const mirrorOwnerIds = useMemo(() => {
+    if (!Array.isArray(mirrorOwners)) return new Set();
+    return new Set(mirrorOwners.map((owner) => String(owner.id)));
+  }, [mirrorOwners]);
+  const isMirrorSelectable = isMirrorReceiver && Array.isArray(mirrorOwners) && mirrorOwners.length > 0;
+  const selectValueRaw = mirrorContextMode === "target"
+    ? (activeMirrorOwnerClientId
+        ? String(activeMirrorOwnerClientId)
+        : (isMirrorSelectable ? "all" : String(homeClientId ?? tenantId ?? "")))
+    : String(tenantId ?? "");
+  const adminGeneralOption = useMemo(() => {
+    if (!hasAdminAccess) return null;
+    const candidate = homeClient && isAdminGeneralClientName(homeClient?.name) ? homeClient : null;
+    if (!candidate) return null;
+    return {
+      value: ADMIN_GENERAL_OPTION_ID,
+      label: normalizeAdminClientName(candidate.name) || "EURO ONE",
+    };
+  }, [hasAdminAccess, homeClient]);
+  const selectValue = useMemo(() => {
+    if (!hasAdminAccess) return selectValueRaw;
+    if (tenantId !== null && tenantId !== undefined && String(tenantId) !== "") {
+      return String(tenantId);
+    }
+    if (adminScope === ADMIN_SCOPE_EURO && adminGeneralOption) {
+      return ADMIN_GENERAL_OPTION_ID;
+    }
+    return ADMIN_ALL_OPTION_ID;
+  }, [adminGeneralOption, adminScope, hasAdminAccess, selectValueRaw, tenantId]);
+  const ownedTenants = useMemo(() => {
+    if (hasAdminAccess) return [];
+    let base = tenants.filter((item) => !mirrorOwnerIds.has(String(item.id)));
+    if (homeClient && homeClientId && !base.some((item) => String(item.id) === String(homeClientId))) {
+      base = [homeClient, ...base];
+    }
+    if (isMirrorSelectable && homeClientId) {
+      base = base.filter((item) => String(item.id) !== String(homeClientId));
+    }
+    return base;
+  }, [hasAdminAccess, homeClient, homeClientId, isMirrorSelectable, mirrorOwnerIds, tenants]);
+  const mirroredTenants = useMemo(() => {
+    if (hasAdminAccess) return [];
+    return Array.isArray(mirrorOwners) ? mirrorOwners : [];
+  }, [hasAdminAccess, mirrorOwners]);
+  const allClientsLabel = t("topbar.allClients") || "Todos os clientes";
+  const mirrorAllLabel = t("topbar.mirrorAll") || "Todos os espelhados";
+  const mirroredSuffix = t("topbar.mirroredSuffix") || "espelhado";
+  const tenantOptions = useMemo(() => {
+    if (hasAdminAccess) {
+      const options = [{ value: ADMIN_ALL_OPTION_ID, label: allClientsLabel }];
+      if (adminGeneralOption) {
+        options.push(adminGeneralOption);
+      }
+      options.push(...tenants.map((item) => ({ value: String(item.id ?? ""), label: item.name })));
+      return options;
+    }
+    const options = [];
+    if (ownedTenants.length > 0) {
+      options.push(...ownedTenants.map((item) => ({ value: String(item.id ?? ""), label: item.name })));
+    }
+    if (isMirrorSelectable && mirroredTenants.length > 0) {
+      options.push({ value: "all", label: mirrorAllLabel });
+      options.push(
+        ...mirroredTenants.map((item) => ({
+          value: String(item.id ?? ""),
+          label: `${item.name} (${mirroredSuffix})`,
+        })),
+      );
+    }
+    return options;
+  }, [
+    adminGeneralOption,
+    allClientsLabel,
+    hasAdminAccess,
+    isMirrorSelectable,
+    mirrorAllLabel,
+    mirroredSuffix,
+    mirroredTenants,
+    ownedTenants,
+    tenants,
+  ]);
+  const clientOptions = useMemo(
+    () =>
+      tenantOptions
+        .map((option) => ({
+          value: String(option.value ?? ""),
+          label: option.label || String(option.value ?? ""),
+        }))
+        .filter((option) => option.value),
+    [tenantOptions],
+  );
+  const selectedClientId = selectValue;
+  const showClientSelect = canSwitchTenant && clientOptions.length > 1;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
+  const mirrorAllHeaders = useMemo(
+    () =>
+      mirrorAllSelected
+        ? resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: "all", mirrorContextMode: "target" })
+        : undefined,
+    [mirrorAllSelected, mirrorModeEnabled],
+  );
+  const geofenceParams = useMemo(() => {
+    const base = { isTarget: isTargetView ? "true" : "false" };
+    if (mirrorAllSelected) {
+      base.lite = "true";
+    }
+    return base;
+  }, [isTargetView, mirrorAllSelected]);
+  const handleClientChange = useCallback((nextValue) => {
+    const nextId = nextValue || null;
+    if (hasAdminAccess) {
+      if (nextId === ADMIN_ALL_OPTION_ID) {
+        setAdminScope(ADMIN_SCOPE_ALL);
+        persistAdminScope(ADMIN_SCOPE_ALL);
+        setStoredMirrorOwnerId(null);
+        switchClientAndReset({
+          nextTenantId: null,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
+      if (nextId === ADMIN_GENERAL_OPTION_ID) {
+        setAdminScope(ADMIN_SCOPE_EURO);
+        persistAdminScope(ADMIN_SCOPE_EURO);
+        setStoredMirrorOwnerId(null);
+        switchClientAndReset({
+          nextTenantId: homeClientId ?? null,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
+      setAdminScope(ADMIN_SCOPE_ALL);
+      persistAdminScope(ADMIN_SCOPE_ALL);
+      setStoredMirrorOwnerId(null);
+      switchClientAndReset({
+        nextTenantId: nextId,
+        nextOwnerClientId: null,
+        nextMirrorMode: "self",
+      });
+      return;
+    }
+    if (isMirrorSelectable) {
+      if (nextId === "all") {
+        setStoredMirrorOwnerId("all");
+        switchClientAndReset({
+          nextTenantId: homeClientId ?? tenantId,
+          nextOwnerClientId: "all",
+          nextMirrorMode: "target",
+        });
+        return;
+      }
+      if (!nextId || String(nextId) === String(homeClientId ?? "")) {
+        switchClientAndReset({
+          nextTenantId: nextId,
+          nextOwnerClientId: null,
+          nextMirrorMode: "self",
+        });
+        return;
+      }
+      if (mirrorOwnerIds.has(String(nextId))) {
+        setStoredMirrorOwnerId(String(nextId));
+        switchClientAndReset({
+          nextTenantId: nextId,
+          nextOwnerClientId: String(nextId),
+          nextMirrorMode: "target",
+        });
+        return;
+      }
+      switchClientAndReset({
+        nextTenantId: nextId,
+        nextOwnerClientId: null,
+        nextMirrorMode: "self",
+      });
+      return;
+    }
+    switchClientAndReset({ nextTenantId: nextId, nextOwnerClientId: null });
+  }, [
+    hasAdminAccess,
+    homeClientId,
+    isMirrorSelectable,
+    mirrorOwnerIds,
+    switchClientAndReset,
+    tenantId,
+  ]);
+  useEffect(() => {
+    if (!hasAdminAccess) return;
+    setAdminScope(readAdminScope());
+  }, [hasAdminAccess, tenantId]);
+  const resolvedClientId = useMemo(() => {
+    if (isMirrorTarget) {
+      if (mirrorAllSelected) return null;
+      return mirrorSelectedClientId || null;
+    }
+    if (hasAdminAccess && selectedClientId === ADMIN_ALL_OPTION_ID) return null;
+    return tenantId || user?.clientId || null;
+  }, [hasAdminAccess, isMirrorTarget, mirrorAllSelected, mirrorSelectedClientId, selectedClientId, tenantId, user?.clientId]);
+  const mirrorOwnerClientIds = useMemo(
+    () => (Array.isArray(mirrorOwners) ? mirrorOwners.map((entry) => String(entry.id)).filter(Boolean) : []),
+    [mirrorOwners],
+  );
+  const shouldWaitForMirror = mirrorAllSelected && !mirrorAllHeaders;
+  const isAdminAllSelected = hasAdminAccess && selectedClientId === ADMIN_ALL_OPTION_ID;
+  const canManageGeofences = !isAdminAllSelected;
+  const clientContextBadge = useMemo(() => {
+    if (isMirrorTarget) {
+      if (mirrorAllSelected) return null;
+      const ownerName = mirrorOwners?.find((entry) => String(entry.id) === String(mirrorSelectedClientId))?.name;
+      const label = ownerName || mirrorSelectedClientId;
+      return label ? `Cliente: ${label}` : null;
+    }
+    if (hasAdminAccess && selectedClientId === ADMIN_ALL_OPTION_ID) {
+      return "Visualizando: TODOS";
+    }
+    const match = clientOptions.find((option) => option.value === String(selectedClientId ?? ""));
+    if (match?.label) return `Cliente: ${match.label}`;
+    const fixedLabel = tenant?.name || user?.clientName || user?.clientId || tenantId || null;
+    return fixedLabel ? `Cliente: ${fixedLabel}` : null;
+  }, [
+    clientOptions,
+    hasAdminAccess,
+    isMirrorTarget,
+    mirrorAllSelected,
+    mirrorOwners,
+    mirrorSelectedClientId,
+    selectedClientId,
+    tenant?.name,
+    tenantId,
+    user?.clientId,
+    user?.clientName,
+  ]);
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
-  const baseLayer = DEFAULT_MAP_LAYER;
-  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const [mapLayerKey, setMapLayerKey] = useState(() => getValidMapLayer());
+  const [mapLayerMenuOpen, setMapLayerMenuOpen] = useState(false);
+  const mapLayerButtonRef = useRef(null);
+  const mapLayerStorageKey = isTargetView ? MAP_LAYER_STORAGE_KEYS.targets : MAP_LAYER_STORAGE_KEYS.geofences;
+  const mapLayer = useMemo(
+    () => ENABLED_MAP_LAYERS.find((layer) => layer.key === mapLayerKey) || MAP_LAYER_FALLBACK,
+    [mapLayerKey],
+  );
+  const tileUrl = mapLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileAttribution =
-    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-  const tileSubdomains = baseLayer?.subdomains ?? "abc";
-  const tileMaxZoom = baseLayer?.maxZoom;
-  const addressSearch = useAddressSearchState({ mapPreferences });
+    mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = mapLayer?.subdomains ?? "abc";
+  const tileMaxZoom = mapLayer?.maxZoom;
+  const [addressValue, setAddressValue] = useState({ formattedAddress: "" });
   const [geofenceFilter, setGeofenceFilter] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
@@ -420,6 +850,61 @@ export default function Geofences({ variant = "geofences" }) {
     [mapPreferences?.selectZoom, tenant?.attributes],
   );
 
+  const mapLayerOptions = useMemo(() => {
+    const candidates = ENABLED_MAP_LAYERS.filter((layer) => layer?.url);
+    const pickedKeys = new Set();
+    const pick = (keys) =>
+      candidates.find((layer) => keys.some((key) => layer.key.includes(key))) || null;
+
+    const options = [
+      { id: "satellite", label: "Satélite", layer: pick(["google-satellite", "satellite", "hybrid", "google-hybrid"]) },
+      { id: "streets", label: "Ruas / Padrão", layer: pick(["google-road", "openstreetmap", "osm", "carto-light"]) },
+      { id: "terrain", label: "Terreno", layer: pick(["opentopomap", "topo", "terrain"]) },
+      { id: "dark", label: "Escuro", layer: pick(["carto-dark", "dark"]) },
+    ]
+      .filter((item) => item.layer)
+      .filter((item) => {
+        if (!item.layer) return false;
+        if (pickedKeys.has(item.layer.key)) return false;
+        pickedKeys.add(item.layer.key);
+        return true;
+      });
+
+    if (!options.length && candidates.length) {
+      return candidates.slice(0, 5).map((layer) => ({ id: layer.key, label: layer.label, layer }));
+    }
+
+    return options;
+  }, []);
+
+  useEffect(() => {
+    try {
+      const storedLayer = localStorage.getItem(mapLayerStorageKey);
+      setMapLayerKey(getValidMapLayer(storedLayer));
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerStorageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(mapLayerStorageKey, mapLayerKey);
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerKey, mapLayerStorageKey]);
+
+  useEffect(() => {
+    if (!mapLayerMenuOpen) return;
+    const handleClick = (event) => {
+      if (!mapLayerButtonRef.current) return;
+      if (mapLayerButtonRef.current.contains(event.target)) return;
+      setMapLayerMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [mapLayerMenuOpen]);
+
   const {
     geofences: remoteGeofences,
     loading,
@@ -428,7 +913,16 @@ export default function Geofences({ variant = "geofences" }) {
     createGeofence,
     updateGeofence,
     deleteGeofence,
-  } = useGeofences({ autoRefreshMs: 0 });
+  } = useGeofences({
+    autoRefreshMs: 0,
+    enabled: !shouldWaitForMirror,
+    clientId: mirrorAllSelected ? null : resolvedClientId,
+    params: geofenceParams,
+    headers: mirrorAllSelected ? mirrorAllHeaders : mirrorHeaders,
+    resolveHeadersForClient: mirrorAllSelected
+      ? (clientId) => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId: clientId })
+      : undefined,
+  });
   const accessDenied = Number(fetchError?.status) === 403;
 
   const scopedGeofences = useMemo(() => {
@@ -459,20 +953,58 @@ export default function Geofences({ variant = "geofences" }) {
     if (points.length < 3) return null;
     return { ...selectedGeofence, points };
   }, [selectedGeofence]);
-  useEffect(() => {
-    if (!userActionRef.current) return;
-    if (!safeSelectedGeofence) return;
-    if (safeSelectedGeofence.type === "circle") {
-      const [lat, lng] = safeSelectedGeofence.center || [];
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        focusDevice({ lat, lng }, { zoom: 15, animate: true, reason: "GEOFENCE_SELECT" });
+  const fetchDetailsRef = useRef(new Set());
+  const needsGeofenceDetails = useCallback((geo) => {
+    if (!geo || !geo.id) return false;
+    if (geo.type === "circle") return false;
+    return !Array.isArray(geo.points) || geo.points.length < 3;
+  }, []);
+  const applyGeofenceDetails = useCallback((details) => {
+    if (!details?.id) return;
+    const id = String(details.id);
+    setLocalGeofences((current) =>
+      current.map((geo) => (String(geo.id) === id ? { ...geo, ...details } : geo)),
+    );
+    setBaselineGeofences((current) =>
+      current.map((geo) => (String(geo.id) === id ? { ...geo, ...details } : geo)),
+    );
+  }, []);
+  const fetchGeofenceDetails = useCallback(
+    async (geo) => {
+      if (!geo?.id) return null;
+      const id = String(geo.id);
+      if (fetchDetailsRef.current.has(id)) return geo;
+      fetchDetailsRef.current.add(id);
+      try {
+        const detailHeaders = geo.clientId
+          ? resolveMirrorHeaders({
+              mirrorModeEnabled,
+              mirrorOwnerClientId: geo.clientId,
+              mirrorContextMode: "target",
+            })
+          : mirrorHeaders;
+        const response = await api.get(`${API_ROUTES.geofences}/${geo.id}`, detailHeaders ? { headers: detailHeaders } : undefined);
+        const payload = response?.data?.geofence || response?.data || null;
+        if (!payload) return geo;
+        const normalized = isTargetView ? payload : ensureConfigDefaults(payload);
+        applyGeofenceDetails(normalized);
+        return normalized;
+      } catch (_error) {
+        return geo;
+      } finally {
+        fetchDetailsRef.current.delete(id);
       }
-    } else if (safeSelectedGeofence.points?.length) {
-      focusGeometry(safeSelectedGeofence.points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
-    }
-    userActionRef.current = false;
-  }, [focusDevice, focusGeometry, safeSelectedGeofence]);
-
+    },
+    [applyGeofenceDetails, isTargetView, mirrorHeaders, mirrorModeEnabled],
+  );
+  const ensureGeofenceDetails = useCallback(
+    async (geo) => {
+      if (!needsGeofenceDetails(geo)) return geo;
+      return fetchGeofenceDetails(geo);
+    },
+    [fetchGeofenceDetails, needsGeofenceDetails],
+  );
+  const canEditSelected = viewMode === "editing" || viewMode === "creating";
   useEffect(() => {
     refreshMap();
   }, [panelOpen, geofencesTopbarVisible, refreshMap]);
@@ -486,8 +1018,15 @@ export default function Geofences({ variant = "geofences" }) {
     setLocalGeofences(scopedGeofences);
     setBaselineGeofences(scopedGeofences);
     setHiddenIds(new Set());
-    setSelectedId((current) => current || scopedGeofences[0]?.id || null);
-  }, [scopedGeofences, hasUnsavedChanges]);
+    const nextSelected =
+      selectedId && scopedGeofences.some((geo) => geo.id === selectedId) ? selectedId : null;
+    setSelectedId(nextSelected);
+    if (!nextSelected) {
+      setViewMode("default");
+    } else if (viewMode === "default") {
+      setViewMode("viewing");
+    }
+  }, [hasUnsavedChanges, scopedGeofences, selectedId, viewMode]);
 
   const resetDrafts = useCallback(() => {
     setDrawMode(null);
@@ -501,6 +1040,8 @@ export default function Geofences({ variant = "geofences" }) {
     setDraftPolygon([]);
     setDraftCircle({ center: null, edge: null });
     setHoverPoint(null);
+    setSelectedId(null);
+    setViewMode("creating");
     setStatus(mode === "polygon" ? "Clique para adicionar vértices. Clique no primeiro ponto para fechar." : "Clique para posicionar o centro do círculo, depois defina o raio.");
   }, []);
 
@@ -525,6 +1066,7 @@ export default function Geofences({ variant = "geofences" }) {
     ]);
     setColorSeed((value) => value + 1);
     setSelectedId(newId);
+    setViewMode("creating");
     setHasUnsavedChanges(true);
     resetDrafts();
     setTimeout(() => {
@@ -568,18 +1110,21 @@ export default function Geofences({ variant = "geofences" }) {
         ]);
         setColorSeed((value) => value + 1);
         setSelectedId(newId);
+        setViewMode("creating");
         setHasUnsavedChanges(true);
         resetDrafts();
         return;
       }
 
       setSelectedId(null);
+      setViewMode("default");
     },
     [drawMode, draftCircle.center, draftPolygon, finalizePolygon],
   );
 
   const handleMouseMove = useCallback(
     (latlng) => {
+      if (!drawMode) return;
       const point = [latlng.lat, latlng.lng];
       setHoverPoint(point);
       if (drawMode === "circle" && draftCircle.center && !draftCircle.edge) {
@@ -591,20 +1136,25 @@ export default function Geofences({ variant = "geofences" }) {
 
   const handleUpdatePolygon = useCallback(
     (id, nextPoints) => {
+      if (!canEditSelected) return;
       setLocalGeofences((current) =>
         current.map((geo) => (geo.id === id ? { ...geo, points: nextPoints, center: nextPoints[0] } : geo)),
       );
       setHasUnsavedChanges(true);
     },
-    [],
+    [canEditSelected],
   );
 
-  const handleUpdateCircle = useCallback((id, payload) => {
-    setLocalGeofences((current) =>
-      current.map((geo) => (geo.id === id ? { ...geo, ...payload, points: [] } : geo)),
-    );
-    setHasUnsavedChanges(true);
-  }, []);
+  const handleUpdateCircle = useCallback(
+    (id, payload) => {
+      if (!canEditSelected) return;
+      setLocalGeofences((current) =>
+        current.map((geo) => (geo.id === id ? { ...geo, ...payload, points: [] } : geo)),
+      );
+      setHasUnsavedChanges(true);
+    },
+    [canEditSelected],
+  );
 
   const handleDeleteGeofence = useCallback(
     async (target = null) => {
@@ -619,6 +1169,7 @@ export default function Geofences({ variant = "geofences" }) {
           if (isLocal) {
             setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
             setSelectedId((current) => (current === geofence.id ? null : current));
+            setViewMode((current) => (current === "editing" || current === "creating" ? "default" : current));
             setHasUnsavedChanges(true);
             return;
           }
@@ -631,6 +1182,8 @@ export default function Geofences({ variant = "geofences" }) {
             setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
             setBaselineGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
             setSelectedId((current) => (current === geofence.id ? null : current));
+            setViewMode("default");
+            await refresh();
             setStatus(`${entityLabel} ${isTargetView ? "excluído" : "excluída"}.`);
           } catch (error) {
             setUiError(error);
@@ -642,7 +1195,7 @@ export default function Geofences({ variant = "geofences" }) {
         },
       });
     },
-    [confirmDelete, deleteGeofence, entityArticle, entityLabel, entityLabelLower, isTargetView, selectedGeofence],
+    [confirmDelete, deleteGeofence, entityArticle, entityLabel, entityLabelLower, isTargetView, refresh, selectedGeofence],
   );
 
   const handleRemoveSelected = useCallback(() => {
@@ -658,11 +1211,11 @@ export default function Geofences({ variant = "geofences" }) {
 
   const handleRenameSelected = useCallback(
     (value) => {
-      if (!selectedId) return;
+      if (!selectedId || !canEditSelected) return;
       setLocalGeofences((current) => current.map((geo) => (geo.id === selectedId ? { ...geo, name: value } : geo)));
       setHasUnsavedChanges(true);
     },
-    [selectedId],
+    [canEditSelected, selectedId],
   );
 
   const handleCancelChanges = useCallback(() => {
@@ -670,8 +1223,12 @@ export default function Geofences({ variant = "geofences" }) {
     setHiddenIds(new Set());
     setHasUnsavedChanges(false);
     setStatus("");
-    setSelectedId(baselineGeofences[0]?.id || null);
+    setSelectedId((current) => {
+      const keep = baselineGeofences.some((geo) => geo.id === current);
+      return keep ? current : null;
+    });
     resetDrafts();
+    setViewMode((current) => (current === "editing" || current === "creating" ? "viewing" : current));
   }, [baselineGeofences, resetDrafts]);
 
   const buildPayload = useCallback((geo) => {
@@ -741,17 +1298,34 @@ export default function Geofences({ variant = "geofences" }) {
     setUiError(null);
     setStatus(`Sincronizando ${entityLabelPluralLower}...`);
     try {
+      if (isAdminAllSelected) {
+        throw new Error(`Selecione um cliente específico antes de salvar ${entityLabelPluralLower}.`);
+      }
       for (const geo of activeGeofences) {
-        const clientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
-        if (!clientId) {
-          throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
-        }
+        const isNew = !geo.id || geo.id.startsWith("local-") || geo.id.startsWith("kml-");
+        const clientId = resolvedClientId || tenantId || user?.clientId || null;
 
-        const payload = { ...buildPayload(geo), clientId };
-        if (!geo.id || geo.id.startsWith("local-") || geo.id.startsWith("kml-")) {
-          await createGeofence(payload);
+        const payload = buildPayload(geo);
+        if (isNew) {
+          if (mirrorAllSelected) {
+            if (mirrorOwnerClientIds.length === 0) {
+              throw new Error(`Nenhum cliente espelhado disponível para salvar ${entityLabelPluralLower}.`);
+            }
+            await Promise.all(
+              mirrorOwnerClientIds.map((ownerId) => createGeofence({ ...payload, clientId: ownerId })),
+            );
+          } else {
+            if (!clientId) {
+              throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
+            }
+            await createGeofence({ ...payload, clientId });
+          }
         } else {
-          await updateGeofence(geo.id, payload);
+          const clientId = geo.clientId || resolvedClientId || tenantId || user?.clientId || null;
+          if (!clientId) {
+            throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
+          }
+          await updateGeofence(geo.id, { ...payload, clientId });
         }
       }
 
@@ -760,6 +1334,8 @@ export default function Geofences({ variant = "geofences" }) {
       setHasUnsavedChanges(false);
       setStatus(`${entityLabelPlural} ${savedVerb} com sucesso.`);
       resetDrafts();
+      setSelectedId(null);
+      setViewMode("default");
     } catch (error) {
       const message = error?.response?.data?.message || error?.message || `Falha ao salvar ${entityLabelPluralLower}.`;
       setUiError(error);
@@ -775,10 +1351,15 @@ export default function Geofences({ variant = "geofences" }) {
     entityLabelLower,
     entityLabelPluralLower,
     entityLabelPlural,
+    isAdminAllSelected,
+    mirrorAllSelected,
+    mirrorOwnerClientIds,
     refresh,
     resetDrafts,
     savedVerb,
     tenantId,
+    resolvedClientId,
+    setViewMode,
     updateGeofence,
     user?.clientId,
   ]);
@@ -827,20 +1408,26 @@ export default function Geofences({ variant = "geofences" }) {
       console.info("[MAP] USER_ADDRESS_SELECT", { lat, lng });
       focusDevice({ lat, lng }, { zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
 
-      setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
+      setSearchMarker({ lat, lng, label: payload.formattedAddress || payload.label || "Local encontrado" });
     },
     [focusDevice],
   );
 
+  const handleAddressChange = useCallback((value) => {
+    setAddressValue(value || { formattedAddress: "" });
+  }, []);
+
   const handleSelectAddress = useCallback(
     (payload) => {
       if (!payload) return;
+      setAddressValue(payload);
       focusSearchResult(payload);
     },
     [focusSearchResult],
   );
 
   const handleClearSearch = useCallback(() => {
+    setAddressValue({ formattedAddress: "" });
     setSearchMarker(null);
   }, []);
 
@@ -854,11 +1441,50 @@ export default function Geofences({ variant = "geofences" }) {
     setLayoutMenuOpen(false);
   }, []);
 
-  const focusOnGeofence = useCallback((geo) => {
-    if (!geo) return;
-    userActionRef.current = true;
-    setSelectedId(geo.id);
-  }, []);
+  const centerGeofence = useCallback(
+    (geo) => {
+      if (!geo) return;
+      if (geo.type === "circle") {
+        const center = geo.center || [geo.latitude ?? geo.lat, geo.longitude ?? geo.lng];
+        const circle = sanitizeCircleGeometry({ center, radius: geo.radius });
+        if (!circle) return;
+        const [lat, lng] = circle.center || [];
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          focusDevice({ lat, lng }, { zoom: 15, animate: true, reason: "GEOFENCE_SELECT" });
+        }
+        return;
+      }
+      const points = sanitizePolygon(geo.points);
+      if (!points.length) return;
+      focusGeometry(points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
+    },
+    [focusDevice, focusGeometry],
+  );
+
+  const focusOnGeofence = useCallback(
+    async (geo) => {
+      if (!geo) return;
+      const resolved = await ensureGeofenceDetails(geo);
+      if (!resolved) return;
+      resetDrafts();
+      setSelectedId(resolved.id);
+      setViewMode("viewing");
+      centerGeofence(resolved);
+    },
+    [centerGeofence, ensureGeofenceDetails, resetDrafts],
+  );
+  const handleEditGeofence = useCallback(
+    async (geo) => {
+      if (!geo) return;
+      const resolved = await ensureGeofenceDetails(geo);
+      if (!resolved) return;
+      resetDrafts();
+      setSelectedId(resolved.id);
+      setViewMode("editing");
+      centerGeofence(resolved);
+    },
+    [centerGeofence, ensureGeofenceDetails, resetDrafts],
+  );
 
   const guideLine = useMemo(() => {
     if (drawMode !== "polygon") return [];
@@ -867,26 +1493,14 @@ export default function Geofences({ variant = "geofences" }) {
     return points;
   }, [drawMode, draftPolygon, hoverPoint]);
 
-  const visibleGeofences = useMemo(
-    () => activeGeofences.filter((geo) => !hiddenIds.has(geo.id)),
-    [activeGeofences, hiddenIds],
+  const mapGeofences = useMemo(
+    () => {
+      if (!selectedId || !safeSelectedGeofence) return [];
+      if (hiddenIds.has(selectedId)) return [];
+      return [safeSelectedGeofence];
+    },
+    [hiddenIds, safeSelectedGeofence, selectedId],
   );
-  const safeVisibleGeofences = useMemo(() => {
-    return visibleGeofences
-      .map((geo) => {
-        if (!geo) return null;
-        if (geo.type === "circle") {
-          const center = geo.center || [geo.latitude ?? geo.lat, geo.longitude ?? geo.lng];
-          const circle = sanitizeCircleGeometry({ center, radius: geo.radius });
-          if (!circle) return null;
-          return { ...geo, center: circle.center, radius: circle.radius };
-        }
-        const points = sanitizePolygon(geo.points);
-        if (points.length < 3) return null;
-        return { ...geo, points };
-      })
-      .filter(Boolean);
-  }, [visibleGeofences]);
 
   const filteredGeofences = useMemo(() => {
     const term = geofenceFilter.trim().toLowerCase();
@@ -899,14 +1513,6 @@ export default function Geofences({ variant = "geofences" }) {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const markVisible = useCallback((ids = []) => {
-    setHiddenIds((current) => {
-      const next = new Set(current);
-      ids.forEach((id) => next.delete(id));
       return next;
     });
   }, []);
@@ -966,7 +1572,7 @@ export default function Geofences({ variant = "geofences" }) {
           )}
 
           {isMapReady &&
-            safeVisibleGeofences.map((geo) => {
+            mapGeofences.map((geo) => {
             if (geo.type === "circle") {
               return (
                 <LeafletCircle
@@ -982,6 +1588,7 @@ export default function Geofences({ variant = "geofences" }) {
                     click: (event) => {
                       event.originalEvent?.preventDefault();
                       setSelectedId(geo.id);
+                      setViewMode("viewing");
                     },
                   }}
                 >
@@ -1003,6 +1610,7 @@ export default function Geofences({ variant = "geofences" }) {
                   click: (event) => {
                     event.originalEvent?.preventDefault();
                     setSelectedId(geo.id);
+                    setViewMode("viewing");
                   },
                 }}
               >
@@ -1050,7 +1658,7 @@ export default function Geofences({ variant = "geofences" }) {
             </Marker>
           )}
 
-          {isMapReady && safeSelectedGeofence && (
+          {isMapReady && safeSelectedGeofence && canEditSelected && (
             <GeofenceHandles
               geofence={safeSelectedGeofence}
               onUpdatePolygon={(points) => handleUpdatePolygon(safeSelectedGeofence.id, points)}
@@ -1060,75 +1668,145 @@ export default function Geofences({ variant = "geofences" }) {
         </AppMap>
       </div>
 
-      <AddressSearchInput
-        state={addressSearch}
-        onSelect={handleSelectAddress}
-        onClear={handleClearSearch}
-        floating
-      />
-
-      <MapToolbar className="floating-toolbar" map={mapInstance}>
-        <div className="relative">
-          <ToolbarButton
-            icon={LayoutGrid}
-            onClick={() => setLayoutMenuOpen((open) => !open)}
-            title="Layout e visibilidade"
-            className={layoutMenuOpen ? "is-active" : ""}
-          />
-          {layoutMenuOpen && (
-            <div className="layout-popover">
-              <label className="layout-toggle">
-                <input type="checkbox" checked={geofencesTopbarVisible} onChange={handleToggleTopbar} />
-                <span>Mostrar Topbar</span>
-              </label>
-              <label className="layout-toggle">
-                <input type="checkbox" checked={panelOpen} onChange={handleTogglePanel} />
-                <span>Mostrar painel de {entityLabelPluralLower}</span>
-              </label>
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <div className="pointer-events-auto absolute left-4 top-4 flex w-fit max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
+          <SidebarCard className="w-[640px] max-w-[calc(100vw-2rem)] md:w-[680px] lg:w-[720px]">
+            <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-1">
+              <div className="flex min-w-[280px] flex-1 items-center gap-2">
+                <AddressAutocomplete
+                  label={null}
+                  value={addressValue}
+                  onChange={handleAddressChange}
+                  onSelect={handleSelectAddress}
+                  onClear={handleClearSearch}
+                  variant="toolbar"
+                  portalSuggestions
+                  containerClassName="flex-1 min-w-0"
+                  placeholder="Buscar endereço"
+                  mapPreferences={mapPreferences}
+                />
+                <div className="flex shrink-0 items-center gap-1">
+                  <ToolbarButton
+                    icon={List}
+                    title="Minhas Cercas"
+                    iconSize={18}
+                    active={panelOpen}
+                    onClick={handleTogglePanel}
+                  />
+                  <ToolbarButton
+                    icon={MousePointer2}
+                    title="Desenhar polígono"
+                    iconSize={18}
+                    active={drawMode === "polygon"}
+                    onClick={() => (drawMode === "polygon" ? resetDrafts() : startDrawing("polygon"))}
+                    disabled={isAdminAllSelected}
+                  />
+                  <ToolbarButton
+                    icon={CircleIcon}
+                    title="Desenhar círculo"
+                    iconSize={18}
+                    active={drawMode === "circle"}
+                    onClick={() => (drawMode === "circle" ? resetDrafts() : startDrawing("circle"))}
+                    disabled={isAdminAllSelected}
+                  />
+                </div>
+              </div>
+              <div className="flex min-w-max shrink-0 items-center gap-2">
+                <ToolbarButton
+                  icon={FileUp}
+                  title="Importar KML"
+                  iconSize={18}
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={isAdminAllSelected}
+                />
+                <ToolbarButton icon={Download} title="Exportar KML" iconSize={18} onClick={handleExport} />
+                <ToolbarButton
+                  icon={Save}
+                  title={isAdminAllSelected ? "Selecione um cliente para salvar" : "Salvar Cerca"}
+                  iconSize={18}
+                  onClick={handleSave}
+                  disabled={!hasUnsavedChanges || isBusy || isAdminAllSelected}
+                />
+                <ToolbarButton
+                  icon={Undo2}
+                  title="Cancelar alterações"
+                  iconSize={18}
+                  onClick={handleCancelChanges}
+                  disabled={!hasUnsavedChanges}
+                />
+              </div>
             </div>
-          )}
+          </SidebarCard>
         </div>
-        <ToolbarButton
-          icon={MousePointer2}
-          active={drawMode === "polygon"}
-          onClick={() => startDrawing("polygon")}
-          title="Desenhar polígono"
-        />
-        <ToolbarButton
-          icon={CircleIcon}
-          active={drawMode === "circle"}
-          onClick={() => startDrawing("circle")}
-          title="Desenhar círculo"
-        />
-        {drawMode && (
-          <ToolbarButton icon={X} onClick={resetDrafts} title="Encerrar desenho" />
-        )}
-        <ToolbarButton
-          icon={Save}
-          className="disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={handleSave}
-          disabled={!hasUnsavedChanges || isBusy}
-          title={`Salvar ${entityLabelPluralLower}`}
-        />
-        <ToolbarButton
-          icon={Undo2}
-          className="disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={handleCancelChanges}
-          disabled={!hasUnsavedChanges}
-          title="Cancelar mudanças"
-        />
-        <ToolbarButton
-          icon={RefreshCw}
-          onClick={() => refresh()}
-          title="Recarregar lista"
-        />
-        <ToolbarButton
-          icon={FileUp}
-          onClick={() => importInputRef.current?.click()}
-          title="Importar KML"
-        />
-        <ToolbarButton icon={Download} onClick={handleExport} title="Exportar KML" />
-      </MapToolbar>
+
+        <MapToolbar
+          className="floating-toolbar pointer-events-auto"
+          map={mapInstance}
+          zoomControls={
+            <div ref={mapLayerButtonRef} className="map-layer-control">
+              <button
+                type="button"
+                className={`map-tool-button map-toolbar-zoom-button ${mapLayerMenuOpen ? "is-active" : ""}`.trim()}
+                onClick={() => setMapLayerMenuOpen((open) => !open)}
+                title="Selecionar mapa"
+                aria-label="Selecionar mapa"
+              >
+                <Layers style={{ width: 16, height: 16 }} />
+              </button>
+              {mapLayerMenuOpen && (
+                <div className="map-layer-popover">
+                  <p className="map-layer-popover-title">Selecionar mapa</p>
+                  <div className="map-layer-options">
+                    {mapLayerOptions.map((option) => {
+                      const isActive = option.layer?.key === mapLayer?.key;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`map-layer-option ${isActive ? "is-active" : ""}`.trim()}
+                          onClick={() => {
+                            if (option.layer?.key) {
+                              setMapLayerKey(option.layer.key);
+                            }
+                            setMapLayerMenuOpen(false);
+                          }}
+                        >
+                          <span className="map-layer-option-label">{option.label}</span>
+                          {option.layer?.description ? (
+                            <span className="map-layer-option-subtitle">{option.layer.description}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          }
+        >
+          <div className="relative">
+            <ToolbarButton
+              icon={LayoutGrid}
+              onClick={() => setLayoutMenuOpen((open) => !open)}
+              title="Layout e visibilidade"
+              className={layoutMenuOpen ? "is-active" : ""}
+              iconSize={12}
+            />
+            {layoutMenuOpen && (
+              <div className="layout-popover">
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={geofencesTopbarVisible} onChange={handleToggleTopbar} />
+                  <span>Mostrar Topbar</span>
+                </label>
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={panelOpen} onChange={handleTogglePanel} />
+                  <span>Mostrar painel de {entityLabelPluralLower}</span>
+                </label>
+              </div>
+            )}
+          </div>
+        </MapToolbar>
+      </div>
 
       <div className="geofence-status-stack">
         <span className="map-status-pill map-status-pill--emphasis">
@@ -1154,13 +1832,16 @@ export default function Geofences({ variant = "geofences" }) {
         emptyText={emptyPanelText}
         searchTerm={geofenceFilter}
         onSearch={setGeofenceFilter}
+        clientOptions={showClientSelect ? clientOptions : []}
+        selectedClientId={selectedClientId}
+        onClientChange={handleClientChange}
+        clientContextBadge={clientContextBadge}
+        clientSelectDisabled={contextSwitching || !canSwitchTenant}
+        canManage={canManageGeofences}
         hiddenIds={hiddenIds}
         onToggleVisibility={toggleVisibility}
         onFocus={focusOnGeofence}
-        onEdit={(geo) => {
-          setSelectedId(geo.id);
-          focusOnGeofence(geo);
-        }}
+        onEdit={handleEditGeofence}
         onDelete={handleDeleteGeofence}
         onClose={() => setPanelOpen(false)}
       />
@@ -1177,6 +1858,7 @@ export default function Geofences({ variant = "geofences" }) {
             label="Nome"
             value={selectedGeofence.name}
             onChange={(event) => handleRenameSelected(event.target.value)}
+            readOnly={!canEditSelected}
           />
           {!isTargetView && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1185,12 +1867,14 @@ export default function Geofences({ variant = "geofences" }) {
                 <Select
                   value={normalizeConfig(selectedGeofence.config) || DEFAULT_CONFIG}
                   onChange={(event) => {
+                    if (!canEditSelected) return;
                     const config = normalizeConfig(event.target.value) || DEFAULT_CONFIG;
                     setLocalGeofences((current) =>
                       current.map((geo) => (geo.id === selectedGeofence.id ? ensureConfigDefaults({ ...geo, config }) : geo)),
                     );
                     setHasUnsavedChanges(true);
                   }}
+                  disabled={!canEditSelected}
                   className="mt-1 w-full"
                 >
                   <option value="entry">Entrada</option>
@@ -1211,7 +1895,6 @@ export default function Geofences({ variant = "geofences" }) {
             <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
               <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Ações do alvo</p>
               <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] text-white/80">
-                <li>Desbloquear</li>
                 <li>Desvincular itinerário do equipamento</li>
               </ul>
             </div>
@@ -1223,10 +1906,10 @@ export default function Geofences({ variant = "geofences" }) {
                 : `${selectedGeofence.points?.length || 0} vértices`}
             </span>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => markVisible([selectedGeofence.id])}>
-                Mostrar
+              <Button size="sm" variant="secondary" onClick={() => toggleVisibility(selectedGeofence.id)}>
+                {hiddenIds.has(selectedGeofence.id) ? "Mostrar" : "Ocultar"}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => focusOnGeofence(selectedGeofence)}>
+              <Button size="sm" variant="ghost" onClick={() => centerGeofence(selectedGeofence)}>
                 Centralizar
               </Button>
               <Button size="sm" variant="ghost" onClick={handleRemoveSelected}>
@@ -1235,12 +1918,20 @@ export default function Geofences({ variant = "geofences" }) {
             </div>
           </div>
           <div className="geofence-inspector-footer flex items-center justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={handleCancelChanges} disabled={!hasUnsavedChanges}>
-              Cancelar
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={!hasUnsavedChanges || isBusy}>
-              {saving ? "Salvando..." : "Salvar"}
-            </Button>
+            {canEditSelected ? (
+              <>
+                <Button size="sm" variant="ghost" onClick={handleCancelChanges} disabled={!hasUnsavedChanges}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={handleSave} disabled={!hasUnsavedChanges || isBusy || isAdminAllSelected}>
+                  {saving ? "Salvando..." : "Salvar"}
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="secondary" onClick={() => setViewMode("editing")}>
+                Editar
+              </Button>
+            )}
           </div>
         </div>
       )}

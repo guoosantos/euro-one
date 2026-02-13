@@ -3,9 +3,17 @@ import assert from "node:assert";
 import { requestApp } from "./app-request.js";
 
 import { resetUserPreferences } from "../../server/models/user-preferences.js";
+import { loadCollection, saveCollection } from "../../server/services/storage.js";
 
 let serverApp;
 let signSession;
+
+const ensureTestUser = (user) => {
+  const users = loadCollection("users", []);
+  const next = Array.isArray(users) ? users.filter((item) => String(item?.id) !== String(user.id)) : [];
+  next.push(user);
+  saveCollection("users", next);
+};
 
 const ensureServer = async () => {
   process.env.TRACCAR_ADMIN_USER ??= "admin";
@@ -16,6 +24,8 @@ const ensureServer = async () => {
     ({ default: serverApp } = await import("../../server/app.js"));
     ({ signSession } = await import("../../server/middleware/auth.js"));
   }
+
+  ensureTestUser({ id: "user-1", role: "admin", clientId: "client-1", attributes: {} });
 
   return { serverApp, signSession };
 };

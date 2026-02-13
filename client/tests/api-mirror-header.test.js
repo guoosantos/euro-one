@@ -42,7 +42,7 @@ test("api adiciona X-Owner-Client-Id em chamadas do modo espelho", async () => {
 
   const endpoints = ["/alerts", "/positions/last", "/events", "/devices"];
   for (const endpoint of endpoints) {
-    await api.get(endpoint, { dedupeBypass: true });
+    await api.get(endpoint, { dedupeBypass: true, skipSWRCache: true });
   }
 
   assert.deepEqual(captured, ["owner-123", "owner-123", "owner-123", "owner-123"]);
@@ -66,6 +66,7 @@ test("api substitui clientId explícito pelo owner em modo espelho", async () =>
 
   await api.get("/positions/last", {
     dedupeBypass: true,
+    skipSWRCache: true,
     params: { clientId: "target-1", tenantId: "target-2", foo: "bar" },
   });
 
@@ -93,7 +94,7 @@ test("api envia X-Owner-Client-Id com mirrorContextMode indefinido quando owner 
     });
   };
 
-  await api.get("/alerts", { dedupeBypass: true });
+  await api.get("/alerts", { dedupeBypass: true, skipSWRCache: true });
 
   assert.equal(headerValue, "owner-storage-1");
 });
@@ -112,7 +113,7 @@ test("api não adiciona X-Owner-Client-Id quando mirror não está ativo", async
     });
   };
 
-  await api.get("/alerts", { dedupeBypass: true });
+  await api.get("/alerts", { dedupeBypass: true, skipSWRCache: true });
 
   assert.equal(headerValue, null);
 });
@@ -134,7 +135,7 @@ test("api não adiciona X-Owner-Client-Id para endpoints fora da allowlist", asy
     });
   };
 
-  await api.get("/session", { dedupeBypass: true });
+  await api.get("/session", { dedupeBypass: true, skipSWRCache: true });
 
   assert.equal(headerValue, null);
 });
@@ -156,7 +157,7 @@ test("api não adiciona X-Owner-Client-Id para admins mesmo com owner ativo", as
     });
   };
 
-  await api.get("/alerts", { dedupeBypass: true });
+  await api.get("/alerts", { dedupeBypass: true, skipSWRCache: true });
 
   assert.equal(headerValue, null);
 });

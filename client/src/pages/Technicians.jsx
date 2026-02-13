@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
@@ -46,6 +45,7 @@ const defaultForm = {
   type: "interno",
   profile: "Técnico Completo",
   addressSearch: "",
+  addressPlaceId: "",
   street: "",
   number: "",
   complement: "",
@@ -55,7 +55,6 @@ const defaultForm = {
   zip: "",
   latitude: "",
   longitude: "",
-  clientId: "",
 };
 
 function Drawer({ open, onClose, title, description, children }) {
@@ -188,16 +187,16 @@ export default function Technicians() {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersSearch, setOrdersSearch] = useState("");
-  const addressSearchState = useAddressSearchState({ initialValue: "" });
+  const [addressValue, setAddressValue] = useState({ formattedAddress: "" });
+  const canViewFullTechnicians = isAdminGeneral;
+  const canManageTechnicians = techniciansPermission.isFull && isAdminGeneral;
 
-  const resolvedClientId = hasAdminAccess
-    ? form.clientId || (tenantScope === "ALL" ? "" : tenantId || tenants[0]?.id || "")
-    : (tenantScope === "ALL" ? "" : tenantId || user?.clientId || "");
+  const resolvedClientId = tenantScope === "ALL" ? "" : tenantId || tenants[0]?.id || user?.clientId || "";
 
   useEffect(() => {
     if (!drawerOpen) return;
-    addressSearchState.resetSuggestions();
-  }, [addressSearchState, drawerOpen]);
+    setAddressValue((prev) => prev || { formattedAddress: "" });
+  }, [drawerOpen]);
 
   const clientNameById = useMemo(() => {
     const map = new Map();
@@ -371,24 +370,19 @@ export default function Technicians() {
 
   const resetForm = () => {
     setEditingId(null);
-    setForm((prev) => ({
-      ...defaultForm,
-      clientId: hasAdminAccess ? prev.clientId || resolvedClientId : prev.clientId,
-    }));
-    addressSearchState.setQuery("");
-    addressSearchState.resetSuggestions();
+    setForm({ ...defaultForm });
+    setAddressValue({ formattedAddress: "" });
     setLoginForm({ username: "", email: "", password: "" });
     setLoginConfigured(false);
     setDrawerTab("cadastro");
     setDrawerOpen(true);
   };
 
-  const loadTechnicians = async (clientId) => {
+  const loadTechnicians = async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = clientId ? { clientId } : undefined;
-      const response = await api.get("core/technicians", { params });
+      const response = await api.get("core/technicians");
       const list = response?.data?.items || [];
       setItems(Array.isArray(list) ? list : []);
     } catch (loadError) {
@@ -401,6 +395,10 @@ export default function Technicians() {
   };
 
   const loadDevices = async (clientId) => {
+    if (!canViewFullTechnicians) {
+      setDevices([]);
+      return;
+    }
     setDevicesLoading(true);
     try {
       const params = clientId ? { clientId } : undefined;
@@ -416,7 +414,7 @@ export default function Technicians() {
 
   const loadOrders = async (clientId, technicianName) => {
     if (!technicianName) return;
-    if (!serviceOrdersPermission.hasAccess) {
+    if (!serviceOrdersPermission.hasAccess || !canViewFullTechnicians) {
       setOrders([]);
       return;
     }
@@ -436,24 +434,22 @@ export default function Technicians() {
   };
 
   useEffect(() => {
-    if (!resolvedClientId && hasAdminAccess) return;
-    loadTechnicians(resolvedClientId);
+    loadTechnicians();
     loadDevices(resolvedClientId);
-  }, [resolvedClientId, hasAdminAccess]);
+  }, [resolvedClientId]);
 
   useEffect(() => {
     if (!drawerOpen || !editingId || drawerTab !== "ordens") return;
-    if (!serviceOrdersPermission.hasAccess) return;
-    const clientId = selectedTechnician?.clientId || resolvedClientId || null;
-    loadOrders(clientId, selectedTechnician?.name);
+    if (!serviceOrdersPermission.hasAccess || !canViewFullTechnicians) return;
+    loadOrders(resolvedClientId || null, selectedTechnician?.name);
   }, [
     drawerOpen,
     drawerTab,
     editingId,
     resolvedClientId,
-    selectedTechnician?.clientId,
     selectedTechnician?.name,
     serviceOrdersPermission.hasAccess,
+    canViewFullTechnicians,
   ]);
 
   const handleSubmit = async (event) => {
@@ -471,7 +467,8 @@ export default function Technicians() {
         status: form.status,
         type: form.type,
         profile: form.profile,
-        addressSearch: addressSearchState.query.trim(),
+        addressSearch: form.addressSearch.trim(),
+        addressPlaceId: form.addressPlaceId || "",
         street: form.street.trim(),
         number: form.number.trim(),
         complement: form.complement.trim(),
@@ -479,7 +476,6 @@ export default function Technicians() {
         zip: form.zip.trim(),
         latitude: form.latitude,
         longitude: form.longitude,
-        clientId: hasAdminAccess ? resolvedClientId : undefined,
       };
 
       if (!payload.name || !payload.email) {
@@ -495,7 +491,7 @@ export default function Technicians() {
       }
 
       setDrawerOpen(false);
-      loadTechnicians(resolvedClientId);
+      loadTechnicians();
     } catch (submitError) {
       console.error("Falha ao salvar técnico", submitError);
       setError(submitError);
@@ -518,7 +514,6 @@ export default function Technicians() {
         username: loginForm.username.trim() || undefined,
         email: loginForm.email.trim() || undefined,
         password: loginForm.password,
-        clientId: selectedTechnician?.clientId || resolvedClientId || undefined,
       };
       const response = await api.post(`core/technicians/${editingId}/login`, payload);
       if (!response?.data?.ok) {
@@ -527,7 +522,7 @@ export default function Technicians() {
       setLoginConfigured(true);
       setLoginForm((prev) => ({ ...prev, password: "" }));
       setMessage("Credenciais atualizadas com sucesso.");
-      loadTechnicians(resolvedClientId);
+      loadTechnicians();
     } catch (loginError) {
       console.error("Falha ao atualizar login", loginError);
       setError(loginError);
@@ -546,6 +541,7 @@ export default function Technicians() {
       type: technician.type || "interno",
       profile: technician.profile || "Técnico Completo",
       addressSearch: technician.addressSearch || "",
+      addressPlaceId: technician.addressPlaceId || technician.placeId || "",
       street: technician.street || "",
       number: technician.number || "",
       complement: technician.complement || "",
@@ -555,10 +551,13 @@ export default function Technicians() {
       zip: technician.zip || "",
       latitude: technician.latitude ?? "",
       longitude: technician.longitude ?? "",
-      clientId: technician.clientId || resolvedClientId,
     });
-    addressSearchState.setQuery(technician.addressSearch || "");
-    addressSearchState.resetSuggestions();
+    setAddressValue({
+      formattedAddress: technician.addressSearch || "",
+      lat: technician.latitude ?? undefined,
+      lng: technician.longitude ?? undefined,
+      placeId: technician.addressPlaceId || technician.placeId || "",
+    });
     setLoginForm({
       username: technician.username || "",
       email: technician.email || "",
@@ -597,21 +596,34 @@ export default function Technicians() {
     });
   };
 
-  const handleSelectAddress = (option) => {
-    if (!option) return;
-    const address = option.raw?.address || {};
+  const handleAddressChange = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setAddressValue(nextValue);
     setForm((prev) => ({
       ...prev,
-      addressSearch: option.concise || option.label || prev.addressSearch,
-      street: address.road || address.street || prev.street,
-      number: address.house_number || prev.number,
+      addressSearch: nextValue.formattedAddress || "",
+      latitude: nextValue.lat ?? "",
+      longitude: nextValue.lng ?? "",
+      addressPlaceId: nextValue.placeId || "",
+    }));
+  };
+
+  const handleSelectAddress = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setAddressValue(nextValue);
+    setForm((prev) => ({
+      ...prev,
+      addressSearch: nextValue.formattedAddress || "",
+      street: nextValue.street || prev.street,
+      number: nextValue.number || prev.number,
       complement: prev.complement,
-      district: address.suburb || address.neighbourhood || address.city_district || address.county || prev.district,
-      city: address.city || address.town || address.village || address.municipality || address.county || prev.city,
-      state: address.state || address.state_code || prev.state,
-      zip: address.postcode || prev.zip,
-      latitude: option.lat ?? prev.latitude,
-      longitude: option.lng ?? prev.longitude,
+      district: nextValue.neighborhood || prev.district,
+      city: nextValue.city || prev.city,
+      state: nextValue.state || prev.state,
+      zip: nextValue.zip || prev.zip,
+      latitude: nextValue.lat ?? "",
+      longitude: nextValue.lng ?? "",
+      addressPlaceId: nextValue.placeId || "",
     }));
   };
 
@@ -625,13 +637,15 @@ export default function Technicians() {
     <div className="space-y-6">
       <PageHeader
         actions={
-          <button
-            type="button"
-            onClick={resetForm}
-            className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
-          >
-            Novo técnico
-          </button>
+          canManageTechnicians ? (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Novo técnico
+            </button>
+          ) : null
         }
       />
 
@@ -665,7 +679,7 @@ export default function Technicians() {
           <button
             type="button"
             onClick={() => {
-              loadTechnicians(resolvedClientId);
+              loadTechnicians();
               loadDevices(resolvedClientId);
             }}
             className="h-10 rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
@@ -681,24 +695,24 @@ export default function Technicians() {
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
                 <th className="px-4 py-3">Nome</th>
-                <th className="px-4 py-3">Perfil</th>
-                <th className="px-4 py-3">Telefone</th>
+                {canViewFullTechnicians ? <th className="px-4 py-3">Perfil</th> : null}
+                {canViewFullTechnicians ? <th className="px-4 py-3">Telefone</th> : null}
                 <th className="px-4 py-3">Cidade/UF</th>
-                <th className="px-4 py-3">Equipamentos</th>
-                <th className="px-4 py-3 text-right">Ações</th>
+                {canViewFullTechnicians ? <th className="px-4 py-3">Equipamentos</th> : null}
+                {canManageTechnicians ? <th className="px-4 py-3 text-right">Ações</th> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {(loading || devicesLoading) && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-sm text-white/70">
+                  <td colSpan={canViewFullTechnicians ? 6 : 2} className="px-4 py-6 text-sm text-white/70">
                     Carregando técnicos...
                   </td>
                 </tr>
               )}
               {!loading && !devicesLoading && filteredItems.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8">
+                  <td colSpan={canViewFullTechnicians ? 6 : 2} className="px-4 py-8">
                     <EmptyState
                       title="Nenhum técnico encontrado."
                       subtitle="Cadastre um técnico para usar nas ordens de serviço."
@@ -711,24 +725,30 @@ export default function Technicians() {
                 filteredItems.map((technician) => (
                   <tr key={technician.id} className="hover:bg-white/5">
                     <td className="px-4 py-3 text-white">{technician.name}</td>
-                    <td className="px-4 py-3 text-white/70">{technician.profile || "—"}</td>
-                    <td className="px-4 py-3 text-white/70">{technician.phone || "—"}</td>
+                    {canViewFullTechnicians ? (
+                      <td className="px-4 py-3 text-white/70">{technician.profile || "—"}</td>
+                    ) : null}
+                    {canViewFullTechnicians ? (
+                      <td className="px-4 py-3 text-white/70">{technician.phone || "—"}</td>
+                    ) : null}
                     <td className="px-4 py-3 text-white/70">
                       {[technician.city, technician.state].filter(Boolean).join("/") || "—"}
                     </td>
-                    <td className="px-4 py-3 text-white/70">
-                      {equipmentSummaryByTechnician.get(String(technician.id)) || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(technician)}
-                          className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white transition hover:border-white/30"
-                        >
-                          Editar
-                        </button>
-                        {techniciansPermission.isFull && isAdminGeneral && (
+                    {canViewFullTechnicians ? (
+                      <td className="px-4 py-3 text-white/70">
+                        {equipmentSummaryByTechnician.get(String(technician.id)) || "—"}
+                      </td>
+                    ) : null}
+                    {canManageTechnicians ? (
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(technician)}
+                            className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white transition hover:border-white/30"
+                          >
+                            Editar
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleDelete(technician)}
@@ -736,9 +756,9 @@ export default function Technicians() {
                           >
                             Excluir
                           </button>
-                        )}
-                      </div>
-                    </td>
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
             </tbody>
@@ -860,8 +880,10 @@ export default function Technicians() {
             <div className="md:col-span-2">
               <span className="block text-xs text-white/60">Buscar endereço</span>
               <div className="mt-2">
-                <AddressSearchInput
-                  state={addressSearchState}
+                <AddressAutocomplete
+                  label={null}
+                  value={addressValue}
+                  onChange={handleAddressChange}
                   onSelect={handleSelectAddress}
                   placeholder="Buscar endereço"
                   variant="toolbar"
@@ -943,25 +965,6 @@ export default function Technicians() {
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               />
             </label>
-            {hasAdminAccess && (
-              <label className="block text-xs text-white/60 md:col-span-2">
-                Cliente
-                <select
-                  value={resolvedClientId}
-                  onChange={(event) => {
-                    const nextId = event.target.value;
-                    setForm((prev) => ({ ...prev, clientId: nextId }));
-                  }}
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                >
-                  {tenants.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             <div className="md:col-span-2 flex flex-wrap items-center justify-end gap-3">
               {error && <span className="text-sm text-red-300">{error?.response?.data?.message || error.message}</span>}
               {message && <span className="text-sm text-emerald-300">{message}</span>}

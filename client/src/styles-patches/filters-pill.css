@@ -37,7 +37,7 @@
 .filters input:focus, .filters select:focus {
   outline:none !important;
   box-shadow:0 0 0 4px var(--pill-focus) !important;
-  border-color: var(--primary) !important;
+  border-color: var(--accent-border) !important;
 }
 
 /* Ícone de busca (se usar input com padding-left já funciona) – opcional */

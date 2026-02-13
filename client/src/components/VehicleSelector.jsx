@@ -9,7 +9,10 @@ export default function VehicleSelector({
   className = "",
   onChange,
 }) {
-  const { vehicles, vehicleOptions, loading, error } = useVehicles({ includeUnlinked: allowUnlinked });
+  const { vehicles, vehicleOptions, loading, error } = useVehicles({
+    includeUnlinked: allowUnlinked,
+    includeTelemetry: false,
+  });
   const { selectedVehicleId, setVehicleSelection, clearVehicleSelection } = useVehicleSelection({ syncQuery: true });
   const [search, setSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -88,6 +91,13 @@ export default function VehicleSelector({
     }
   };
 
+  const handleClear = () => {
+    clearVehicleSelection();
+    setSearch("");
+    setIsOpen(false);
+    onChange?.(null);
+  };
+
   return (
     <div className={`relative ${className}`} ref={containerRef}>
       {label ? <span className="block text-xs uppercase tracking-wide text-white/60">{label}</span> : null}
@@ -102,12 +112,23 @@ export default function VehicleSelector({
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+          className="w-full rounded-lg border border-white/10 bg-[var(--field-bg)] px-3 py-2 pr-9 text-sm text-white hover:bg-[var(--field-bg-hover)] focus:border-primary/40 focus:bg-[var(--field-bg-focus)] focus:outline-none"
           aria-autocomplete="list"
           aria-expanded={isOpen}
         />
+        {search ? (
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleClear}
+            aria-label="Limpar veículo"
+            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-xs text-white/60 transition hover:bg-white/10 hover:text-white"
+          >
+            ×
+          </button>
+        ) : null}
         {isOpen && (
-          <div className="absolute z-[60] mt-2 max-h-64 w-full overflow-auto rounded-lg border border-white/10 bg-[#0f141c] py-1 shadow-lg">
+          <div className="absolute z-[60] mt-2 max-h-64 w-full overflow-auto rounded-lg border border-white/10 bg-[var(--sidebar)] py-1 shadow-lg">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-2 text-xs text-white/50">Nenhum veículo encontrado.</div>
             ) : (

@@ -8,6 +8,7 @@ export default function RequirePermission({ permission, children }) {
   const {
     tenant,
     user,
+    error,
     permissionContext,
     permissionError,
     permissionLoading,
@@ -41,7 +42,8 @@ export default function RequirePermission({ permission, children }) {
     }
   };
   if (!access.ready) {
-    if (!permissionError || permissionLoading) {
+    const failure = permissionError || error;
+    if (!failure || permissionLoading) {
       return <Loading message="Carregando permissões..." />;
     }
     return (
@@ -49,7 +51,8 @@ export default function RequirePermission({ permission, children }) {
         <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">
           <div className="text-lg font-semibold text-white">Permissões não carregaram</div>
           <p className="text-sm text-white/70">
-            Não foi possível carregar as permissões da sessão. Tente recarregar a página ou refazer o login.
+            {failure?.message ||
+              "Não foi possível carregar as permissões da sessão. Tente recarregar a página ou refazer o login."}
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             <button

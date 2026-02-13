@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_ROUTES } from "../api-routes.js";
-import { approximateCirclePoints } from "../kml.js";
 import safeApi from "../safe-api.js";
 import { useTenant } from "../tenant-context.jsx";
 
@@ -60,7 +59,12 @@ function normalisePoints(list) {
 function normaliseGeofence(item) {
   if (!item) return null;
   const type = String(item.type || item.shapeType || "polygon").toLowerCase();
-  const points = normalisePoints(item.points || item.coordinates || item.area || []);
+  const rawPoints = Array.isArray(item.points)
+    ? item.points
+    : Array.isArray(item.coordinates)
+      ? item.coordinates
+      : null;
+  const points = rawPoints || normalisePoints(item.points || item.coordinates || item.area || []);
   const center = normalisePoint(item.center || [item.latitude, item.longitude]) || points[0] || null;
   const radiusValue = item.radius ?? item.area ?? null;
   const radius = radiusValue === null || radiusValue === undefined ? null : Number(radiusValue);
@@ -74,11 +78,6 @@ function normaliseGeofence(item) {
   const config = normalizeConfig(metadata.config ?? metadata.configuration ?? metadata.entryExit ?? metadata.trigger);
   const action = normalizeAction(metadata.action ?? metadata.geofenceAction ?? metadata.blockAction);
   const targetActions = normalizeTargetActions(metadata.targetActions ?? metadata.actions);
-
-  const coordinates =
-    type === "circle" && center && Number.isFinite(radius) && radius > 0
-      ? approximateCirclePoints(center, radius, 48)
-      : points;
 
   return {
     id: item.id ? String(item.id) : null,
@@ -94,25 +93,63 @@ function normaliseGeofence(item) {
     points,
     center,
     radius: Number.isFinite(radius) ? radius : null,
-    coordinates,
     geometryJson: item?.geometryJson || null,
     raw: item,
   };
 }
 
-function normaliseGeofences(payload) {
-  const list = Array.isArray(payload?.geofences)
-    ? payload.geofences
-    : Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload)
-        ? payload
-        : [];
-  return list.map((item) => normaliseGeofence(item)).filter(Boolean);
+function extractGeofenceList(payload) {
+  if (Array.isArray(payload?.geofences)) return payload.geofences;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload)) return payload;
+  return [];
 }
 
-export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
+async function normaliseGeofencesAsync(list, { chunkSize = 300, isCancelled } = {}) {
+  const raw = Array.isArray(list) ? list : [];
+  if (raw.length === 0) return [];
+  const effectiveChunkSize = raw.length > 2000 ? Math.max(100, Math.round(chunkSize / 3)) : chunkSize;
+  if (raw.length <= effectiveChunkSize) {
+    return raw.map((item) => normaliseGeofence(item)).filter(Boolean);
+  }
+  const normalised = [];
+  const yieldFrame = () =>
+    new Promise((resolve) => {
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => resolve());
+      } else {
+        setTimeout(resolve, 0);
+      }
+    });
+  for (let index = 0; index < raw.length; index += effectiveChunkSize) {
+    if (isCancelled?.()) return [];
+    const slice = raw.slice(index, index + effectiveChunkSize);
+    slice.forEach((item) => {
+      const parsed = normaliseGeofence(item);
+      if (parsed) normalised.push(parsed);
+    });
+    if (index + effectiveChunkSize < raw.length) {
+      await yieldFrame();
+    }
+  }
+  return normalised;
+}
+
+export function useGeofences({
+  autoRefreshMs = 60_000,
+  enabled = true,
+  clientId,
+  clientIds,
+  params,
+  headers,
+  resolveHeadersForClient,
+  skipMirrorClient = false,
+} = {}) {
   const { tenantId, user } = useTenant();
+  const resolvedClientId = clientId !== undefined ? clientId : tenantId;
+  const resolvedClientIds = Array.isArray(clientIds)
+    ? clientIds.map((value) => String(value)).filter(Boolean)
+    : null;
   const [geofences, setGeofences] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -124,11 +161,103 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     let cancelled = false;
     let timer;
 
+    if (!enabled) {
+      setLoading(false);
+      setError(null);
+      setGeofences([]);
+      return () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
+      };
+    }
+
     async function fetchGeofences() {
       setLoading(true);
       setError(null);
+      if (resolvedClientIds && resolvedClientIds.length > 0) {
+        const responses = await Promise.all(
+          resolvedClientIds.map((targetClientId) =>
+            safeApi.get(API_ROUTES.geofences, {
+              params: { ...(params || {}), clientId: targetClientId },
+              headers: resolveHeadersForClient ? resolveHeadersForClient(targetClientId) : headers,
+              skipMirrorClient,
+            }),
+          ),
+        );
+        if (cancelled) return;
+        const mergedRaw = [];
+        let forbiddenCount = 0;
+        let errorSample = null;
+        responses.forEach((result, index) => {
+          if (result?.aborted) return;
+          if (result?.forbidden || result?.status === 403) {
+            forbiddenCount += 1;
+            return;
+          }
+          if (result?.error) {
+            if (!errorSample) errorSample = result.error;
+            return;
+          }
+          const list = extractGeofenceList(result?.data);
+          const ownerId = resolvedClientIds[index];
+          list.forEach((item) => {
+            if (ownerId && item && !item.clientId) {
+              item.clientId = ownerId;
+            }
+          });
+          mergedRaw.push(...list);
+        });
+
+        if (mergedRaw.length === 0 && forbiddenCount === responses.length) {
+          const friendly = new Error("Sem acesso às cercas deste cliente.");
+          friendly.status = 403;
+          friendly.permanent = true;
+          setError(friendly);
+          setGeofences([]);
+          setLoading(false);
+          setAutoRefreshPaused(true);
+          hasNotifiedError.current = true;
+          return;
+        }
+
+        if (mergedRaw.length === 0 && errorSample) {
+          const friendly = new Error(
+            errorSample?.message || "Não foi possível carregar cercas. Verifique o tenant ou tente novamente.",
+          );
+          if (errorSample?.status) {
+            friendly.status = errorSample.status;
+          }
+          setError(friendly);
+          setGeofences([]);
+          setLoading(false);
+          setAutoRefreshPaused(true);
+          return;
+        }
+
+        hasNotifiedError.current = false;
+        setAutoRefreshPaused(false);
+        setError(null);
+        const merged = await normaliseGeofencesAsync(mergedRaw, {
+          chunkSize: 300,
+          isCancelled: () => cancelled,
+        });
+        if (cancelled) return;
+        setGeofences(merged);
+        setLoading(false);
+        if (!cancelled && autoRefreshMs && !autoRefreshPaused) {
+          timer = setTimeout(fetchGeofences, autoRefreshMs);
+        }
+        return;
+      }
+
+      const requestParams = {
+        ...(params || {}),
+        ...(resolvedClientId ? { clientId: resolvedClientId } : {}),
+      };
       const { data, error: requestError, aborted, status, forbidden } = await safeApi.get(API_ROUTES.geofences, {
-        params: tenantId ? { clientId: tenantId } : undefined,
+        params: Object.keys(requestParams).length ? requestParams : undefined,
+        headers,
+        skipMirrorClient,
       });
       if (aborted || cancelled) return;
 
@@ -170,7 +299,19 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
         hasNotifiedError.current = false;
         setAutoRefreshPaused(false);
         setError(null);
-        setGeofences(normaliseGeofences(data));
+        const rawList = extractGeofenceList(data);
+        const nextClientId = data?.clientId ?? resolvedClientId ?? tenantId ?? user?.clientId ?? null;
+        rawList.forEach((item) => {
+          if (nextClientId && item && !item.clientId) {
+            item.clientId = nextClientId;
+          }
+        });
+        const list = await normaliseGeofencesAsync(rawList, {
+          chunkSize: 300,
+          isCancelled: () => cancelled,
+        });
+        if (cancelled) return;
+        setGeofences(list);
       }
 
       setLoading(false);
@@ -185,7 +326,18 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [autoRefreshMs, tenantId, version, autoRefreshPaused]);
+  }, [
+    autoRefreshMs,
+    autoRefreshPaused,
+    enabled,
+    headers,
+    params,
+    resolveHeadersForClient,
+    resolvedClientId,
+    resolvedClientIds,
+    skipMirrorClient,
+    version,
+  ]);
 
   const refresh = useCallback(() => {
     setAutoRefreshPaused(false);
@@ -195,40 +347,55 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
 
   const createGeofence = useCallback(
     async (payload) => {
-      const { data, error, aborted } = await safeApi.post(API_ROUTES.geofences, {
-        ...payload,
-        clientId: payload?.clientId ?? tenantId ?? user?.clientId ?? null,
-      });
+      const targetClientId = payload?.clientId ?? resolvedClientId ?? tenantId ?? user?.clientId ?? null;
+      const { data, error, aborted } = await safeApi.post(
+        API_ROUTES.geofences,
+        {
+          ...payload,
+          clientId: targetClientId,
+        },
+        { headers: resolveHeadersForClient ? resolveHeadersForClient(targetClientId) : headers, skipMirrorClient },
+      );
       if (aborted) return null;
       if (error) throw error;
       refresh();
       return data?.geofence ?? data ?? null;
     },
-    [refresh, tenantId, user?.clientId],
+    [headers, refresh, resolveHeadersForClient, resolvedClientId, skipMirrorClient, tenantId, user?.clientId],
   );
 
   const updateGeofence = useCallback(
     async (id, payload) => {
-      const { data, error, aborted } = await safeApi.put(`${API_ROUTES.geofences}/${id}`, {
-        ...payload,
-        clientId: payload?.clientId ?? tenantId ?? user?.clientId ?? null,
-      });
+      const targetClientId = payload?.clientId ?? resolvedClientId ?? tenantId ?? user?.clientId ?? null;
+      const { data, error, aborted } = await safeApi.put(
+        `${API_ROUTES.geofences}/${id}`,
+        {
+          ...payload,
+          clientId: targetClientId,
+        },
+        { headers: resolveHeadersForClient ? resolveHeadersForClient(targetClientId) : headers, skipMirrorClient },
+      );
       if (aborted) return null;
       if (error) throw error;
       refresh();
       return data?.geofence ?? data ?? null;
     },
-    [refresh, tenantId, user?.clientId],
+    [headers, refresh, resolveHeadersForClient, resolvedClientId, skipMirrorClient, tenantId, user?.clientId],
   );
 
   const deleteGeofence = useCallback(
     async (id) => {
-      const { error, aborted } = await safeApi.delete(`${API_ROUTES.geofences}/${id}`);
+      const targetClientId = resolvedClientId ?? tenantId ?? user?.clientId ?? null;
+      const { error, aborted } = await safeApi.delete(`${API_ROUTES.geofences}/${id}`, {
+        params: targetClientId ? { clientId: targetClientId } : undefined,
+        headers: resolveHeadersForClient ? resolveHeadersForClient(targetClientId) : headers,
+        skipMirrorClient,
+      });
       if (aborted) return;
       if (error) throw error;
       refresh();
     },
-    [refresh],
+    [headers, refresh, resolveHeadersForClient, resolvedClientId, skipMirrorClient, tenantId, user?.clientId],
   );
 
   const assignToDevice = useCallback(

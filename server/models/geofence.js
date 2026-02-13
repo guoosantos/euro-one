@@ -158,16 +158,44 @@ function resolveCircleGeometry(payload, fallback = {}) {
   return { radius, centerLat: latitude, centerLng: longitude };
 }
 
-export async function listGeofences({ clientId, groupId } = {}) {
+export async function listGeofences({ clientId, clientIds, groupId, isTarget, lite = false } = {}) {
   if (typeof testOverrides?.listGeofences === "function") {
-    return testOverrides.listGeofences({ clientId, groupId });
+    return testOverrides.listGeofences({ clientId, clientIds, groupId, isTarget, lite });
   }
   ensurePrisma();
+  const resolvedClientIds = Array.isArray(clientIds)
+    ? clientIds.map((value) => String(value)).filter(Boolean)
+    : [];
+  const hasClientIds = resolvedClientIds.length > 0;
   const where = {
-    ...(clientId ? { clientId: String(clientId) } : {}),
+    ...(hasClientIds ? { clientId: { in: resolvedClientIds } } : {}),
+    ...(!hasClientIds && clientId ? { clientId: String(clientId) } : {}),
     ...(groupId ? { groupId: String(groupId) } : {}),
+    ...(typeof isTarget === "boolean" ? { isTarget } : {}),
   };
-  const geofences = await prisma.geofence.findMany({ where, orderBy: { createdAt: "desc" } });
+  const select = lite
+    ? {
+        id: true,
+        clientId: true,
+        groupId: true,
+        name: true,
+        description: true,
+        type: true,
+        color: true,
+        isTarget: true,
+        radius: true,
+        centerLat: true,
+        centerLng: true,
+        createdByUserId: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    : undefined;
+  const geofences = await prisma.geofence.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    ...(select ? { select } : {}),
+  });
   return geofences.map(mapGeofence);
 }
 
