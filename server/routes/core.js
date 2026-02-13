@@ -23,6 +23,7 @@ import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { ingestItineraryDirectionEvents } from "../services/itinerary-direction-events.js";
 import { ingestConditionalActions } from "../services/conditional-action-engine.js";
+import { upsertAlertFromEvent } from "../services/alerts.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, deleteUser, getUserById, updateUser } from "../models/user.js";
 import { config } from "../config.js";
@@ -2063,6 +2064,37 @@ router.get(
           deviceId: telemetryEntry.deviceId,
           position: positionWithMapping || warmedPosition || position || null,
         }) || [];
+      }
+      if (Array.isArray(itineraryDirectionEvents) && itineraryDirectionEvents.length) {
+        itineraryDirectionEvents.forEach((event) => {
+          upsertAlertFromEvent({
+            clientId: telemetryEntry.clientId,
+            event,
+            configuredEvent: {
+              label: event?.eventLabel || event?.normalizedEvent?.title || "Itinerário invertido",
+              severity: event?.eventSeverity || event?.normalizedEvent?.severity || "critical",
+              category: event?.eventCategory || event?.normalizedEvent?.category || "Segurança",
+              requiresHandling: event?.eventRequiresHandling !== false,
+              active: event?.eventActive !== false,
+            },
+            deviceId: telemetryEntry.deviceId,
+            vehicleId: telemetryEntry.vehicleId,
+            vehicleLabel: telemetryEntry.vehicleName || null,
+            plate: telemetryEntry.plate || null,
+            address:
+              event?.address ||
+              positionWithMapping?.address ||
+              warmedPosition?.address ||
+              position?.address ||
+              null,
+            protocol:
+              event?.protocol ||
+              positionWithMapping?.protocol ||
+              warmedPosition?.protocol ||
+              position?.protocol ||
+              null,
+          });
+        });
       }
 
       if (typeof deps.ingestConditionalActions === "function") {

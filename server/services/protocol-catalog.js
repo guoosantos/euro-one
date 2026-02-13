@@ -9,6 +9,18 @@ const catalogPath = path.join(__dirname, "..", "data", "protocol-catalog.json");
 const allowlistPath = path.join(__dirname, "..", "data", "protocol-command-allowlist.json");
 let cachedCatalog = null;
 let cachedAllowlist = null;
+const COMMON_PROTOCOL_EVENTS = [
+  {
+    id: "ITINERARIO_INVERTIDO",
+    name: "Itinerário invertido",
+    description: "Veículo trafegando no sentido oposto ao itinerário oficial.",
+    defaultSeverity: "critical",
+    category: "Segurança",
+    requiresHandling: true,
+    kind: "event",
+    source: "itineraryDirection",
+  },
+];
 
 export function loadProtocolCatalog() {
   if (cachedCatalog) return cachedCatalog;
@@ -121,6 +133,13 @@ export function buildFullProtocolEventCatalog(protocol) {
         name: event?.name || event?.labelPt || event?.label || defaults.name || `Evento ${id}`,
         description: event?.description || event?.descriptionPt || "",
         defaultSeverity: event?.defaultSeverity || event?.severity || defaults.defaultSeverity || null,
+        category: event?.category || defaults.category || null,
+        requiresHandling:
+          typeof event?.requiresHandling === "boolean"
+            ? event.requiresHandling
+            : typeof defaults.requiresHandling === "boolean"
+            ? defaults.requiresHandling
+            : false,
         kind: event?.kind || defaults.kind || "event",
         source: event?.source || defaults.source || "protocol",
       });
@@ -129,6 +148,7 @@ export function buildFullProtocolEventCatalog(protocol) {
   };
 
   append(baseEvents);
+  append(COMMON_PROTOCOL_EVENTS, { source: "internal" });
 
   if (protocolKey === "iotm") {
     const iotmEvents = (iotmEventCatalog || [])

@@ -601,7 +601,7 @@ export default function Events() {
             severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
             active: configEntry.active ?? true,
             category: configEntry.category ?? "",
-            requiresHandling: configEntry.requiresHandling ?? false,
+            requiresHandling: configEntry.requiresHandling ?? event.requiresHandling ?? false,
           };
         });
         const unmappedRows = Object.entries(configMap)
