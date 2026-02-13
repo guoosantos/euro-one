@@ -229,6 +229,12 @@ export const MENU_REGISTRY = [
         ],
       },
       { to: "/events", label: "Eventos", icon: Video, permission: { menuKey: "primary", pageKey: "events" } },
+      {
+        to: "/conditional-actions",
+        label: "Ação Condicional",
+        icon: ShieldCheck,
+        permission: { menuKey: "primary", pageKey: "events" },
+      },
     ],
   },
   {

@@ -258,6 +258,10 @@ export default function MonitoringTable({
   const operatorOptions = FILTER_OPERATORS[activeFilterType] || FILTER_OPERATORS.string;
   const activeOperator = activeFilter.operator || operatorOptions[0]?.value || "contains";
   const activeValues = Array.isArray(activeFilter.selected) ? activeFilter.selected : [];
+  const activeSortDirection =
+    filterMenu.key && sortKey === filterMenu.key && (sortDir === "asc" || sortDir === "desc")
+      ? sortDir
+      : null;
   const menuAnchorRef = useMemo(() => ({ current: filterMenu.anchor }), [filterMenu.anchor]);
   const rawValueOptions = filterMenu.key ? (columnFilterOptions?.[filterMenu.key] || []) : [];
   const filteredValueOptions = rawValueOptions.filter((value) => {
@@ -462,30 +466,58 @@ export default function MonitoringTable({
             </div>
 
             {sortableSet.has(filterMenu.key) && typeof onSortChange === "function" && (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onSortChange(filterMenu.key, "asc")}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-white/70 hover:border-white/40"
-                >
-                  <ArrowUp size={12} />
-                  Ascendente
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSortChange(filterMenu.key, "desc")}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-white/70 hover:border-white/40"
-                >
-                  <ArrowDown size={12} />
-                  Descendente
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSortChange(filterMenu.key, "clear")}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-white/50 hover:border-white/40"
-                >
-                  Limpar ordenação
-                </button>
+              <div
+                className={`rounded-lg border px-2 py-2 ${
+                  activeSortDirection
+                    ? "border-primary/65 bg-primary/[0.14] shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.85)]"
+                    : "border-white/10 bg-white/[0.02]"
+                }`}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em]">
+                  <span className={activeSortDirection ? "text-primary/90" : "text-white/50"}>Ordenação</span>
+                  {activeSortDirection ? (
+                    <span className="rounded-full border border-primary/55 bg-primary/25 px-2 py-0.5 text-[9px] font-semibold text-blue-100">
+                      Ativo
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(filterMenu.key, "asc")}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+                      activeSortDirection === "asc"
+                        ? "border-primary/70 bg-primary/30 text-blue-100 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/50 hover:text-white"
+                    }`}
+                  >
+                    <ArrowUp size={12} />
+                    Ascendente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(filterMenu.key, "desc")}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+                      activeSortDirection === "desc"
+                        ? "border-primary/70 bg-primary/30 text-blue-100 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/50 hover:text-white"
+                    }`}
+                  >
+                    <ArrowDown size={12} />
+                    Descendente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(filterMenu.key, "clear")}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+                      activeSortDirection
+                        ? "border-primary/45 text-blue-100/85 hover:border-primary/65 hover:text-blue-100"
+                        : "border-white/10 text-white/50 hover:border-white/40"
+                    }`}
+                  >
+                    Limpar ordenação
+                  </button>
+                </div>
               </div>
             )}
 

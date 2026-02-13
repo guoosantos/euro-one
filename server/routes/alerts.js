@@ -7,6 +7,7 @@ import { listDevices } from "../models/device.js";
 import { getVehicleById, listVehicles } from "../models/vehicle.js";
 import { fetchEventsWithFallback } from "../services/traccar-db.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
+import { listItineraryDirectionEvents } from "../services/itinerary-direction-events.js";
 import {
   addManualHandling,
   addVehicleManualHandling,
@@ -14,6 +15,7 @@ import {
   listAlerts,
   listVehicleManualHandlings,
 } from "../services/alerts.js";
+import { listConditionalActionEvents } from "../models/conditional-action.js";
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
 import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
@@ -156,17 +158,32 @@ async function listConjugatedAlerts(req, { forceIncludeResolved = null } = {}) {
   const to = now.toISOString();
 
   const events = await fetchEventsWithFallback(deviceIds, from, to, limit);
+  const itineraryEvents = listItineraryDirectionEvents({
+    clientId,
+    deviceIds,
+    from,
+    to,
+  });
+  const conditionalEvents = listConditionalActionEvents({
+    clientId,
+    deviceIds,
+    from,
+    to,
+  });
+  const mergedEvents = [...events, ...itineraryEvents, ...conditionalEvents];
   const vehicles = access.vehicles.length ? access.vehicles : listVehicles({ clientId });
   const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
 
-  const filtered = events
+  const filtered = mergedEvents
     .map((event) => {
       const eventId = resolveEventIdFromPayload(event);
       const device = deviceByTraccarId.get(String(event.deviceId));
       const vehicleId = device?.vehicleId ?? null;
       const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : null;
       const protocol = event?.protocol || event?.attributes?.protocol || device?.protocol || null;
-      const configuredEvent = eventId
+      const configuredEvent = event?.synthetic
+        ? null
+        : eventId
         ? resolveEventConfiguration({
             clientId,
             protocol,
@@ -175,8 +192,8 @@ async function listConjugatedAlerts(req, { forceIncludeResolved = null } = {}) {
             deviceId: event?.deviceId ?? null,
           })
         : null;
-      const severity = configuredEvent?.severity || event?.severity || event?.attributes?.severity || null;
-      const active = configuredEvent?.active ?? true;
+      const severity = configuredEvent?.severity || event?.eventSeverity || event?.severity || event?.attributes?.severity || null;
+      const active = configuredEvent?.active ?? event?.eventActive ?? true;
       const resolution = getEventResolution(event.id, { clientId });
       return {
         id: event.id,

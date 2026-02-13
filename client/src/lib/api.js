@@ -171,6 +171,7 @@ const MIRROR_READ_ALLOWLIST = [
   "/alerts",
   "/reports",
   "/events",
+  "/conditional-actions",
   "/devices",
   "/drivers",
   "/geofences",

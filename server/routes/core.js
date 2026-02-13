@@ -21,6 +21,8 @@ import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.
 import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
+import { ingestItineraryDirectionEvents } from "../services/itinerary-direction-events.js";
+import { ingestConditionalActions } from "../services/conditional-action-engine.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, deleteUser, getUserById, updateUser } from "../models/user.js";
 import { config } from "../config.js";
@@ -93,6 +95,8 @@ const defaultDeps = {
   getCachedTraccarResources: traccarSyncService.getCachedTraccarResources,
   enrichPositionsWithAddresses: addressUtils.enrichPositionsWithAddresses,
   ensureCachedPositionAddress: addressUtils.ensureCachedPositionAddress,
+  ingestItineraryDirectionEvents,
+  ingestConditionalActions,
 };
 
 const deps = { ...defaultDeps };
@@ -2043,13 +2047,41 @@ router.get(
         })),
       };
 
-      ingestSignalStateEvents({
+      const signalEvents = ingestSignalStateEvents({
         clientId: telemetryEntry.clientId,
         vehicleId: telemetryEntry.vehicleId,
         deviceId: telemetryEntry.deviceId,
         position: positionWithMapping || warmedPosition || position || null,
         attributes: attributesSource,
       });
+
+      let itineraryDirectionEvents = [];
+      if (typeof deps.ingestItineraryDirectionEvents === "function") {
+        itineraryDirectionEvents = deps.ingestItineraryDirectionEvents({
+          clientId: telemetryEntry.clientId,
+          vehicleId: telemetryEntry.vehicleId,
+          deviceId: telemetryEntry.deviceId,
+          position: positionWithMapping || warmedPosition || position || null,
+        }) || [];
+      }
+
+      if (typeof deps.ingestConditionalActions === "function") {
+        try {
+          await deps.ingestConditionalActions({
+            clientId: telemetryEntry.clientId,
+            vehicleId: telemetryEntry.vehicleId,
+            deviceId: telemetryEntry.deviceId,
+            vehicle,
+            vehicleLabel: telemetryEntry.vehicleName || null,
+            plate: telemetryEntry.plate || null,
+            position: positionWithMapping || warmedPosition || position || null,
+            attributes: attributesSource,
+            events: [...(Array.isArray(signalEvents) ? signalEvents : []), ...(Array.isArray(itineraryDirectionEvents) ? itineraryDirectionEvents : [])],
+          });
+        } catch (conditionalError) {
+          console.warn("[conditional-actions] falha ao processar regra", conditionalError?.message || conditionalError);
+        }
+      }
 
       telemetry.push(telemetryEntry);
     }

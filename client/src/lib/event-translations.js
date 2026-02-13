@@ -48,6 +48,8 @@ const EVENT_LABELS_PT = {
   door: "Porta",
   engineon: "Motor ligado",
   engineoff: "Motor desligado",
+  itineraryreverse: "Itinerário invertido",
+  conditionalactiontrigger: "Ação condicional",
 };
 
 const EVENT_LABELS_EN = {
@@ -98,6 +100,8 @@ const EVENT_LABELS_EN = {
   door: "Door",
   engineon: "Engine on",
   engineoff: "Engine off",
+  itineraryreverse: "Reverse itinerary",
+  conditionalactiontrigger: "Conditional action",
 };
 
 const EVENT_LABELS = {
@@ -170,6 +174,8 @@ const EVENT_SEVERITY = {
   door: "medium",
   engineon: "info",
   engineoff: "info",
+  itineraryreverse: "critical",
+  conditionalactiontrigger: "warning",
 };
 
 export const J16_EVENT_DEFINITIONS = {

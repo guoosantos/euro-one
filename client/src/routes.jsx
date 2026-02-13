@@ -31,6 +31,7 @@ import DeviceImport from "./pages/DeviceImport";
 import Geofences from "./pages/Geofences.jsx";
 import Targets from "./pages/Targets.jsx";
 import Events from "./pages/Events";
+import ConditionalActions from "./pages/ConditionalActions.jsx";
 import Videos from "./pages/Videos";
 import Face from "./pages/Face";
 import Ranking from "./pages/Ranking";
@@ -124,6 +125,7 @@ export const routeConfig = [
   { path: "/alvos", element: Targets, title: "Alvos", requireTenant: true, permission: { menuKey: "fleet", pageKey: "targets" } },
   { path: "/itineraries", element: Itineraries, title: "Embarcar Itinerários", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "itineraries" } },
   { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
+  { path: "/conditional-actions", element: ConditionalActions, title: "Ação Condicional", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },

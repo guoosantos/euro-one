@@ -26,6 +26,16 @@ function toLatLngPairs(coordinates = []) {
     .filter(Boolean);
 }
 
+function resolveToleranceMeters(...values) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 export function extractLineLatLngs(input) {
   const geometry = normalizeGeoJsonGeometry(input);
   if (!geometry) return [];
@@ -216,10 +226,23 @@ export function buildOverlayShapes(overlay) {
       const polygons = extractPolygonLatLngs(geometry);
       if (!polygons.length) return null;
       const properties = normalizeGeoJsonProperties(item);
+      const toleranceMeters = resolveToleranceMeters(
+        properties.toleranceMeters,
+        properties.tolerance,
+        properties.bufferMeters,
+        properties.radiusMeters,
+        properties.radius,
+        item?.toleranceMeters,
+        item?.tolerance,
+        item?.bufferMeters,
+        item?.radiusMeters,
+        item?.radius,
+      );
       return {
         id: properties.id || item?.id || `geofence-${index + 1}`,
         name: properties.name || item?.name || `Cerca ${index + 1}`,
         polygons,
+        toleranceMeters,
       };
     })
     .filter(Boolean);
@@ -230,7 +253,18 @@ export function buildOverlayShapes(overlay) {
           const lat = Number(checkpoint?.lat);
           const lng = Number(checkpoint?.lng);
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-          return { name: checkpoint?.name || "Ponto", lat, lng };
+          return {
+            name: checkpoint?.name || checkpoint?.label || "Alvo",
+            lat,
+            lng,
+            toleranceMeters: resolveToleranceMeters(
+              checkpoint?.toleranceMeters,
+              checkpoint?.tolerance,
+              checkpoint?.radiusMeters,
+              checkpoint?.radius,
+              checkpoint?.bufferMeters,
+            ),
+          };
         })
         .filter(Boolean)
     : [];

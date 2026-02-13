@@ -20,6 +20,8 @@ import { resolveEventConfiguration } from "../services/event-config.js";
 import { normalizeEventPayload } from "../services/event-normalizer.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
 import { listSignalEvents } from "../services/signal-events.js";
+import { listItineraryDirectionEvents } from "../services/itinerary-direction-events.js";
+import { listConditionalActionEvents } from "../models/conditional-action.js";
 import { listVehicleEmbarkHistory } from "../services/embark-history.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
@@ -2512,7 +2514,19 @@ async function handleEventsReport(req, res, next) {
       from,
       to,
     });
-    const combinedEvents = [...events, ...signalEvents].sort(
+    const itineraryDirectionEvents = listItineraryDirectionEvents({
+      clientId,
+      deviceIds: deviceIdsToQuery,
+      from,
+      to,
+    });
+    const conditionalActionEvents = listConditionalActionEvents({
+      clientId,
+      deviceIds: deviceIdsToQuery,
+      from,
+      to,
+    });
+    const combinedEvents = [...events, ...signalEvents, ...itineraryDirectionEvents, ...conditionalActionEvents].sort(
       (a, b) => resolveEventTimestamp(b) - resolveEventTimestamp(a),
     );
     const positionIds = Array.from(new Set(combinedEvents.map((event) => event.positionId).filter(Boolean)));

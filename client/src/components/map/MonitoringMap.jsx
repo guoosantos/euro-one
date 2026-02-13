@@ -141,6 +141,26 @@ function PopupContent({ marker }) {
   );
 }
 
+function formatToleranceLabel(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return "—";
+  return `${Math.round(parsed)} m`;
+}
+
+function OverlayHoverTooltip({ name, type, tolerance }) {
+  return (
+    <div className="monitoring-overlay-tooltip text-[11px] leading-tight text-white/85">
+      <div className="font-semibold text-white">{name || "—"}</div>
+      <div className="mt-0.5 text-white/65">
+        Tipo: <span className="text-white/85">{type}</span>
+      </div>
+      <div className="text-white/60">
+        Tolerância: <span className="text-white/85">{tolerance || "—"}</span>
+      </div>
+    </div>
+  );
+}
+
 function MarkerLayer({
   markers,
   focusMarkerId,
@@ -309,6 +329,8 @@ function RegionOverlay({ target }) {
   const radius = target?.radius ?? 500;
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
+  const targetLabel = target.label || target.name || "Alvo";
+  const toleranceLabel = formatToleranceLabel(radius);
   return (
     <Circle
       center={[target.lat, target.lng]}
@@ -316,10 +338,9 @@ function RegionOverlay({ target }) {
       pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.12, weight: 2 }}
     >
       <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
-        <div className="text-xs text-white/80">
-          <div className="font-semibold text-white">{target.label}</div>
-          <div>{formatAddress(target.address)}</div>
-          <div className="text-white/60">Raio: {radius} m</div>
+        <div className="space-y-1">
+          <OverlayHoverTooltip name={targetLabel} type="Alvo" tolerance={toleranceLabel} />
+          <div className="text-[11px] text-white/60">{formatAddress(target.address)}</div>
         </div>
       </Tooltip>
     </Circle>
@@ -397,7 +418,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
   const routeBufferLabel = useMemo(() => {
     const raw = Number(overlay?.bufferMeters);
     if (!Number.isFinite(raw) || raw <= 0) return "—";
-    return `${Math.round(raw)} m`;
+    return formatToleranceLabel(raw);
   }, [overlay?.bufferMeters]);
 
   const safeRouteLines = routeLines.filter((line) => Array.isArray(line) && line.length > 1);
@@ -441,10 +462,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
               pathOptions={corridorStyle}
             >
               <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
-                <div className="text-xs text-white/80">
-                  <div className="font-semibold text-white">{routeTooltipLabel}</div>
-                  <div className="text-white/60">Tolerância para Desvio de Rota: {routeBufferLabel}</div>
-                </div>
+                <OverlayHoverTooltip name={routeTooltipLabel} type="Rota" tolerance={routeBufferLabel} />
               </Tooltip>
             </Polygon>
           ))
@@ -455,10 +473,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
               pathOptions={routeStyle}
             >
               <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
-                <div className="text-xs text-white/80">
-                  <div className="font-semibold text-white">{routeTooltipLabel}</div>
-                  <div className="text-white/60">Tolerância para Desvio de Rota: {routeBufferLabel}</div>
-                </div>
+                <OverlayHoverTooltip name={routeTooltipLabel} type="Rota" tolerance={routeBufferLabel} />
               </Tooltip>
             </Polyline>
           ))}
@@ -469,9 +484,11 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
           pathOptions={geofenceStyle}
         >
           <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
-            <div className="text-xs text-white/80">
-              <div className="font-semibold text-white">{geofence.name || "Cerca"}</div>
-            </div>
+            <OverlayHoverTooltip
+              name={geofence.name || "Cerca"}
+              type="Cerca"
+              tolerance={formatToleranceLabel(geofence?.toleranceMeters)}
+            />
           </Tooltip>
         </Polygon>
       ))}
@@ -483,9 +500,11 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
           pathOptions={checkpointStyle}
         >
           <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
-            <div className="text-xs text-white/80">
-              <div className="font-semibold text-white">{checkpoint.name || "Ponto"}</div>
-            </div>
+            <OverlayHoverTooltip
+              name={checkpoint.name || "Alvo"}
+              type="Alvo"
+              tolerance={formatToleranceLabel(checkpoint?.toleranceMeters)}
+            />
           </Tooltip>
         </CircleMarker>
       ))}

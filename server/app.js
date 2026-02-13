@@ -40,6 +40,7 @@ import serviceOrderRoutes from "./routes/service-orders.js";
 import xdmRoutes from "./routes/xdm.js";
 import xdmAdminRoutes from "./routes/xdm-admin.js";
 import mirrorRoutes from "./routes/mirrors.js";
+import conditionalActionRoutes from "./routes/conditional-actions.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { formatVersionText, getVersionInfo } from "./utils/version.js";
 
@@ -134,6 +135,7 @@ app.use("/api", protocolRoutes);
 app.use("/api", xdmRoutes);
 app.use("/api/core", serviceOrderRoutes);
 app.use("/api/admin", xdmAdminRoutes);
+app.use("/api", conditionalActionRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(

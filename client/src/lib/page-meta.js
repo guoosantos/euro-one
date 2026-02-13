@@ -66,6 +66,10 @@ const META = {
   "/alvos": { title: "Alvos" },
   "/itineraries": { title: "Embarcar Itinerários" },
   "/events": { title: "Eventos", subtitle: "Monitore protocolos, personalize severidades e extraia relatórios." },
+  "/conditional-actions": {
+    title: "Ação Condicional",
+    subtitle: "Configure regras IF/THEN por escopo de veículos/equipamentos e acompanhe a auditoria de disparos.",
+  },
   "/videos": { title: "Vídeos" },
   "/face": {
     title: "Reconhecimento facial e cabine",
