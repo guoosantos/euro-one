@@ -34,6 +34,11 @@ const EVENT_TABS = [
     label: "Severidade",
     permission: { menuKey: "primary", pageKey: "events", subKey: "severity" },
   },
+  {
+    id: "treatment",
+    label: "Tratativa",
+    permission: { menuKey: "primary", pageKey: "events", subKey: "report" },
+  },
 ];
 const EVENT_TYPES = [
   "all",
@@ -255,6 +260,15 @@ export default function Events() {
   const [reportError, setReportError] = useState(null);
   const [reportMeta, setReportMeta] = useState(null);
   const [reportGenerated, setReportGenerated] = useState(false);
+  const [treatmentRows, setTreatmentRows] = useState([]);
+  const [treatmentLoading, setTreatmentLoading] = useState(false);
+  const [treatmentError, setTreatmentError] = useState(null);
+  const [treatmentMeta, setTreatmentMeta] = useState(null);
+  const [treatmentGenerated, setTreatmentGenerated] = useState(false);
+  const [treatmentEventFilter, setTreatmentEventFilter] = useState("");
+  const [treatmentVehicleId, setTreatmentVehicleId] = useState("");
+  const [treatmentPage, setTreatmentPage] = useState(1);
+  const [treatmentPageSize, setTreatmentPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [reportEventScope, setReportEventScope] = useState("active");
@@ -528,6 +542,37 @@ export default function Events() {
     }
   }, [allDeviceIds, eventType, from, page, pageSize, reportEventScope, selectedVehicle, to]);
 
+  const fetchTreatments = useCallback(async (pageOverride = treatmentPage) => {
+    setTreatmentLoading(true);
+    setTreatmentError(null);
+    try {
+      const params = {
+        from: from ? new Date(from).toISOString() : undefined,
+        to: to ? new Date(to).toISOString() : undefined,
+        event: treatmentEventFilter?.trim() || undefined,
+        vehicleId: treatmentVehicleId || undefined,
+        page: pageOverride,
+        limit: treatmentPageSize,
+      };
+      const response = await api.get(API_ROUTES.eventTreatments, { params });
+      const list = Array.isArray(response?.data?.data) ? response.data.data : [];
+      setTreatmentRows(list);
+      setTreatmentMeta({
+        page: response?.data?.page ?? pageOverride,
+        pageSize: response?.data?.pageSize ?? treatmentPageSize,
+        totalItems: response?.data?.total ?? list.length,
+        totalPages: response?.data?.totalPages ?? 1,
+      });
+      setTreatmentGenerated(true);
+    } catch (error) {
+      setTreatmentError(error instanceof Error ? error : new Error("Erro ao carregar tratativas"));
+      setTreatmentRows([]);
+      setTreatmentMeta(null);
+    } finally {
+      setTreatmentLoading(false);
+    }
+  }, [from, to, treatmentEventFilter, treatmentPage, treatmentPageSize, treatmentVehicleId]);
+
   useEffect(() => {
     if (activeTab !== "severity" || !selectedProtocol) return;
     let mounted = true;
@@ -713,6 +758,18 @@ export default function Events() {
     if (!reportGenerated) return;
     fetchReport(page);
   }, [fetchReport, page, reportGenerated]);
+
+  useEffect(() => {
+    if (!treatmentGenerated) return;
+    fetchTreatments(treatmentPage);
+  }, [fetchTreatments, treatmentGenerated, treatmentPage]);
+
+  useEffect(() => {
+    if (activeTab !== "treatment") return;
+    if (treatmentGenerated) return;
+    setTreatmentPage(1);
+    fetchTreatments(1);
+  }, [activeTab, fetchTreatments, treatmentGenerated]);
 
   const visibleColumns = useMemo(
     () => DEFAULT_COLUMNS.filter((column) => columnsVisibility[column.id]),
@@ -953,6 +1010,29 @@ export default function Events() {
                   )}
                 </div>
               </>
+            ) : activeTab === "treatment" ? (
+              <>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setTreatmentPage(1);
+                    fetchTreatments(1);
+                  }}
+                >
+                  Mostrar
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setTreatmentVehicleId("");
+                    setTreatmentEventFilter("");
+                    setTreatmentPage(1);
+                  }}
+                >
+                  Limpar filtros
+                </Button>
+              </>
             ) : null
           }
         />
@@ -1150,6 +1230,122 @@ export default function Events() {
                 totalItems={totalItems}
                 onPageChange={(nextPage) => setPage(nextPage)}
                 disabled={reportLoading}
+              />
+            </div>
+          </div>
+        )}
+
+        {availableTabs.length > 0 && activeTab === "treatment" && (
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
+              <AutocompleteSelect
+                label="Veículo"
+                placeholder="Todos os veículos"
+                value={treatmentVehicleId}
+                onChange={(value) => setTreatmentVehicleId(value)}
+                options={vehicleSelectOptions}
+                loadOptions={loadVehicleOptions}
+                allowClear
+                className="min-w-[240px] flex-1"
+              />
+              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Evento
+                <Input
+                  value={treatmentEventFilter}
+                  onChange={(event) => setTreatmentEventFilter(event.target.value)}
+                  placeholder="Tipo, descrição ou ID do evento"
+                  className="mt-2"
+                />
+              </label>
+              <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                De
+                <input
+                  type="datetime-local"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Até
+                <input
+                  type="datetime-local"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pb-4">
+              <div className="min-h-0 flex-1 overflow-auto border border-white/10">
+                <table className="w-full min-w-full border-collapse text-left text-sm">
+                  <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
+                    <tr>
+                      <th className="px-3 py-2">Data/Hora</th>
+                      <th className="px-3 py-2">Evento</th>
+                      <th className="px-3 py-2">Veículo</th>
+                      <th className="px-3 py-2">Usuário</th>
+                      <th className="px-3 py-2">Ação</th>
+                      <th className="px-3 py-2">Tratativa</th>
+                      <th className="px-3 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40 text-xs">
+                    {treatmentLoading && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-white/60">
+                          Carregando tratativas…
+                        </td>
+                      </tr>
+                    )}
+                    {!treatmentLoading && treatmentError && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-red-300">
+                          Não foi possível carregar as tratativas. {treatmentError.message}
+                        </td>
+                      </tr>
+                    )}
+                    {!treatmentLoading && !treatmentError && treatmentRows.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-white/60">
+                          Nenhuma tratativa encontrada para os filtros selecionados.
+                        </td>
+                      </tr>
+                    )}
+                    {treatmentRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-white/5">
+                        <td className="px-3 py-2 text-white/80">
+                          {row.handledAt ? new Date(row.handledAt).toLocaleString("pt-BR") : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-white/80">{row.eventLabel || row.eventType || row.eventId || "—"}</td>
+                        <td className="px-3 py-2 text-white/80">{row.vehicleLabel || row.vehicleId || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.handledByName || row.handledBy || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.action || row.source || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.notes || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.status || "Concluído"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <DataTablePagination
+                className="mt-auto"
+                pageSize={treatmentPageSize}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(value) => {
+                  const nextValue = Number(value) || DEFAULT_PAGE_SIZE;
+                  setTreatmentPageSize(nextValue);
+                  setTreatmentPage(1);
+                  if (treatmentGenerated) {
+                    fetchTreatments(1);
+                  }
+                }}
+                currentPage={treatmentMeta?.page ?? treatmentPage}
+                totalPages={treatmentMeta?.totalPages ?? 1}
+                totalItems={treatmentMeta?.totalItems ?? treatmentRows.length}
+                onPageChange={(nextPage) => setTreatmentPage(nextPage)}
+                disabled={treatmentLoading}
               />
             </div>
           </div>

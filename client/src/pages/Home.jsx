@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
@@ -290,7 +290,7 @@ export default function Home() {
     params: pendingAlertParams,
     enabled: canAccessMonitoring && canAccessAlerts,
   });
-  const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading, refresh: refreshConjugatedAlerts } = useConjugatedAlerts({
+  const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
     params: conjugatedAlertParams,
     enabled: canAccessMonitoring && canAccessConjugatedAlerts,
   });
@@ -652,17 +652,30 @@ export default function Home() {
     return decoratedTable
       .map((row) => {
         const position = row?.position || row?.device?.position || null;
+        const statusText = String(row?.status || "").toLowerCase();
+        const isStatusAlert = statusText === "alert" || statusText === "blocked";
         const alarm =
           position?.attributes?.alarm ||
           position?.attributes?.event ||
+          position?.attributes?.eventLabel ||
           position?.alarm ||
           row?.device?.alarm ||
           row?.alerts?.[0] ||
           null;
-        if (!alarm) return null;
-        const label = normalizeAlertLabel(alarm);
+        const severity =
+          position?.eventSeverity ||
+          position?.attributes?.eventSeverity ||
+          position?.severity ||
+          position?.attributes?.severity ||
+          null;
+        if (!alarm && !isStatusAlert) return null;
+        const label = alarm
+          ? normalizeAlertLabel(alarm)
+          : statusText === "blocked"
+            ? "Bloqueado"
+            : "Alerta ativo";
         return {
-          id: `monitoring-${row.deviceId || row.id || row.vehicleId || label}`,
+          id: `monitoring-${row.deviceId || row.id || row.vehicleId || label}-${String(severity || "default").toLowerCase()}`,
           deviceId: row.deviceId || row.id || null,
           vehicleId: row.vehicleId || null,
           vehicleLabel: row.vehicle?.name || row.plate || null,
@@ -676,6 +689,7 @@ export default function Home() {
             new Date().toISOString(),
           eventLabel: label,
           address: position?.address || row?.address || null,
+          severity: severity || (statusText === "blocked" ? "high" : null),
         };
       })
       .filter(Boolean);
@@ -701,97 +715,10 @@ export default function Home() {
     [effectiveConjugatedAlerts],
   );
 
-  const [conjugatedPopupOpen, setConjugatedPopupOpen] = useState(false);
-  const [conjugatedHandlingNote, setConjugatedHandlingNote] = useState("");
-  const [conjugatedHandlingError, setConjugatedHandlingError] = useState(null);
-  const [conjugatedHandlingLoading, setConjugatedHandlingLoading] = useState(false);
-  const conjugatedReminderRef = useRef(null);
-
   const unresolvedConjugatedAlerts = useMemo(
     () => conjugatedAlertRows.filter((row) => !row?.resolved),
     [conjugatedAlertRows],
   );
-
-  useEffect(() => {
-    if (!canAccessMonitoring) return;
-    if (unresolvedConjugatedAlerts.length === 0) {
-      setConjugatedPopupOpen(false);
-      return;
-    }
-    setConjugatedPopupOpen(true);
-  }, [canAccessMonitoring, unresolvedConjugatedAlerts.length]);
-
-  useEffect(() => {
-    if (!canAccessMonitoring || unresolvedConjugatedAlerts.length === 0) {
-      if (conjugatedReminderRef.current) {
-        clearInterval(conjugatedReminderRef.current);
-        conjugatedReminderRef.current = null;
-      }
-      return;
-    }
-    if (conjugatedReminderRef.current) {
-      clearInterval(conjugatedReminderRef.current);
-    }
-    conjugatedReminderRef.current = setInterval(() => {
-      if (unresolvedConjugatedAlerts.length === 0) return;
-      setConjugatedPopupOpen(true);
-    }, 180_000);
-    return () => {
-      if (conjugatedReminderRef.current) {
-        clearInterval(conjugatedReminderRef.current);
-        conjugatedReminderRef.current = null;
-      }
-    };
-  }, [canAccessMonitoring, unresolvedConjugatedAlerts.length]);
-
-  useEffect(() => {
-    if (!conjugatedPopupOpen) {
-      setConjugatedHandlingError(null);
-    }
-  }, [conjugatedPopupOpen]);
-
-  const handleResolveConjugatedAlerts = useCallback(async () => {
-    if (conjugatedHandlingLoading) return;
-    const note = conjugatedHandlingNote.trim();
-    if (!note) {
-      setConjugatedHandlingError("Informe uma observação para concluir a tratativa.");
-      return;
-    }
-    if (unresolvedConjugatedAlerts.length === 0) return;
-
-    setConjugatedHandlingLoading(true);
-    setConjugatedHandlingError(null);
-    try {
-      const results = await Promise.allSettled(
-        unresolvedConjugatedAlerts.map((row) =>
-          safeApi.patch(API_ROUTES.eventResolve(row.id), {
-            notes: note,
-            vehicleId: row.vehicleId ?? null,
-            deviceId: row.deviceId ?? null,
-          }),
-        ),
-      );
-      const failed = results.filter(
-        (result) => result.status === "rejected" || result.value?.error,
-      );
-      if (failed.length) {
-        throw new Error("Não foi possível registrar todas as tratativas.");
-      }
-      setConjugatedHandlingNote("");
-      setConjugatedPopupOpen(false);
-      refreshConjugatedAlerts?.();
-    } catch (error) {
-      const message = error?.message || "Falha ao salvar tratativa.";
-      setConjugatedHandlingError(message);
-    } finally {
-      setConjugatedHandlingLoading(false);
-    }
-  }, [
-    conjugatedHandlingLoading,
-    conjugatedHandlingNote,
-    refreshConjugatedAlerts,
-    unresolvedConjugatedAlerts,
-  ]);
 
 
   const renderCommunicationSummary = (expanded = false) => (
@@ -1062,85 +989,6 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      {conjugatedPopupOpen && unresolvedConjugatedAlerts.length > 0 && (
-        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-4xl rounded-2xl border border-red-500/40 bg-[#0f141c] text-white shadow-3xl">
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.16em] text-red-300">Alerta conjugado</p>
-                <h2 className="text-lg font-semibold">Atenção: alertas críticos ativos</h2>
-                <p className="text-xs text-white/60">
-                  Este alerta reaparecerá a cada 3 minutos até ser tratado.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConjugatedPopupOpen(false)}
-                className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
-              >
-                Fechar
-              </button>
-            </div>
-            <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
-              <div className="space-y-3">
-                {unresolvedConjugatedAlerts.map((row) => (
-                  <div key={row.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-semibold text-white">
-                          {row.vehicleLabel || row.plate || row.vehicleId || "Veículo"}
-                        </div>
-                        <div className="text-xs text-white/60">
-                          {formatDate(row.eventTime, locale)} · {row.eventLabel || "Evento crítico"}
-                        </div>
-                      </div>
-                      <span className="rounded-full border border-red-400/40 bg-red-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-red-200">
-                        {row.severity || "Crítica"}
-                      </span>
-                    </div>
-                    <div className="mt-2 text-xs text-white/60">{formatAddress(row.address) || "Endereço indisponível"}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="border-t border-white/10 px-6 py-4">
-              <label className="text-xs uppercase tracking-[0.12em] text-white/50">
-                Observação obrigatória
-              </label>
-              <textarea
-                value={conjugatedHandlingNote}
-                onChange={(event) => {
-                  setConjugatedHandlingNote(event.target.value);
-                  if (conjugatedHandlingError) setConjugatedHandlingError(null);
-                }}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                rows={3}
-                placeholder="Descreva a tratativa aplicada."
-              />
-              {conjugatedHandlingError && (
-                <p className="mt-2 text-xs text-red-200/80">{conjugatedHandlingError}</p>
-              )}
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConjugatedPopupOpen(false)}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 hover:border-white/30"
-                >
-                  Fechar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleResolveConjugatedAlerts}
-                  disabled={conjugatedHandlingLoading}
-                  className="rounded-lg border border-red-500/40 bg-red-500/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-red-100 hover:border-red-400/60 disabled:opacity-60"
-                >
-                  {conjugatedHandlingLoading ? "Salvando..." : "Concluir tratativa"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       <PageHeader />
       {mirrorPartial && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
@@ -1227,16 +1075,45 @@ function Metric({ label, value, onClick }) {
   );
 }
 
+function isClosedTaskStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    "final",
+    "finalizado",
+    "finalizada",
+    "concluido",
+    "concluida",
+    "concluído",
+    "concluída",
+    "encerrado",
+    "encerrada",
+    "cancelado",
+    "cancelada",
+    "done",
+    "finished",
+    "completed",
+    "resolved",
+    "closed",
+    "inactive",
+    "inativo",
+  ].some((token) => normalized.includes(token));
+}
+
 function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()) {
-  const activeTasks = Array.isArray(tasks)
-    ? tasks.filter((task) => !String(task.status || "").toLowerCase().includes("final"))
-    : [];
+  const activeTasks = Array.isArray(tasks) ? tasks.filter((task) => !isClosedTaskStatus(task?.status)) : [];
   const routesByVehicle = new Map();
+  const routesByDevice = new Map();
+
   activeTasks.forEach((task) => {
-    const deviceKey = toDeviceKey(task.deviceId ?? task.device?.id ?? task.device?.deviceId ?? "");
-    const resolvedVehicleId = task.vehicleId ?? (deviceKey ? vehicleByDeviceId.get(String(deviceKey))?.id : null);
-    const key = resolvedVehicleId ? String(resolvedVehicleId) : "";
-    if (key) routesByVehicle.set(key, task);
+    const deviceKey = toDeviceKey(task?.deviceId ?? task?.device?.id ?? task?.device?.deviceId ?? "");
+    const resolvedVehicleId = task?.vehicleId ?? (deviceKey ? vehicleByDeviceId.get(String(deviceKey))?.id : null);
+    if (resolvedVehicleId) {
+      routesByVehicle.set(String(resolvedVehicleId), task);
+    }
+    if (deviceKey) {
+      routesByDevice.set(String(deviceKey), task);
+    }
   });
 
   let totalWithRoute = 0;
@@ -1249,8 +1126,13 @@ function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()
   const now = Date.now();
 
   for (const vehicle of table) {
-    const key = String(vehicle.vehicleId ?? vehicle.vehicle?.id ?? vehicle.device?.vehicleId ?? vehicle.id ?? "");
-    if (!key || !routesByVehicle.has(key)) continue;
+    const vehicleKey = String(vehicle.vehicleId ?? vehicle.vehicle?.id ?? vehicle.device?.vehicleId ?? vehicle.id ?? "");
+    const deviceKey = String(
+      vehicle.deviceId ?? vehicle.device?.id ?? vehicle.device?.deviceId ?? vehicle.device?.traccarId ?? vehicle.id ?? "",
+    );
+    const task = routesByVehicle.get(vehicleKey) || routesByDevice.get(deviceKey);
+    if (!task) continue;
+
     totalWithRoute += 1;
     const online = vehicle.status === "online";
     if (online) withSignal += 1;
@@ -1265,12 +1147,11 @@ function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()
       if (reason.includes("face")) blocked.face += 1;
     }
 
-    const task = routesByVehicle.get(key);
     const startExpected = task?.startTimeExpected ? Date.parse(task.startTimeExpected) : null;
     const endExpected = task?.endTimeExpected ? Date.parse(task.endTimeExpected) : null;
-    const statusText = String(task?.status || "").toLowerCase();
-    if (startExpected && now > startExpected && !statusText.includes("final")) routeDelay += 1;
-    if (endExpected && now > endExpected && !statusText.includes("final")) routeDeviation += 1;
+    const isClosed = isClosedTaskStatus(task?.status);
+    if (startExpected && now > startExpected && !isClosed) routeDelay += 1;
+    if (endExpected && now > endExpected && !isClosed) routeDeviation += 1;
   }
 
   return { totalWithRoute, withoutSignal, withSignal, routeDelay, routeDeviation, blocked };

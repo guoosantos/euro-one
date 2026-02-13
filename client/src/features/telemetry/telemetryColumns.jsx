@@ -476,7 +476,14 @@ export const TELEMETRY_COLUMNS = [
     key: "notes",
     labelKey: "monitoring.columns.notes",
     defaultVisible: false,
-    getValue: (row) => row.device?.notes || row.device?.observations || row.device?.attributes?.notes || FALLBACK,
+    getValue: (row) =>
+      row.vehicle?.notes ||
+      row.vehicle?.observations ||
+      row.device?.notes ||
+      row.device?.observations ||
+      row.vehicle?.attributes?.notes ||
+      row.device?.attributes?.notes ||
+      FALLBACK,
   },
 ];
 

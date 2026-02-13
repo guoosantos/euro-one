@@ -12,6 +12,8 @@ export const API_ROUTES = {
   alertHandlings: (id) => `alerts/${id}/handlings`,
   alertsManual: "alerts/manual",
   alertsConjugated: "alerts/conjugated",
+  alertsConjugatedPending: "alerts/conjugated/pending",
+  alertsConjugatedResolve: (id) => `alerts/conjugated/${id}/resolve`,
   devices: "devices",
   lastPositions: "positions/last",
   finance: "finance",
@@ -38,6 +40,7 @@ export const API_ROUTES = {
   videoTelematics: "video-telematics",
   positionsExport: "positions/export",
   eventResolve: (id) => `events/${id}/resolve`,
+  eventTreatments: "events/handlings",
   reports: {
     trips: "traccar/reports/trips",
     stops: "traccar/reports/stops",

@@ -2855,7 +2855,7 @@ export default function Monitoring() {
 
   const gridTemplateRows = useMemo(() => {
     if (layoutVisibility.showMap && layoutVisibility.showTable) {
-      return `${localMapHeight}% 8px minmax(0, ${tableHeightPercent}%)`;
+      return `${localMapHeight}% 12px minmax(0, ${tableHeightPercent}%)`;
     }
     if (layoutVisibility.showMap) return "minmax(0, 1fr)";
     if (layoutVisibility.showTable) return "minmax(0, 1fr)";

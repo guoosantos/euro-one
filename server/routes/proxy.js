@@ -3127,6 +3127,12 @@ router.patch(
       resolvedBy: req.user?.id ?? null,
       resolvedByName: req.user?.name || req.user?.email || null,
       notes,
+      vehicleId: req.body?.vehicleId ?? null,
+      deviceId: req.body?.deviceId ?? null,
+      vehicleLabel: req.body?.vehicleLabel ?? null,
+      eventLabel: req.body?.eventLabel ?? null,
+      eventType: req.body?.eventType ?? null,
+      eventTime: req.body?.eventTime ?? null,
     });
     recordAuditEvent({
       clientId,

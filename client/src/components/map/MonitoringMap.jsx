@@ -5,7 +5,6 @@ import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
-import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
 import useMapDataRefresh from "../../lib/map/useMapDataRefresh.js";
 import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import MapZoomControls from "./MapZoomControls.jsx";
@@ -527,7 +526,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const [isMapReady, setIsMapReady] = useState(false);
   const [shouldRenderMap, setShouldRenderMap] = useState(false);
   const pendingResizeRef = useRef({ rafIds: [], timeoutIds: [] });
-  const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
+  const resizeObserverRef = useRef(null);
+  const resizeDebounceRef = useRef(null);
+  const lastContainerSizeRef = useRef({ width: 0, height: 0 });
+  const lastInvalidateAtRef = useRef(0);
   const isDev = Boolean(import.meta?.env?.DEV);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom)
     ? Number(mapLayer.maxZoom)
@@ -612,6 +614,14 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (resizeDebounceRef.current) {
+        clearTimeout(resizeDebounceRef.current);
+        resizeDebounceRef.current = null;
+      }
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
+      }
       pendingResizeRef.current.rafIds.forEach((id) => cancelAnimationFrame(id));
       pendingResizeRef.current.timeoutIds.forEach((id) => clearTimeout(id));
       pendingResizeRef.current = { rafIds: [], timeoutIds: [] };
@@ -636,8 +646,77 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   }, []);
 
   useEffect(() => {
-    refreshMap();
-  }, [invalidateKey, mapLayer?.key, refreshMap]);
+    if (!isMapReady) return;
+    const map = mapRef.current;
+    if (!map || !canUseMap(map)) return;
+    const now = Date.now();
+    if (now - lastInvalidateAtRef.current < 120) return;
+    lastInvalidateAtRef.current = now;
+    const rafId = requestAnimationFrame(() => {
+      if (!isMountedRef.current) return;
+      if (!canUseMap(mapRef.current)) return;
+      mapRef.current?.invalidateSize?.({ pan: false });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [canUseMap, invalidateKey, isMapReady, mapLayer?.key]);
+
+  useEffect(() => {
+    if (!shouldRenderMap) return undefined;
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const scheduleInvalidate = () => {
+      if (resizeDebounceRef.current) {
+        clearTimeout(resizeDebounceRef.current);
+      }
+      resizeDebounceRef.current = setTimeout(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady || !canUseMap(map)) return;
+        const now = Date.now();
+        if (now - lastInvalidateAtRef.current < 120) return;
+        lastInvalidateAtRef.current = now;
+        map.invalidateSize?.({ pan: false });
+      }, 140);
+    };
+
+    const onResize = () => {
+      const rect = container.getBoundingClientRect?.();
+      if (!rect) return;
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width <= 0 || height <= 0) return;
+      if (
+        width === lastContainerSizeRef.current.width &&
+        height === lastContainerSizeRef.current.height
+      ) {
+        return;
+      }
+      lastContainerSizeRef.current = { width, height };
+      scheduleInvalidate();
+    };
+
+    onResize();
+
+    if (typeof ResizeObserver === "function") {
+      resizeObserverRef.current = new ResizeObserver(onResize);
+      resizeObserverRef.current.observe(container);
+    } else {
+      window.addEventListener("resize", onResize);
+    }
+
+    return () => {
+      if (resizeDebounceRef.current) {
+        clearTimeout(resizeDebounceRef.current);
+        resizeDebounceRef.current = null;
+      }
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
+      } else {
+        window.removeEventListener("resize", onResize);
+      }
+    };
+  }, [canUseMap, isMapReady, shouldRenderMap]);
 
   useMapDataRefresh(mapRef, {
     markers,
@@ -650,10 +729,13 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
   const handleMapReady = useCallback(
     (event) => {
-      onMapReady?.(event);
+      const map = event?.target || null;
+      if (map) {
+        mapRef.current = map;
+      }
       setIsMapReady(true);
     },
-    [onMapReady],
+    [],
   );
 
   return (
@@ -711,6 +793,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
             scrollWheelZoom
             zoom={mapPreferences?.selectZoom}
             invalidateKey={invalidateKey}
+            style={{ minHeight: 0 }}
             whenReady={handleMapReady}
           >
             <TileLayer

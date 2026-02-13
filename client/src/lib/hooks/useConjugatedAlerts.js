@@ -42,7 +42,7 @@ export function useConjugatedAlerts({
     setError(null);
     try {
       const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
-      const response = await safeApi.get(API_ROUTES.alertsConjugated, {
+      const response = await safeApi.get(API_ROUTES.alertsConjugatedPending, {
         params: resolveMirrorClientParams({ params: parsedParams, tenantId, mirrorContextMode, mirrorOwnerClientId }),
         headers: mirrorHeaders,
         suppressForbidden: true,

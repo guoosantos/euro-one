@@ -4,6 +4,7 @@ import { LivePositionsProvider } from "./LivePositionsContext.jsx";
 import { DevicesProvider } from "./DevicesContext.jsx";
 import { EventsProvider } from "./EventsContext.jsx";
 import { VehicleAccessProvider } from "./VehicleAccessContext.jsx";
+import ConjugatedAlertsModalHost from "../components/alerts/ConjugatedAlertsModalHost.jsx";
 
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
 const MIN_POLL_INTERVAL_MS = 3_000;
@@ -24,7 +25,10 @@ export function AppDataProviders({ children }) {
       <TelemetryProvider interval={telemetryInterval}>
         <LivePositionsProvider interval={livePositionsInterval}>
           <DevicesProvider>
-            <EventsProvider>{children}</EventsProvider>
+            <EventsProvider>
+              {children}
+              <ConjugatedAlertsModalHost />
+            </EventsProvider>
           </DevicesProvider>
         </LivePositionsProvider>
       </TelemetryProvider>

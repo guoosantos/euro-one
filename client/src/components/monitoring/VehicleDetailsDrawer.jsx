@@ -197,6 +197,14 @@ export default function VehicleDetailsDrawer({
     if (summary !== "—") return summary;
     return resolvedDisplayName;
   })();
+  const vehicleNotes =
+    vehicleSource.notes ||
+    vehicleSource.observations ||
+    vehicleSource.observacao ||
+    vehicleSource.observação ||
+    vehicleSource.attributes?.notes ||
+    vehicleSource.attributes?.observations ||
+    null;
 
   const [reportDeviceId, setReportDeviceId] = useState(null);
   const [reportDeviceLoading, setReportDeviceLoading] = useState(false);
@@ -2023,6 +2031,7 @@ export default function VehicleDetailsDrawer({
             <InfoField label="Motorista" value={vehicleSource.driver?.name || vehicleSource.driverName || "—"} />
             <InfoField label="Grupo" value={vehicleSource.group?.name || vehicleSource.groupName || "—"} />
             <InfoField label="Status" value={vehicleSource.status || "—"} />
+            <InfoField label="Observações" value={vehicleNotes || "Sem observações"} />
           </div>
         </Section>
       );

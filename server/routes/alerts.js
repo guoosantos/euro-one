@@ -17,7 +17,7 @@ import {
 import { getAccessibleVehicles } from "../services/accessible-vehicles.js";
 import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
 import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
-import { getEventResolution } from "../models/resolved-event.js";
+import { getEventResolution, listResolvedEvents, markEventResolved } from "../models/resolved-event.js";
 
 const router = express.Router();
 
@@ -27,6 +27,47 @@ function parsePositiveNumber(value, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
+}
+
+function parseDateSafe(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim().toLowerCase();
+}
+
+function isCriticalLikeSeverity(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) return false;
+  return [
+    "grave",
+    "critica",
+    "crítica",
+    "critical",
+    "critico",
+    "crítico",
+    "high",
+    "alta",
+    "severe",
+  ].includes(normalized);
+}
+
+function resolveHandlingTimestamp(entry) {
+  const candidates = [
+    entry?.handledAt,
+    entry?.resolvedAt,
+    entry?.createdAt,
+    entry?.eventTime,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseDateSafe(candidate);
+    if (parsed) return parsed.toISOString();
+  }
+  return new Date().toISOString();
 }
 
 function mergeById(primary = [], secondary = []) {
@@ -56,6 +97,115 @@ function resolveEventIdFromPayload(event) {
 
 function resolveMirrorVehicleNotFoundMessage(req) {
   return req.mirrorContext?.ownerClientId ? "Veículo não encontrado para este espelhamento" : "Veículo não encontrado";
+}
+
+async function listConjugatedAlerts(req, { forceIncludeResolved = null } = {}) {
+  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+  const windowHours = parsePositiveNumber(req.query?.windowHours, 5);
+  const includeResolved = forceIncludeResolved !== null
+    ? Boolean(forceIncludeResolved)
+    : String(req.query?.includeResolved || "").toLowerCase() === "true";
+  const limit = Math.min(2000, Math.floor(parsePositiveNumber(req.query?.limit, 500)));
+
+  const access = await getAccessibleVehicles({
+    user: req.user,
+    clientId,
+    includeMirrorsForNonReceivers: false,
+    mirrorContext: req.mirrorContext,
+  });
+  const effectiveVehicleIds = getEffectiveVehicleIds(req);
+  const allowedVehicleIds = new Set(
+    effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
+  );
+  const allowedDeviceIds = req.mirrorContext?.deviceIds?.length
+    ? new Set(req.mirrorContext.deviceIds.map(String))
+    : null;
+  let devices = listDevices({ clientId });
+  if (access.mirrorOwnerIds.length) {
+    const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
+    devices = mergeById(devices, extraDevices);
+  }
+  devices = devices.filter(
+    (device) =>
+      device?.vehicleId &&
+      allowedVehicleIds.has(String(device.vehicleId)) &&
+      (!allowedDeviceIds || allowedDeviceIds.has(String(device.id))),
+  );
+  const deviceByTraccarId = new Map(
+    devices
+      .filter((device) => device?.traccarId != null)
+      .map((device) => [String(device.traccarId), device]),
+  );
+  const deviceIds = Array.from(deviceByTraccarId.keys());
+  if (process.env.DEBUG_MIRROR === "true") {
+    console.info("[alerts/conjugated] request", {
+      clientIdReceived: req.query?.clientId ?? null,
+      clientIdResolved: clientId ?? null,
+      mirrorContext: req.mirrorContext
+        ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
+        : null,
+      deviceCount: deviceIds.length,
+    });
+  }
+  if (!deviceIds.length) {
+    return { data: [], total: 0 };
+  }
+
+  const now = new Date();
+  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
+  const to = now.toISOString();
+
+  const events = await fetchEventsWithFallback(deviceIds, from, to, limit);
+  const vehicles = access.vehicles.length ? access.vehicles : listVehicles({ clientId });
+  const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
+
+  const filtered = events
+    .map((event) => {
+      const eventId = resolveEventIdFromPayload(event);
+      const device = deviceByTraccarId.get(String(event.deviceId));
+      const vehicleId = device?.vehicleId ?? null;
+      const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : null;
+      const protocol = event?.protocol || event?.attributes?.protocol || device?.protocol || null;
+      const configuredEvent = eventId
+        ? resolveEventConfiguration({
+            clientId,
+            protocol,
+            eventId,
+            payload: event,
+            deviceId: event?.deviceId ?? null,
+          })
+        : null;
+      const severity = configuredEvent?.severity || event?.severity || event?.attributes?.severity || null;
+      const active = configuredEvent?.active ?? true;
+      const resolution = getEventResolution(event.id, { clientId });
+      return {
+        id: event.id,
+        eventId: eventId || event.id,
+        deviceId: event.deviceId,
+        vehicleId,
+        plate: vehicle?.plate ?? null,
+        vehicleLabel: vehicle?.name ?? vehicle?.plate ?? null,
+        eventLabel: configuredEvent?.label || event?.type || event?.event || null,
+        eventType: event?.type || event?.event || eventId || null,
+        severity,
+        active,
+        resolved: Boolean(resolution),
+        resolvedAt: resolution?.resolvedAt || null,
+        resolvedBy: resolution?.resolvedBy || null,
+        resolvedByName: resolution?.resolvedByName || null,
+        resolvedNotes: resolution?.notes || null,
+        eventTime: event.eventTime ?? event.serverTime ?? event.deviceTime ?? null,
+        address: event.address ?? event?.attributes?.address ?? null,
+        protocol,
+      };
+    })
+    .filter((event) => {
+      if (!event.active) return false;
+      if (!includeResolved && event.resolved) return false;
+      return isCriticalLikeSeverity(event.severity);
+    });
+
+  return { data: filtered, total: filtered.length };
 }
 
 export function filterAlertsByVehicleAccess(alerts = [], allowedVehicleIds = null) {
@@ -416,6 +566,23 @@ router.post(
 );
 
 router.get(
+  "/alerts/conjugated/pending",
+  authorizePermission({
+    menuKey: "primary",
+    pageKey: "monitoring",
+    subKey: "alerts-conjugated",
+  }),
+  async (req, res, next) => {
+  try {
+    const payload = await listConjugatedAlerts(req, { forceIncludeResolved: false });
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
+
+router.get(
   "/alerts/conjugated",
   authorizePermission({
     menuKey: "primary",
@@ -424,10 +591,99 @@ router.get(
   }),
   async (req, res, next) => {
   try {
+    const payload = await listConjugatedAlerts(req);
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
+
+router.patch(
+  "/alerts/conjugated/:id/resolve",
+  authorizePermission({
+    menuKey: "primary",
+    pageKey: "monitoring",
+    subKey: "alerts-conjugated",
+  }),
+  async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+    const notes = String(req.body?.notes || req.body?.handling || req.body?.comment || "").trim();
+    if (!notes) {
+      return res.status(400).json({ message: "Observação é obrigatória para concluir a tratativa." });
+    }
+
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId) : null;
+    if (req.mirrorContext?.ownerClientId && vehicleId) {
+      const access = await getAccessibleVehicles({
+        user: req.user,
+        clientId,
+        includeMirrorsForNonReceivers: false,
+        mirrorContext: req.mirrorContext,
+      });
+      const effectiveVehicleIds = getEffectiveVehicleIds(req);
+      const allowedVehicleIds = new Set(
+        effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
+      );
+      if (!allowedVehicleIds.has(vehicleId)) {
+        return res.status(404).json({ message: resolveMirrorVehicleNotFoundMessage(req) });
+      }
+    }
+
+    const resolution = markEventResolved(req.params.id, {
+      clientId,
+      resolvedBy: req.user?.id ?? null,
+      resolvedByName: req.user?.name || req.user?.email || null,
+      notes,
+      vehicleId: vehicleId || null,
+      deviceId: req.body?.deviceId ?? null,
+      vehicleLabel: req.body?.vehicleLabel ?? null,
+      eventLabel: req.body?.eventLabel ?? null,
+      eventType: req.body?.eventType ?? null,
+      eventTime: req.body?.eventTime ?? null,
+    });
+
+    recordAuditEvent({
+      clientId,
+      vehicleId: vehicleId || null,
+      deviceId: req.body?.deviceId ?? null,
+      category: "alert-handling",
+      action: "TRATATIVA CONJUGADA",
+      status: "Concluído",
+      sentAt: new Date().toISOString(),
+      user: { id: req.user?.id ?? null, name: req.user?.name || req.user?.email || null },
+      ipAddress: resolveRequestIp(req),
+      relatedId: req.params.id,
+      details: {
+        handlingType: "conjugated",
+        handlingNotes: notes,
+      },
+    });
+
+    return res.json({ ok: true, data: resolution });
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
+
+router.get(
+  "/events/handlings",
+  authorizePermission({
+    menuKey: "primary",
+    pageKey: "events",
+    subKey: "report",
+  }),
+  async (req, res, next) => {
+  try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const windowHours = parsePositiveNumber(req.query?.windowHours, 5);
-    const includeResolved = String(req.query?.includeResolved || "").toLowerCase() === "true";
-    const limit = Math.min(2000, Math.floor(parsePositiveNumber(req.query?.limit, 500)));
+    const from = parseDateSafe(req.query?.from);
+    const to = parseDateSafe(req.query?.to);
+    const page = Math.max(1, Math.floor(parsePositiveNumber(req.query?.page, 1)));
+    const pageSize = Math.min(1000, Math.floor(parsePositiveNumber(req.query?.limit, 100)));
+    const eventFilter = normalizeText(req.query?.event || req.query?.eventType || req.query?.eventLabel || "");
+    const requestedVehicleId = req.query?.vehicleId ? String(req.query.vehicleId) : null;
 
     const access = await getAccessibleVehicles({
       user: req.user,
@@ -439,95 +695,154 @@ router.get(
     const allowedVehicleIds = new Set(
       effectiveVehicleIds ?? access.vehicles.map((vehicle) => String(vehicle.id)),
     );
-    const allowedDeviceIds = req.mirrorContext?.deviceIds?.length
-      ? new Set(req.mirrorContext.deviceIds.map(String))
-      : null;
-    let devices = listDevices({ clientId });
-    if (access.mirrorOwnerIds.length) {
-      const extraDevices = access.mirrorOwnerIds.flatMap((ownerId) => listDevices({ clientId: ownerId }));
-      devices = mergeById(devices, extraDevices);
-    }
-    devices = devices.filter(
-      (device) =>
-        device?.vehicleId &&
-        allowedVehicleIds.has(String(device.vehicleId)) &&
-        (!allowedDeviceIds || allowedDeviceIds.has(String(device.id))),
-    );
-    const deviceByTraccarId = new Map(
-      devices
-        .filter((device) => device?.traccarId != null)
-        .map((device) => [String(device.traccarId), device]),
-    );
-    const deviceIds = Array.from(deviceByTraccarId.keys());
-    if (process.env.DEBUG_MIRROR === "true") {
-      console.info("[alerts/conjugated] request", {
-        clientIdReceived: req.query?.clientId ?? null,
-        clientIdResolved: clientId ?? null,
-        mirrorContext: req.mirrorContext
-          ? { ownerClientId: req.mirrorContext.ownerClientId, vehicleIds: req.mirrorContext.vehicleIds || [] }
-          : null,
-        deviceCount: deviceIds.length,
+
+    const fromIso = from ? from.toISOString() : undefined;
+    const toIso = to ? to.toISOString() : undefined;
+
+    let handledAlerts = listAlerts({
+      clientId,
+      status: "handled",
+      vehicleId: requestedVehicleId || undefined,
+      from: fromIso,
+      to: toIso,
+    });
+    if (req.mirrorContext?.ownerClientId) {
+      handledAlerts = handledAlerts.filter((alert) => {
+        const vehicleId = alert?.vehicleId ? String(alert.vehicleId) : null;
+        return vehicleId && allowedVehicleIds.has(vehicleId);
       });
     }
-    if (!deviceIds.length) {
-      return res.json({ data: [], total: 0 });
+
+    let manualEntries = listVehicleManualHandlings({
+      clientId,
+      vehicleId: requestedVehicleId || undefined,
+      from: fromIso,
+      to: toIso,
+    });
+    if (req.mirrorContext?.ownerClientId) {
+      manualEntries = manualEntries.filter((entry) => {
+        const vehicleId = entry?.vehicleId ? String(entry.vehicleId) : null;
+        return vehicleId && allowedVehicleIds.has(vehicleId);
+      });
     }
 
-    const now = new Date();
-    const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
-    const to = now.toISOString();
-
-    const events = await fetchEventsWithFallback(deviceIds, from, to, limit);
-    const vehicles = access.vehicles.length ? access.vehicles : listVehicles({ clientId });
-    const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
-
-    const filtered = events
-      .map((event) => {
-        const eventId = resolveEventIdFromPayload(event);
-        const device = deviceByTraccarId.get(String(event.deviceId));
-        const vehicleId = device?.vehicleId ?? null;
-        const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : null;
-        const protocol = event?.protocol || event?.attributes?.protocol || device?.protocol || null;
-        const configuredEvent = eventId
-          ? resolveEventConfiguration({
-              clientId,
-              protocol,
-              eventId,
-              payload: event,
-              deviceId: event?.deviceId ?? null,
-            })
-          : null;
-        const severity = configuredEvent?.severity || event?.severity || event?.attributes?.severity || null;
-        const active = configuredEvent?.active ?? true;
-        const resolution = getEventResolution(event.id, { clientId });
-        return {
-          id: event.id,
-          eventId: eventId || event.id,
-          deviceId: event.deviceId,
-          vehicleId,
-          plate: vehicle?.plate ?? null,
-          vehicleLabel: vehicle?.name ?? vehicle?.plate ?? null,
-          eventLabel: configuredEvent?.label || event?.type || event?.event || null,
-          severity,
-          active,
-          resolved: Boolean(resolution),
-          resolvedAt: resolution?.resolvedAt || null,
-          resolvedBy: resolution?.resolvedBy || null,
-          resolvedByName: resolution?.resolvedByName || null,
-          resolvedNotes: resolution?.notes || null,
-          eventTime: event.eventTime ?? event.serverTime ?? event.deviceTime ?? null,
-          address: event.address ?? event?.attributes?.address ?? null,
-          protocol,
-        };
-      })
-      .filter((event) => {
-        if (!event.active) return false;
-        if (!includeResolved && event.resolved) return false;
-        const normalized = String(event.severity || "").trim().toLowerCase();
-        return ["grave", "critica", "crítica", "critical", "critico", "crítico"].includes(normalized);
+    let resolvedEvents = listResolvedEvents({ clientId });
+    if (from || to) {
+      resolvedEvents = resolvedEvents.filter((entry) => {
+        const handledAt = parseDateSafe(entry?.resolvedAt);
+        if (!handledAt) return false;
+        if (from && handledAt < from) return false;
+        if (to && handledAt > to) return false;
+        return true;
       });
+    }
+    if (requestedVehicleId) {
+      resolvedEvents = resolvedEvents.filter((entry) => String(entry?.vehicleId || "") === requestedVehicleId);
+    }
+    if (req.mirrorContext?.ownerClientId) {
+      resolvedEvents = resolvedEvents.filter((entry) => {
+        const vehicleId = entry?.vehicleId ? String(entry.vehicleId) : null;
+        if (!vehicleId) return true;
+        return allowedVehicleIds.has(vehicleId);
+      });
+    }
 
-    return res.json({ data: filtered, total: filtered.length });
+    const alertHandlings = handledAlerts.flatMap((alert) => {
+      const handlings =
+        Array.isArray(alert?.handlings) && alert.handlings.length
+          ? alert.handlings
+          : alert?.handling
+            ? [{ ...alert.handling, createdAt: alert.handledAt || alert.createdAt }]
+            : [];
+      return handlings.map((entry, index) => ({
+        id: `alert:${alert.id}:${entry?.id || index}`,
+        source: "alert",
+        status: "Concluído",
+        eventId: alert?.eventId || alert?.id || null,
+        eventType: alert?.eventType || null,
+        eventLabel: alert?.eventLabel || "Alerta",
+        vehicleId: alert?.vehicleId || null,
+        deviceId: alert?.deviceId || null,
+        vehicleLabel: alert?.vehicleLabel || alert?.plate || null,
+        eventTime: alert?.createdAt || null,
+        handledAt: resolveHandlingTimestamp(entry || alert),
+        handledBy: entry?.handledBy ?? alert?.handledBy ?? null,
+        handledByName: entry?.handledByName ?? alert?.handledByName ?? null,
+        notes: entry?.notes || null,
+        action: entry?.action || null,
+      }));
+    });
+
+    const manualHandlings = manualEntries.map((entry) => ({
+      id: `manual:${entry.id}`,
+      source: "manual",
+      status: "Concluído",
+      eventId: entry?.eventId || null,
+      eventType: "manual",
+      eventLabel: "Tratativa manual",
+      vehicleId: entry?.vehicleId || null,
+      deviceId: null,
+      vehicleLabel: null,
+      eventTime: entry?.createdAt || null,
+      handledAt: resolveHandlingTimestamp(entry),
+      handledBy: entry?.handledBy || null,
+      handledByName: entry?.handledByName || null,
+      notes: entry?.notes || null,
+      action: null,
+    }));
+
+    const conjugatedHandlings = resolvedEvents.map((entry) => ({
+      id: `conjugated:${entry.eventId}:${entry.resolvedAt || "na"}`,
+      source: "conjugated",
+      status: "Concluído",
+      eventId: entry?.eventId || null,
+      eventType: entry?.eventType || null,
+      eventLabel: entry?.eventLabel || "Alerta conjugado",
+      vehicleId: entry?.vehicleId || null,
+      deviceId: entry?.deviceId || null,
+      vehicleLabel: entry?.vehicleLabel || null,
+      eventTime: entry?.eventTime || null,
+      handledAt: resolveHandlingTimestamp(entry),
+      handledBy: entry?.resolvedBy || null,
+      handledByName: entry?.resolvedByName || null,
+      notes: entry?.notes || null,
+      action: null,
+    }));
+
+    let items = [...alertHandlings, ...manualHandlings, ...conjugatedHandlings];
+
+    if (eventFilter) {
+      items = items.filter((item) => {
+        const haystack = [
+          item?.eventId,
+          item?.eventType,
+          item?.eventLabel,
+          item?.notes,
+        ]
+          .map((value) => normalizeText(value))
+          .filter(Boolean)
+          .join(" ");
+        return haystack.includes(eventFilter);
+      });
+    }
+
+    items.sort((a, b) => {
+      const aTime = Date.parse(a?.handledAt || a?.eventTime || 0);
+      const bTime = Date.parse(b?.handledAt || b?.eventTime || 0);
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    });
+
+    const total = items.length;
+    const start = (page - 1) * pageSize;
+    const paged = items.slice(start, start + pageSize);
+
+    return res.json({
+      data: paged,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
   } catch (error) {
     return next(error);
   }
