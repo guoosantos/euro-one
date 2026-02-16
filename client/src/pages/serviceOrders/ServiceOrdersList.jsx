@@ -16,6 +16,7 @@ import { usePermissionGate, usePermissions } from "../../lib/permissions/permiss
 import { useConfirmDialog } from "../../components/ui/ConfirmDialogProvider.jsx";
 import usePageToast from "../../lib/hooks/usePageToast.js";
 import PageToast from "../../components/ui/PageToast.jsx";
+import { buildEquipmentDisplayLabel, splitEquipmentText } from "../../lib/equipment-display.js";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -24,6 +25,10 @@ const STATUS_OPTIONS = [
   { value: "EM_DESLOCAMENTO", label: "Em deslocamento" },
   { value: "EM_EXECUCAO", label: "Em execução" },
   { value: "AGUARDANDO_APROVACAO", label: "Aguardando aprovação" },
+  { value: "PENDENTE_APROVACAO_ADMIN", label: "Pendente aprovação admin" },
+  { value: "EM_RETRABALHO", label: "Em retrabalho" },
+  { value: "REENVIADA_PARA_APROVACAO", label: "Reenviada para aprovação" },
+  { value: "APROVADA", label: "Aprovada" },
   { value: "CONCLUIDA", label: "Concluída" },
   { value: "CANCELADA", label: "Cancelada" },
   { value: "REMANEJADA", label: "Remanejada" },
@@ -38,16 +43,51 @@ const TYPE_CHIPS = [
   { key: "REMANEJAMENTO", label: "REMANEJAMENTO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-remanejamento" } },
   { key: "REINSTALACAO", label: "REINSTALAÇÃO", permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders-reinstall" } },
 ];
+const TYPE_LABEL_BY_KEY = Object.freeze(
+  TYPE_CHIPS.reduce((acc, chip) => {
+    if (chip.key !== "ALL") acc[chip.key] = chip.label;
+    return acc;
+  }, {}),
+);
+const FINAL_STATUS_WITH_TYPE = new Set(["CONCLUIDA", "APROVADA", "CANCELADA", "REMANEJADA"]);
+const STATUS_LABEL_BY_KEY = Object.freeze({
+  CONCLUIDA: "CONCLUÍDA",
+  APROVADA: "APROVADA",
+  CANCELADA: "CANCELADA",
+  REMANEJADA: "REMANEJADA",
+});
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const DEFAULT_PAGE_SIZE = 50;
+const APP_TIMEZONE = "America/Sao_Paulo";
+
+function parseApiDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  let normalized = raw;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/.test(normalized)) {
+    normalized = normalized.replace(" ", "T");
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/.test(normalized)) {
+    normalized = `${normalized}Z`;
+  }
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 function formatDate(value) {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  const date = parseApiDate(value);
+  if (!date) return "—";
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: APP_TIMEZONE,
   }).format(date);
 }
 
@@ -59,6 +99,30 @@ function normalizeType(value) {
     .toUpperCase();
 }
 
+function normalizeStatusKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function formatServiceTypeLabel(value) {
+  const key = normalizeType(value);
+  if (!key) return "";
+  if (TYPE_LABEL_BY_KEY[key]) return TYPE_LABEL_BY_KEY[key];
+  return String(value || "").trim().replace(/_/g, " ").toUpperCase();
+}
+
+function formatStatusWithType(status, type) {
+  const statusKey = normalizeStatusKey(status);
+  if (!statusKey) return "—";
+  const baseStatus = STATUS_LABEL_BY_KEY[statusKey] || String(status || "").trim().replace(/_/g, " ").toUpperCase();
+  if (!FINAL_STATUS_WITH_TYPE.has(statusKey)) return baseStatus;
+  const typeLabel = formatServiceTypeLabel(type);
+  return typeLabel ? `${baseStatus} ${typeLabel}` : baseStatus;
+}
+
 function resolveOrderDate(item) {
   return item?.startAt || item?.createdAt || item?.updatedAt || null;
 }
@@ -66,15 +130,20 @@ function resolveOrderDate(item) {
 function buildEquipmentLabels(item) {
   const list = Array.isArray(item?.equipmentsData) ? item.equipmentsData : null;
   if (list && list.length) {
-    return list.map((equipment) => {
-      const id = equipment?.equipmentId || equipment?.id || "";
-      const model = equipment?.model || equipment?.name || "";
-      if (model && id) return `${model} • ${id}`;
-      return model || id;
+    return list.map((equipment, index) => {
+      const serverLabel = String(equipment?.equipmentDisplay || "").trim();
+      if (serverLabel) return serverLabel;
+      return buildEquipmentDisplayLabel(equipment, index);
     });
   }
+  const displayList = Array.isArray(item?.equipmentDisplay) ? item.equipmentDisplay : [];
+  if (displayList.length) {
+    return displayList
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
+  }
   if (item?.equipmentsText) {
-    return [String(item.equipmentsText)];
+    return splitEquipmentText(item.equipmentsText);
   }
   return [];
 }
@@ -94,6 +163,7 @@ export default function ServiceOrdersList() {
   const [to, setTo] = useState("");
   const [clientId, setClientId] = useState(() => {
     if (user?.role === "admin") return "";
+    if (user?.role === "technician") return "";
     return user?.clientId ? String(user.clientId) : "";
   });
   const { confirmDelete } = useConfirmDialog();
@@ -105,6 +175,10 @@ export default function ServiceOrdersList() {
 
   useEffect(() => {
     if (!user) return;
+    if (user.role === "technician") {
+      setClientId("");
+      return;
+    }
     if (user.role !== "admin") {
       setClientId(user.clientId ? String(user.clientId) : "");
       return;
@@ -132,7 +206,7 @@ export default function ServiceOrdersList() {
       if (q) params.q = q;
       if (from) params.from = new Date(from).toISOString();
       if (to) params.to = new Date(to).toISOString();
-      if (clientId) params.clientId = clientId;
+      if (clientId && user?.role !== "technician") params.clientId = clientId;
 
       const response = await api.get("core/service-orders", { params });
       setItems(response?.data?.items || []);
@@ -170,7 +244,7 @@ export default function ServiceOrdersList() {
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
-          const params = clientId ? { clientId } : undefined;
+          const params = clientId && user?.role !== "technician" ? { clientId } : undefined;
           await api.delete(`core/service-orders/${item.id}`, { params });
           setItems((prev) => prev.filter((entry) => entry.id !== item.id));
           setActionError(null);
@@ -207,12 +281,14 @@ export default function ServiceOrdersList() {
         if (toDate && parsed > toDate) return false;
       }
       if (status && String(item?.status || "") !== String(status)) return false;
-      if (clientId && String(item?.clientId || "") !== String(clientId)) return false;
+      if (clientId && user?.role !== "technician" && String(item?.clientId || "") !== String(clientId)) return false;
       if (!term) return true;
       const values = [
         item.osInternalId,
         item.vehicle?.plate,
         item.vehicle?.name,
+        item.clientName,
+        item.vehicle?.clientName,
         item.responsibleName,
         item.responsiblePhone,
         item.technicianName,
@@ -220,7 +296,7 @@ export default function ServiceOrdersList() {
       ];
       return values.some((value) => String(value || "").toLowerCase().includes(term));
     });
-  }, [clientId, from, items, q, status, to]);
+  }, [clientId, from, items, q, status, to, user?.role]);
 
   const counts = useMemo(() => {
     const nextCounts = TYPE_CHIPS.reduce(
@@ -252,14 +328,6 @@ export default function ServiceOrdersList() {
       setActiveType(availableTypeChips[0].key);
     }
   }, [activeType, availableTypeChips]);
-
-  if (forbidden || (!listPermission.loading && !listPermission.canShow)) {
-    return (
-      <div className="flex min-h-[calc(100vh-180px)] items-center justify-center">
-        <DataState state="info" tone="muted" title="Sem permissão para acessar ordens de serviço" />
-      </div>
-    );
-  }
 
   useEffect(() => {
     if (loading) return;
@@ -323,6 +391,14 @@ export default function ServiceOrdersList() {
     }
     return [{ value: "", label: "Todos os clientes" }, ...baseOptions];
   }, [clientOptions, hasAdminAccess]);
+
+  if (forbidden || (!listPermission.loading && !listPermission.canShow)) {
+    return (
+      <div className="flex min-h-[calc(100vh-180px)] items-center justify-center">
+        <DataState state="info" tone="muted" title="Sem permissão para acessar ordens de serviço" />
+      </div>
+    );
+  }
 
   if (!listPermission.canShow) {
     return (
@@ -445,7 +521,7 @@ export default function ServiceOrdersList() {
               <tr className="text-left">
                 <th className="w-32 px-4 py-3">OS</th>
                 <th className="w-24 px-4 py-3">Placa</th>
-                <th className="w-48 px-4 py-3">Responsável</th>
+                <th className="w-48 px-4 py-3">Cliente</th>
                 <th className="w-32 px-4 py-3">Técnico</th>
                 <th className="px-4 py-3">Equipamentos</th>
                 <th className="w-36 px-4 py-3">Data</th>
@@ -507,9 +583,8 @@ export default function ServiceOrdersList() {
                       {item.osInternalId || item.id.slice(0, 8)}
                     </td>
                     <td className="px-4 py-3 truncate">{item.vehicle?.plate || "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="truncate text-white">{item.responsibleName || "—"}</div>
-                      <div className="truncate text-xs text-white/50">{item.responsiblePhone || ""}</div>
+                    <td className="px-4 py-3 truncate text-white">
+                      {item.clientName || item.vehicle?.clientName || item.vehicle?.client?.name || "—"}
                     </td>
                     <td className="px-4 py-3 truncate">{item.technicianName || "—"}</td>
                     <td className="px-4 py-3">
@@ -533,7 +608,7 @@ export default function ServiceOrdersList() {
                     <td className="px-4 py-3">{formatDate(item.startAt)}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                        {item.status || "—"}
+                        {formatStatusWithType(item.status, item.type)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">

@@ -24,6 +24,8 @@ import { usePageToast } from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
 import { buildPortList } from "../lib/device-ports.js";
+import { normalizeEquipmentStatusValue } from "../lib/equipment-status.js";
+import { isServiceStockGlobalPermissionGroup } from "../lib/permissions/profile-groups.js";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -31,6 +33,25 @@ const translateUnknownValue = (value) => {
   if (normalized === "unknown") return "Desconhecido";
   return value;
 };
+
+function resolveDeviceEquipmentStatus(device) {
+  const fallback = device?.vehicleId || device?.vehicle?.id ? "HABILITADO" : "ESTOQUE NOVO";
+  return normalizeEquipmentStatusValue(device?.equipmentStatus || device?.status || device?.attributes?.equipmentStatus, {
+    fallback,
+  });
+}
+
+function normalizeVehicleConfigItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      id: item?.id ? String(item.id) : crypto.randomUUID(),
+      name: String(item?.name || "").trim(),
+      value: String(item?.value || "").trim(),
+      description: String(item?.description || "").trim(),
+    }))
+    .filter((item) => item.name);
+}
 
 function AdminBindingsTab({
   vehicle,
@@ -222,11 +243,106 @@ function AdminBindingsTab({
   );
 }
 
+function VehicleConfigItemsEditor({
+  items = [],
+  onChange = () => {},
+  onSave = () => {},
+  saving = false,
+  title = "Itens adicionais",
+  subtitle = "Nome, valor e descrição",
+}) {
+  const updateItem = (id, field, value) => {
+    onChange(
+      items.map((item) => (String(item.id) === String(id) ? { ...item, [field]: value } : item)),
+    );
+  };
+
+  const removeItem = (id) => {
+    onChange(items.filter((item) => String(item.id) !== String(id)));
+  };
+
+  const addItem = () => {
+    onChange([
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        name: "",
+        value: "",
+        description: "",
+      },
+    ]);
+  };
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-white">{title}</h3>
+        <p className="text-xs text-white/60">{subtitle}</p>
+      </div>
+      <div className="space-y-3">
+        {items.map((item) => (
+          <div key={item.id} className="grid gap-2 rounded-lg border border-white/10 bg-black/20 p-3 md:grid-cols-4">
+            <Input
+              label="Nome"
+              value={item.name}
+              onChange={(event) => updateItem(item.id, "name", event.target.value)}
+              placeholder="Nome"
+            />
+            <Input
+              label="Valor"
+              value={item.value}
+              onChange={(event) => updateItem(item.id, "value", event.target.value)}
+              placeholder="Valor"
+            />
+            <Input
+              label="Descrição"
+              value={item.description}
+              onChange={(event) => updateItem(item.id, "description", event.target.value)}
+              placeholder="Descrição"
+            />
+            <div className="flex items-end justify-end">
+              <button
+                type="button"
+                onClick={() => removeItem(item.id)}
+                className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white transition hover:bg-white/15"
+              >
+                Remover
+              </button>
+            </div>
+          </div>
+        ))}
+        {!items.length && (
+          <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-4 text-sm text-white/60">
+            Nenhum item cadastrado.
+          </div>
+        )}
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={addItem}
+          className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+        >
+          Adicionar item
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+        >
+          {saving ? "Salvando..." : "Salvar itens"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function VehicleDetailsPage() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { tenantId, tenantScope, user, tenants, switchClientAndReset } = useTenant();
+  const { tenantId, tenantScope, user, tenants, switchClientAndReset, permissionContext } = useTenant();
   const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
   const { confirmDelete } = useConfirmDialog();
   const { isAdminGeneral } = useAdminGeneralAccess();
@@ -235,6 +351,7 @@ export default function VehicleDetailsPage() {
   const [devices, setDevices] = useState([]);
   const [chips, setChips] = useState([]);
   const [models, setModels] = useState([]);
+  const [kits, setKits] = useState([]);
   const [vehicleAttributes, setVehicleAttributes] = useState([]);
   const [clients, setClients] = useState([]);
   const [serviceOrders, setServiceOrders] = useState([]);
@@ -248,6 +365,7 @@ export default function VehicleDetailsPage() {
   const [accessDenied, setAccessDenied] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [linkEquipmentId, setLinkEquipmentId] = useState("");
+  const [linkKitId, setLinkKitId] = useState("");
   const [chipLinkId, setChipLinkId] = useState("");
   const [chipDeviceId, setChipDeviceId] = useState("");
   const [activeTab, setActiveTab] = useState("resumo");
@@ -262,11 +380,15 @@ export default function VehicleDetailsPage() {
   const [historyFrom, setHistoryFrom] = useState("");
   const [historyTo, setHistoryTo] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
+  const [vehicleConfigItems, setVehicleConfigItems] = useState([]);
+  const [savingVehicleConfigItems, setSavingVehicleConfigItems] = useState(false);
   const geocodeCacheRef = useRef(new Map());
   const serviceOrdersPageSize = 6;
   const historyPageSize = 8;
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
+  const isTechnician = user?.role === "technician";
+  const isServiceStockGlobalGroup = isServiceStockGlobalPermissionGroup(permissionContext);
   const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const isMirrorContextActive = Boolean(user?.activeMirrorOwnerClientId);
 
@@ -425,7 +547,8 @@ export default function VehicleDetailsPage() {
         const lastSeen = getDeviceLastSeen(device, position);
         const coordinates = getDeviceCoordinates(device, position);
         const lastUpdate = position.deviceTime || position.fixTime || position.serverTime || device.updatedAt;
-        return { ...device, position, lastSeen, coordinates, lastUpdate };
+        const equipmentStatus = resolveDeviceEquipmentStatus(device);
+        return { ...device, position, lastSeen, coordinates, lastUpdate, status: equipmentStatus, equipmentStatus };
       })
       .sort((a, b) => {
         const aTime = a.lastUpdate ? new Date(a.lastUpdate).getTime() : 0;
@@ -493,6 +616,22 @@ export default function VehicleDetailsPage() {
     [availableDevices],
   );
 
+  const availableKits = useMemo(() => {
+    if (!vehicle?.clientId) return [];
+    return kits.filter((kit) => String(kit.clientId || vehicle.clientId) === String(vehicle.clientId));
+  }, [kits, vehicle?.clientId]);
+
+  const availableKitOptions = useMemo(
+    () =>
+      availableKits.map((kit) => ({
+        value: kit.id,
+        label: `${kit.code || "Sem código"} · ${kit.modelName || "Modelo"}`,
+        description: `${kit.equipmentCount || kit.equipmentIds?.length || 0} equipamentos`,
+        data: kit,
+      })),
+    [availableKits],
+  );
+
   const linkedDeviceOptions = useMemo(
     () =>
       linkedDevices.map((device) => ({
@@ -558,6 +697,20 @@ export default function VehicleDetailsPage() {
     [availableDeviceIds, resolvedClientId, vehicle?.clientId],
   );
 
+  const loadKitOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = String(query || "").trim().toLowerCase();
+      const filtered = availableKitOptions.filter((option) => {
+        const haystack = `${option.label} ${option.description || ""}`.toLowerCase();
+        return haystack.includes(term);
+      });
+      const start = (page - 1) * pageSize;
+      const options = filtered.slice(start, start + pageSize);
+      return { options, hasMore: start + pageSize < filtered.length };
+    },
+    [availableKitOptions],
+  );
+
   const loadChipOptions = useCallback(
     async ({ query, page, pageSize }) => {
       const response = await CoreApi.searchChips({
@@ -598,7 +751,7 @@ export default function VehicleDetailsPage() {
     setFeedback(null);
     setAccessDenied(false);
     try {
-      const params = resolvedClientId ? { clientId: resolvedClientId } : {};
+      const params = isTechnician ? {} : resolvedClientId ? { clientId: resolvedClientId } : {};
       params.accessible = true;
       params.skipPositions = true;
       if (isAdmin) {
@@ -606,20 +759,51 @@ export default function VehicleDetailsPage() {
       } else {
         params.onlyLinked = true;
       }
-      const [vehicleList, deviceList, chipList, modelList, clientList, attributeList] = await Promise.all([
-        CoreApi.listVehicles(params),
-        CoreApi.listDevices(params),
-        CoreApi.listChips(params),
-        CoreApi.models(resolvedClientId ? { clientId: resolvedClientId, includeGlobal: true } : undefined),
-        isAdmin
-          ? safeApi.get(API_ROUTES.clients).then(({ data }) => data?.clients || [])
+      const modelParams = isTechnician
+        ? undefined
+        : {
+            ...(resolvedClientId ? { clientId: resolvedClientId, includeGlobal: true } : {}),
+            ...(isServiceStockGlobalGroup ? { scope: "both" } : {}),
+          };
+      const safeList = async (label, loader, fallback = []) => {
+        try {
+          return await loader();
+        } catch (loadError) {
+          console.warn(`[vehicle-details] falha ao carregar ${label}`, loadError?.message || loadError);
+          return fallback;
+        }
+      };
+
+      const vehicleList = await CoreApi.listVehicles(params);
+      const [deviceList, chipList, modelList, kitList, clientList, attributeList] = await Promise.all([
+        safeList("equipamentos", () => CoreApi.listDevices(params), []),
+        isTechnician ? Promise.resolve([]) : safeList("chips", () => CoreApi.listChips(params), []),
+        isTechnician ? Promise.resolve([]) : safeList("modelos", () => CoreApi.models(modelParams), []),
+        !isTechnician && params.clientId
+          ? safeList("kits", () => CoreApi.listKits({ clientId: params.clientId }), [])
           : Promise.resolve([]),
-        params.clientId ? CoreApi.listVehicleAttributes({ clientId: params.clientId }) : Promise.resolve([]),
+        isAdmin
+          ? safeList("clientes", () => safeApi.get(API_ROUTES.clients).then(({ data }) => data?.clients || []), [])
+          : Promise.resolve([]),
+        !isTechnician && params.clientId
+          ? safeList("atributos de veículo", () => CoreApi.listVehicleAttributes({ clientId: params.clientId }), [])
+          : Promise.resolve([]),
       ]);
-      setVehicle(vehicleList.find((item) => String(item.id) === String(id)) || null);
+      const selectedVehicle = vehicleList.find((item) => String(item.id) === String(id)) || null;
+      let resolvedKits = Array.isArray(kitList) ? kitList : [];
+      if (!params.clientId && selectedVehicle?.clientId) {
+        resolvedKits = await safeList(
+          "kits do cliente do veículo",
+          () => CoreApi.listKits({ clientId: selectedVehicle.clientId }),
+          [],
+        );
+      }
+
+      setVehicle(selectedVehicle);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
       setChips(Array.isArray(chipList) ? chipList : []);
       setModels(Array.isArray(modelList) ? modelList : []);
+      setKits(Array.isArray(resolvedKits) ? resolvedKits : []);
       setClients(Array.isArray(clientList) ? clientList : []);
       setVehicleAttributes(Array.isArray(attributeList) ? attributeList : []);
     } catch (requestError) {
@@ -629,6 +813,7 @@ export default function VehicleDetailsPage() {
         setDevices([]);
         setChips([]);
         setModels([]);
+        setKits([]);
         setClients([]);
         setVehicleAttributes([]);
         setFeedback(null);
@@ -681,6 +866,31 @@ export default function VehicleDetailsPage() {
     }
   };
 
+  const handleLinkKit = async (kitId) => {
+    if (!vehicle || !kitId) return;
+    const targetClientId = vehicle?.clientId || resolvedClientId;
+    if (!targetClientId) {
+      reportError("Selecione o cliente antes de vincular o kit");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await CoreApi.linkKitToVehicle(vehicle.id, kitId, { clientId: targetClientId });
+      setLinkKitId("");
+      await loadData();
+      const linkedCount = Number(response?.linkedCount) || 0;
+      reportSuccess(
+        linkedCount > 0
+          ? `Kit vinculado com sucesso (${linkedCount} equipamentos).`
+          : "Kit vinculado com sucesso.",
+      );
+    } catch (requestError) {
+      reportError(requestError, "Não foi possível vincular o kit");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleUnlinkDevice = async (deviceId) => {
     if (!vehicle || !deviceId) return;
     const device =
@@ -711,6 +921,10 @@ export default function VehicleDetailsPage() {
     setVehiclePortLabels(vehicle?.attributes?.portLabels || {});
   }, [vehicle?.id, vehicle?.attributes?.portLabels]);
 
+  useEffect(() => {
+    setVehicleConfigItems(normalizeVehicleConfigItems(vehicle?.attributes?.customFields || []));
+  }, [vehicle?.id, vehicle?.attributes?.customFields]);
+
   const loadServiceOrders = useCallback(async () => {
     if (!vehicle?.id) return;
     setServiceOrdersLoading(true);
@@ -718,7 +932,10 @@ export default function VehicleDetailsPage() {
     try {
       const params = {
         vehicleId: vehicle.id,
-        clientId: resolvedClientId || vehicle.clientId || undefined,
+        ...(!isTechnician && (resolvedClientId || vehicle.clientId)
+          ? { clientId: resolvedClientId || vehicle.clientId }
+          : {}),
+        ...(isTechnician && user?.id ? { technicianId: String(user.id) } : {}),
       };
       const response = await api.get("core/service-orders", { params });
       const list = Array.isArray(response?.data?.items) ? response.data.items : [];
@@ -731,7 +948,7 @@ export default function VehicleDetailsPage() {
     } finally {
       setServiceOrdersLoading(false);
     }
-  }, [resolvedClientId, vehicle?.clientId, vehicle?.id]);
+  }, [isTechnician, resolvedClientId, user?.id, vehicle?.clientId, vehicle?.id]);
 
   const loadHistory = useCallback(async () => {
     if (!vehicle?.id) return;
@@ -765,13 +982,51 @@ export default function VehicleDetailsPage() {
     }
     setSaving(true);
     try {
-      await CoreApi.updateVehicle(vehicle.id, { ...payload, clientId });
+      const mergedPayload = { ...payload, clientId };
+      if (payload.vehicleAttributes !== undefined || payload.attributes !== undefined) {
+        const currentAttributes =
+          vehicle?.attributes && typeof vehicle.attributes === "object" ? vehicle.attributes : {};
+        const payloadAttributes =
+          payload?.attributes && typeof payload.attributes === "object" ? payload.attributes : {};
+        mergedPayload.attributes = { ...currentAttributes, ...payloadAttributes };
+        if (payload.vehicleAttributes !== undefined) {
+          mergedPayload.attributes.vehicleAttributes = Array.isArray(payload.vehicleAttributes)
+            ? payload.vehicleAttributes
+            : [];
+          delete mergedPayload.vehicleAttributes;
+        }
+      }
+      await CoreApi.updateVehicle(vehicle.id, mergedPayload);
       await loadData();
       reportSuccess("Veículo atualizado com sucesso.");
     } catch (requestError) {
       reportError(requestError, "Falha ao salvar veículo");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveVehicleConfigItems = async () => {
+    if (!vehicle) return;
+    const clientId = resolvedClientId || vehicle.clientId;
+    if (!clientId) {
+      reportError("Selecione o cliente antes de salvar os itens.");
+      return;
+    }
+    const normalizedItems = normalizeVehicleConfigItems(vehicleConfigItems);
+    setSavingVehicleConfigItems(true);
+    try {
+      const nextAttributes = {
+        ...(vehicle.attributes || {}),
+        customFields: normalizedItems,
+      };
+      await CoreApi.updateVehicle(vehicle.id, { clientId, attributes: nextAttributes });
+      await loadData();
+      reportSuccess("Itens adicionais salvos com sucesso.");
+    } catch (requestError) {
+      reportError(requestError, "Falha ao salvar itens adicionais");
+    } finally {
+      setSavingVehicleConfigItems(false);
     }
   };
 
@@ -861,6 +1116,17 @@ export default function VehicleDetailsPage() {
   };
 
   const tabs = useMemo(() => {
+    if (isTechnician) {
+      return [{ id: "os", label: "Ordens de Serviço" }];
+    }
+    if (isServiceStockGlobalGroup) {
+      return [
+        { id: "resumo", label: "Resumo" },
+        { id: "equipamentos", label: "Equipamentos" },
+        { id: "os", label: "Ordens de Serviço" },
+        { id: "admin", label: "Editar" },
+      ];
+    }
     const baseTabs = [
       { id: "resumo", label: "Resumo" },
       { id: "equipamentos", label: "Equipamentos" },
@@ -872,7 +1138,14 @@ export default function VehicleDetailsPage() {
       baseTabs.push({ id: "admin", label: "Editar" });
     }
     return baseTabs;
-  }, [isAdmin]);
+  }, [isAdmin, isServiceStockGlobalGroup, isTechnician]);
+
+  useEffect(() => {
+    if (!isTechnician) return;
+    if (activeTab !== "os") {
+      setActiveTab("os");
+    }
+  }, [activeTab, isTechnician]);
 
   const historyTypeOptions = useMemo(
     () => [
@@ -959,6 +1232,11 @@ export default function VehicleDetailsPage() {
     if (activeTab !== "os") return;
     loadServiceOrders();
   }, [activeTab, loadServiceOrders]);
+
+  useEffect(() => {
+    if (!vehicle?.id) return;
+    loadServiceOrders();
+  }, [loadServiceOrders, vehicle?.id]);
 
   const renderHistoryPanel = () => (
     <div className="space-y-4">
@@ -1104,7 +1382,7 @@ export default function VehicleDetailsPage() {
       tabParam === "admin" ||
       isLegacyHistoryTarget;
 
-    if (isAdmin && wantsEditTab && activeTab !== "admin") {
+    if ((isAdmin || isServiceStockGlobalGroup) && wantsEditTab && activeTab !== "admin") {
       setActiveTab("admin");
     }
 
@@ -1131,7 +1409,7 @@ export default function VehicleDetailsPage() {
       },
       { replace: true },
     );
-  }, [activeTab, id, isAdmin, location.pathname, location.search, location.state, navigate]);
+  }, [activeTab, id, isAdmin, isServiceStockGlobalGroup, location.pathname, location.search, location.state, navigate]);
 
   return (
     <div className="space-y-6">
@@ -1146,23 +1424,25 @@ export default function VehicleDetailsPage() {
           .filter(Boolean)
           .join(" • ")}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              to="/services/new"
-              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-            >
-              Nova OS
-            </Link>
-            {isAdminGeneral && vehicle && (
-              <button
-                type="button"
-                onClick={handleDeleteVehicle}
-                className="rounded-xl border border-red-500/40 px-4 py-2 text-sm text-red-300 hover:bg-red-500/10"
+          !isTechnician ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/services/new"
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
               >
-                Excluir
-              </button>
-            )}
-          </div>
+                Nova OS
+              </Link>
+              {isAdminGeneral && vehicle && (
+                <button
+                  type="button"
+                  onClick={handleDeleteVehicle}
+                  className="rounded-xl border border-red-500/40 px-4 py-2 text-sm text-red-300 hover:bg-red-500/10"
+                >
+                  Excluir
+                </button>
+              )}
+            </div>
+          ) : null
         }
       />
 
@@ -1326,24 +1606,46 @@ export default function VehicleDetailsPage() {
                       Equipamentos vinculados
                     </span>
                   </div>
-                  <div className="grid gap-3 px-4 md:grid-cols-[2fr_auto]">
-                    <AutocompleteSelect
-                      label="Buscar equipamento"
-                      placeholder="Buscar equipamento"
-                      value={linkEquipmentId}
-                      onChange={(value) => setLinkEquipmentId(value)}
-                      options={availableDeviceOptions}
-                      loadOptions={loadDeviceOptions}
-                      allowClear
-                    />
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        onClick={() => handleLinkDevice(linkEquipmentId)}
-                        disabled={!linkEquipmentId || saving}
-                      >
-                        {saving ? "Vinculando..." : "Vincular equipamento"}
-                      </Button>
+                  <div className="grid gap-3 px-4">
+                    <div className="grid gap-3 md:grid-cols-[2fr_auto]">
+                      <AutocompleteSelect
+                        label="Vincular por kit"
+                        placeholder="Selecione um kit"
+                        value={linkKitId}
+                        onChange={(value) => setLinkKitId(value)}
+                        options={availableKitOptions}
+                        loadOptions={loadKitOptions}
+                        allowClear
+                      />
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          onClick={() => handleLinkKit(linkKitId)}
+                          disabled={!linkKitId || saving}
+                        >
+                          {saving ? "Vinculando..." : "Vincular kit"}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-[2fr_auto]">
+                      <AutocompleteSelect
+                        label="Vincular equipamento avulso"
+                        placeholder="Buscar equipamento"
+                        value={linkEquipmentId}
+                        onChange={(value) => setLinkEquipmentId(value)}
+                        options={availableDeviceOptions}
+                        loadOptions={loadDeviceOptions}
+                        allowClear
+                      />
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          onClick={() => handleLinkDevice(linkEquipmentId)}
+                          disabled={!linkEquipmentId || saving}
+                        >
+                          {saving ? "Vinculando..." : "Vincular equipamento"}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="overflow-hidden rounded-xl border border-white/10">
@@ -1371,7 +1673,7 @@ export default function VehicleDetailsPage() {
                             <td className="px-4 py-3 text-white/70">{device.model || device.name || "—"}</td>
                             <td className="px-4 py-3">
                               <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                                {translateUnknownValue(device.status) || "HABILITADO"}
+                                {resolveDeviceEquipmentStatus(device)}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-white/70">{device.location || "No veículo"}</td>
@@ -1540,9 +1842,14 @@ export default function VehicleDetailsPage() {
                     </div>
                   )}
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-white/60">
-                  Espaço reservado para outras configurações do veículo.
-                </div>
+                <VehicleConfigItemsEditor
+                  items={vehicleConfigItems}
+                  onChange={setVehicleConfigItems}
+                  onSave={handleSaveVehicleConfigItems}
+                  saving={savingVehicleConfigItems}
+                  title="Configurações adicionais do veículo"
+                  subtitle="Cadastre Nome, Valor e Descrição dos itens do veículo."
+                />
               </div>
             </DataCard>
           )}
@@ -1590,7 +1897,11 @@ export default function VehicleDetailsPage() {
                         <td colSpan={5} className="px-4 py-6">
                           <EmptyState
                             title="Nenhuma ordem de serviço registrada."
-                            subtitle="Crie uma nova OS para este veículo."
+                            subtitle={
+                              isTechnician
+                                ? "Nenhuma ordem de serviço vinculada a você para este veículo."
+                                : "Crie uma nova OS para este veículo."
+                            }
                           />
                         </td>
                       </tr>
@@ -1665,6 +1976,14 @@ export default function VehicleDetailsPage() {
                 onSaveVehicle={handleSaveVehicle}
                 saving={saving}
                 onError={reportError}
+              />
+              <VehicleConfigItemsEditor
+                items={vehicleConfigItems}
+                onChange={setVehicleConfigItems}
+                onSave={handleSaveVehicleConfigItems}
+                saving={savingVehicleConfigItems}
+                title="Itens adicionais (Editar)"
+                subtitle="Gerencie Nome, Valor e Descrição também na aba Editar."
               />
             </DataCard>
           )}
