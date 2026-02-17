@@ -1,9 +1,14 @@
 import React from "react";
 
-export default function DataTable({ children, className = "", tableClassName = "" }) {
+export default function DataTable({
+  children,
+  className = "",
+  tableClassName = "",
+  horizontalScroll = true,
+}) {
   return (
-    <div className={`overflow-x-auto ${className}`}>
-      <table className={`min-w-full text-sm text-white ${tableClassName}`}>{children}</table>
+    <div className={`${horizontalScroll ? "e-scroll-x overflow-x-auto" : "overflow-visible"} ${className}`.trim()}>
+      <table className={`e-table min-w-full text-sm text-white ${tableClassName}`.trim()}>{children}</table>
     </div>
   );
 }

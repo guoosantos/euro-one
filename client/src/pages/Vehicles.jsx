@@ -26,6 +26,7 @@ import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import usePageToast from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
+import api from "../lib/api.js";
 
 const BRAND_COLORS = {
   fiat: "bg-red-500/20 text-red-200",
@@ -111,8 +112,8 @@ function VehicleRow({
 }) {
   return (
     <tr className="hover:bg-white/5">
-      <td className="px-4 py-4">{typeIcon}</td>
-      <td className="px-4 py-4">
+      <td className="e-hide-mobile px-4 py-4 md:table-cell">{typeIcon}</td>
+      <td className="e-hide-mobile px-4 py-4 sm:table-cell">
         <div className="flex items-center gap-2">
           {brandBadge}
           <div>
@@ -126,11 +127,11 @@ function VehicleRow({
         <div className="text-xs text-white/60">{plateLabel}</div>
       </td>
       <td className="px-4 py-4">{plateLabel}</td>
-      <td className="px-4 py-4">{responsibleLabel}</td>
+      <td className="e-hide-mobile px-4 py-4 sm:table-cell">{responsibleLabel}</td>
       <td className="px-4 py-4">
         <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">{statusLabel}</span>
       </td>
-      <td className="px-4 py-4">
+      <td className="e-hide-mobile px-4 py-4 md:table-cell">
         {attributeBadges?.length ? (
           <div className="flex flex-wrap gap-2">
             {attributeBadges}
@@ -144,7 +145,7 @@ function VehicleRow({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30 md:h-9 md:w-9"
             aria-label="Editar veículo"
           >
             <Pencil className="h-4 w-4" />
@@ -153,7 +154,7 @@ function VehicleRow({
             <button
               type="button"
               onClick={onDelete}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10 md:h-9 md:w-9"
               aria-label="Excluir veículo"
             >
               ×
@@ -169,6 +170,7 @@ export default function Vehicles() {
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
   const { tenantId, tenantScope, user, tenants, hasAdminAccess } = useTenant();
+  const isTechnician = user?.role === "technician";
   const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
   const baseLayer = DEFAULT_MAP_LAYER;
   const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -193,6 +195,7 @@ export default function Vehicles() {
   const [attributeDrawerOpen, setAttributeDrawerOpen] = useState(false);
   const [attributeDrawerTab, setAttributeDrawerTab] = useState("list");
   const [attributeForm, setAttributeForm] = useState({ name: "", color: "#38bdf8" });
+  const [technicianLastServiceByVehicle, setTechnicianLastServiceByVehicle] = useState({});
   const { confirmDelete } = useConfirmDialog();
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
@@ -243,20 +246,72 @@ export default function Vehicles() {
     setLoading(true);
     setError(null);
     try {
-      const clientParams = resolvedClientId ? { clientId: resolvedClientId } : {};
+      const normalizeVehiclesPayload = (payload) => {
+        if (Array.isArray(payload)) return payload;
+        if (Array.isArray(payload?.vehicles)) return payload.vehicles;
+        if (Array.isArray(payload?.data)) return payload.data;
+        return [];
+      };
+      const clientParams = isTechnician ? {} : resolvedClientId ? { clientId: resolvedClientId } : {};
       clientParams.accessible = true;
       clientParams.skipPositions = true;
       if (user?.role === "admin" || user?.role === "manager") {
         clientParams.includeUnlinked = true;
+        clientParams.onlyLinked = false;
       } else {
-        clientParams.onlyLinked = true;
+        // Usuários com frota restrita podem ter veículos sem equipamento vinculado.
+        // Não force onlyLinked para evitar tela vazia indevida.
+        clientParams.onlyLinked = false;
       }
-      const [vehicleList, deviceList] = await Promise.all([
-        CoreApi.listVehicles(clientParams),
+      const [vehicleResponse, deviceList] = await Promise.all([
+        api.get("core/vehicles", {
+          params: { ...clientParams, _ts: Date.now() },
+          skipSWRCache: true,
+          dedupeBypass: true,
+        }),
         CoreApi.listDevices(clientParams),
       ]);
-      setVehicles(Array.isArray(vehicleList) ? vehicleList : []);
+      let nextVehicles = normalizeVehiclesPayload(vehicleResponse?.data);
+      if (!isTechnician && nextVehicles.length === 0) {
+        const fallbackResponse = await api.get("core/vehicles", {
+          params: {
+            ...clientParams,
+            includeUnlinked: true,
+            onlyLinked: false,
+            _ts: Date.now() + 1,
+          },
+          skipSWRCache: true,
+          dedupeBypass: true,
+        });
+        const fallbackVehicles = normalizeVehiclesPayload(fallbackResponse?.data);
+        if (fallbackVehicles.length) {
+          nextVehicles = fallbackVehicles;
+        }
+      }
+      setVehicles(nextVehicles);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
+      if (isTechnician) {
+        const serviceOrderResponse = await api.get("core/service-orders", {
+          params: isTechnician ? undefined : resolvedClientId ? { clientId: resolvedClientId } : undefined,
+        });
+        const serviceOrders = Array.isArray(serviceOrderResponse?.data?.items) ? serviceOrderResponse.data.items : [];
+        const nextByVehicle = {};
+        serviceOrders.forEach((order) => {
+          const vehicleId = order?.vehicleId ? String(order.vehicleId) : null;
+          if (!vehicleId) return;
+          const serviceDate = order?.startAt || order?.endAt || order?.updatedAt || order?.createdAt || null;
+          if (!serviceDate) return;
+          const current = nextByVehicle[vehicleId];
+          const nextTime = Date.parse(serviceDate) || 0;
+          const currentTime = current ? Date.parse(current) || 0 : 0;
+          if (!current || nextTime > currentTime) {
+            nextByVehicle[vehicleId] = serviceDate;
+          }
+        });
+        setTechnicianLastServiceByVehicle(nextByVehicle);
+      } else {
+        setTechnicianLastServiceByVehicle({});
+      }
     } catch (requestError) {
       const status = requestError?.status || requestError?.response?.status;
       if (status === 503) {
@@ -414,7 +469,7 @@ export default function Vehicles() {
     saveColumnVisibility(columnStorageKey, visibleColumns);
   }, [columnStorageKey, visibleColumns]);
 
-  const tableColCount = 8;
+  const tableColCount = isTechnician ? 6 : 8;
 
   const formatVehicleType = (value) => {
     if (!value) return "—";
@@ -430,6 +485,16 @@ export default function Vehicles() {
     const number = Number(value);
     if (!Number.isFinite(number)) return "—";
     return `${Intl.NumberFormat("pt-BR").format(Math.round(number))} km`;
+  };
+
+  const formatServiceDate = (value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
   };
 
   const resolveDeviceId = (vehicle) =>
@@ -656,7 +721,7 @@ export default function Vehicles() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-4 sm:gap-6">
       <PageHeader
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -669,27 +734,31 @@ export default function Vehicles() {
                 <RefreshCw className="h-4 w-4" /> Atualizar
               </span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAttributeDrawerTab("list");
-                setAttributeDrawerOpen(true);
-              }}
-              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Tags className="h-4 w-4" /> Atributos
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={openDrawer}
-              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Plus className="h-4 w-4" /> Novo veículo
-              </span>
-            </button>
+            {!isTechnician ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttributeDrawerTab("list");
+                    setAttributeDrawerOpen(true);
+                  }}
+                  className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Tags className="h-4 w-4" /> Atributos
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openDrawer}
+                  className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Plus className="h-4 w-4" /> Novo veículo
+                  </span>
+                </button>
+              </>
+            ) : null}
           </div>
         }
       />
@@ -702,16 +771,18 @@ export default function Vehicles() {
         <FilterBar
           left={
             <>
-              <div className="relative min-w-[220px] flex-1">
-                <Tags className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-                <input
-                  placeholder="Buscar por atributos"
-                  value={attributeQuery}
-                  onChange={(event) => setAttributeQuery(event.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-                />
-              </div>
-              <div className="relative min-w-[240px] flex-1">
+              {!isTechnician ? (
+                <div className="relative min-w-0 flex-1 sm:min-w-[220px]">
+                  <Tags className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                  <input
+                    placeholder="Buscar por atributos"
+                    value={attributeQuery}
+                    onChange={(event) => setAttributeQuery(event.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                  />
+                </div>
+              ) : null}
+              <div className="relative min-w-0 flex-1 sm:min-w-[240px]">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                 <input
                   placeholder="Buscar por placa, veículo, motorista, equipamento"
@@ -720,7 +791,7 @@ export default function Vehicles() {
                   className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
                 />
               </div>
-              {attributeFilterId && (
+              {!isTechnician && attributeFilterId && (
                 <button
                   type="button"
                   onClick={() => setAttributeFilterId("")}
@@ -731,7 +802,7 @@ export default function Vehicles() {
               )}
             </>
           }
-          right={
+          right={!isTechnician ? (
             <button
               type="button"
               onClick={() => setShowColumnPicker((prev) => !prev)}
@@ -739,10 +810,10 @@ export default function Vehicles() {
             >
               Exibir colunas
             </button>
-          }
+          ) : null}
         />
 
-        {showColumnPicker && (
+        {!isTechnician && showColumnPicker && (
           <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
             <label className="flex items-center gap-2">
               <input
@@ -776,18 +847,29 @@ export default function Vehicles() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <DataTable tableClassName="text-white/80">
+        <DataTable className="w-full" tableClassName="text-white/80">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
-            <tr>
-              <th className="px-4 py-3 text-left">Tipo</th>
-              <th className="px-4 py-3 text-left">Marca</th>
-              <th className="px-4 py-3 text-left">Modelo</th>
-              <th className="px-4 py-3 text-left">Placa</th>
-              <th className="px-4 py-3 text-left">Responsável/Cliente</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Atributos</th>
-              <th className="px-4 py-3 text-right">Ações</th>
-            </tr>
+            {isTechnician ? (
+              <tr>
+                <th className="e-hide-mobile px-4 py-3 text-left sm:table-cell">Marca</th>
+                <th className="px-4 py-3 text-left">Modelo</th>
+                <th className="px-4 py-3 text-left">Placa</th>
+                <th className="e-hide-mobile px-4 py-3 text-left md:table-cell">Responsável/Cliente</th>
+                <th className="e-hide-mobile px-4 py-3 text-left md:table-cell">Último serviço</th>
+                <th className="px-4 py-3 text-right">Ações</th>
+              </tr>
+            ) : (
+              <tr>
+                <th className="e-hide-mobile px-4 py-3 text-left md:table-cell">Tipo</th>
+                <th className="e-hide-mobile px-4 py-3 text-left sm:table-cell">Marca</th>
+                <th className="px-4 py-3 text-left">Modelo</th>
+                <th className="px-4 py-3 text-left">Placa</th>
+                <th className="e-hide-mobile px-4 py-3 text-left sm:table-cell">Responsável/Cliente</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="e-hide-mobile px-4 py-3 text-left md:table-cell">Atributos</th>
+                <th className="px-4 py-3 text-right">Ações</th>
+              </tr>
+            )}
           </thead>
           <tbody className="divide-y divide-white/10">
             {loading && (
@@ -802,22 +884,49 @@ export default function Vehicles() {
                 <td colSpan={tableColCount} className="px-4 py-6">
                   <EmptyState
                     title="Nenhum veículo cadastrado."
-                    subtitle="Cadastre um novo veículo para iniciar o acompanhamento."
-                    action={
-                  <button
-                    type="button"
-                    onClick={openDrawer}
-                    className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                  >
-                    Novo veículo
-                  </button>
+                    subtitle={
+                      isTechnician
+                        ? "Nenhum veículo vinculado aos seus atendimentos foi encontrado."
+                        : "Cadastre um novo veículo para iniciar o acompanhamento."
                     }
+                    action={!isTechnician ? (
+                      <button
+                        type="button"
+                        onClick={openDrawer}
+                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                      >
+                        Novo veículo
+                      </button>
+                    ) : null}
                   />
                 </td>
               </tr>
             )}
             {!loading &&
               filteredVehicles.map((vehicle) => {
+                if (isTechnician) {
+                  const responsibleLabel =
+                    vehicle.clientName || vehicle.client?.name || vehicle.driver || vehicle.group || "—";
+                  const lastServiceDate = technicianLastServiceByVehicle[String(vehicle.id)] || null;
+                  return (
+                    <tr key={vehicle.id} className="hover:bg-white/5">
+                      <td className="e-hide-mobile px-4 py-3 text-white/80 sm:table-cell">{vehicle.brand || "—"}</td>
+                      <td className="px-4 py-3 text-white/80">{vehicle.model || vehicle.name || "—"}</td>
+                      <td className="px-4 py-3 text-white">{vehicle.plate || "—"}</td>
+                      <td className="e-hide-mobile px-4 py-3 text-white/80 md:table-cell">{responsibleLabel}</td>
+                      <td className="e-hide-mobile px-4 py-3 text-white/70 md:table-cell">{formatServiceDate(lastServiceDate)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/vehicles/${vehicle.id}`)}
+                          className="min-h-[44px] rounded-xl border border-white/10 px-3 py-2 text-xs text-white transition hover:border-white/30 md:min-h-0"
+                        >
+                          Detalhes
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }
                 const latestPosition = getDevicePosition(vehicle);
                 const statusLive = getDeviceStatus(vehicle, latestPosition);
                 const normalizedType = resolveVehicleIconType(vehicle.type) || vehicle.type;
@@ -856,39 +965,42 @@ export default function Vehicles() {
         </DataTable>
       </div>
 
-      <Drawer
-        open={createDrawerOpen}
-        onClose={() => setCreateDrawerOpen(false)}
-        title="Novo veículo"
-        description="Cadastre os dados principais do veículo."
-      >
-        <form onSubmit={handleSave} className="space-y-4">
-          <VehicleForm
-            value={form}
-            onChange={setForm}
-            tenants={tenants}
-            showClient={hasAdminAccess}
-            requireClient={hasAdminAccess}
-            showDeviceSelect
-            deviceOptions={availableDevices}
-          />
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" onClick={() => setCreateDrawerOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Salvando…" : "Salvar"}
-            </Button>
-          </div>
-        </form>
-      </Drawer>
+      {!isTechnician ? (
+        <Drawer
+          open={createDrawerOpen}
+          onClose={() => setCreateDrawerOpen(false)}
+          title="Novo veículo"
+          description="Cadastre os dados principais do veículo."
+        >
+          <form onSubmit={handleSave} className="space-y-4">
+            <VehicleForm
+              value={form}
+              onChange={setForm}
+              tenants={tenants}
+              showClient={hasAdminAccess}
+              requireClient={hasAdminAccess}
+              showDeviceSelect
+              deviceOptions={availableDevices}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" onClick={() => setCreateDrawerOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Salvando…" : "Salvar"}
+              </Button>
+            </div>
+          </form>
+        </Drawer>
+      ) : null}
 
-      <Drawer
-        open={attributeDrawerOpen}
-        onClose={() => setAttributeDrawerOpen(false)}
-        title="Atributos"
-        description="Gerencie atributos usados nos veículos."
-      >
+      {!isTechnician ? (
+        <Drawer
+          open={attributeDrawerOpen}
+          onClose={() => setAttributeDrawerOpen(false)}
+          title="Atributos"
+          description="Gerencie atributos usados nos veículos."
+        >
         <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
           {[
             { key: "list", label: "Atributos" },
@@ -981,7 +1093,8 @@ export default function Vehicles() {
             </div>
           </form>
         )}
-      </Drawer>
+        </Drawer>
+      ) : null}
 
       <Modal
         open={Boolean(mapTarget)}

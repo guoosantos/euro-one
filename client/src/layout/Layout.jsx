@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import Sidebar from "../components/Sidebar";
@@ -38,9 +38,6 @@ export default function Layout({ children, title, hideTitle = false }) {
   const locale = useUI((state) => state.locale);
   const { tenant, isMirrorReceiver, mirrorModeEnabled, apiUnavailable } = useTenant();
   const accentColor = tenant?.brandColor;
-  const showMonitoringTopbar = useUI((state) => state.monitoringTopbarVisible !== false);
-  const showGeofencesTopbar = useUI((state) => state.geofencesTopbarVisible !== false);
-  const showRoutesTopbar = useUI((state) => state.routesTopbarVisible !== false);
   const [buildInfo, setBuildInfo] = useState(null);
 
   useEffect(() => {
@@ -53,15 +50,34 @@ export default function Layout({ children, title, hideTitle = false }) {
 
   useEffect(() => {
     let active = true;
-    fetch("/version.json", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!active || !data) return;
-        if (data.builtAt || data.gitSha) setBuildInfo(data);
-      })
-      .catch(() => {});
+
+    const loadVersionInfo = () => {
+      const stamp = Date.now();
+      fetch(`/version.json?v=${stamp}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!active || !data) return;
+          if (!data.builtAt && !data.gitSha) return;
+          setBuildInfo((prev) => {
+            if (!prev) return data;
+            if (prev.builtAt !== data.builtAt || prev.gitSha !== data.gitSha) return data;
+            return prev;
+          });
+        })
+        .catch(() => {});
+    };
+
+    loadVersionInfo();
+    const intervalId = window.setInterval(loadVersionInfo, 30000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") loadVersionInfo();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       active = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
@@ -71,6 +87,43 @@ export default function Layout({ children, title, hideTitle = false }) {
       document.documentElement.lang = locale || "pt-BR";
     }
   }, [theme, locale]);
+
+  const isMobileViewport = useCallback(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 767px)").matches;
+  }, []);
+
+  const closeSidebarMobile = useCallback(() => {
+    if (!sidebarOpen) return;
+    if (!isMobileViewport()) return;
+    toggleSidebar();
+  }, [isMobileViewport, sidebarOpen, toggleSidebar]);
+
+  useEffect(() => {
+    closeSidebarMobile();
+  }, [closeSidebarMobile, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!sidebarOpen || !isMobileViewport()) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      toggleSidebar();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileViewport, sidebarOpen, toggleSidebar]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const shouldLockScroll = sidebarOpen && isMobileViewport();
+    document.documentElement.classList.toggle("e-no-scroll", shouldLockScroll);
+    document.body.classList.toggle("e-no-scroll", shouldLockScroll);
+    return () => {
+      document.documentElement.classList.remove("e-no-scroll");
+      document.body.classList.remove("e-no-scroll");
+    };
+  }, [isMobileViewport, sidebarOpen]);
 
   const rootStyle = accentColor
     ? {
@@ -93,8 +146,8 @@ export default function Layout({ children, title, hideTitle = false }) {
         <button
           type="button"
           aria-label="Fechar menu"
-          className="fixed inset-0 z-30 bg-black/60 md:hidden"
-          onClick={toggleSidebar}
+          className="fixed inset-0 z-[10040] bg-black/60 md:hidden"
+          onClick={closeSidebarMobile}
         />
       )}
 
@@ -102,7 +155,7 @@ export default function Layout({ children, title, hideTitle = false }) {
       <aside
         role="complementary"
         data-collapsed={sidebarCollapsed ? "true" : "false"}
-        className={`app-shell__sidebar border-r border-stroke bg-sidebar transition-transform ${
+        className={`app-shell__sidebar z-[10050] border-r border-stroke bg-sidebar transition-transform ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
@@ -111,13 +164,7 @@ export default function Layout({ children, title, hideTitle = false }) {
 
       {/* CONTEÚDO PRINCIPAL */}
       <main className="app-shell__main bg-surface">
-        {/* No monitoring a própria página cuida do cabeçalho */}
-        {((!isMonitoringPage && !isGeofencesPage && !isRoutesPage) ||
-          (isMonitoringPage && showMonitoringTopbar) ||
-          (isGeofencesPage && showGeofencesTopbar) ||
-          (isRoutesPage && showRoutesTopbar)) && (
-          <Topbar title={isFullWidthPage ? null : resolvedTitle} />
-        )}
+        <Topbar title={isFullWidthPage ? null : resolvedTitle} />
 
         <section className={`app-shell__content ${isWidePage ? "p-0" : "p-6"}`}>
           {apiUnavailable && (

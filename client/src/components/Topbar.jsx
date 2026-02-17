@@ -11,6 +11,7 @@ import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.j
 import { buildFleetState } from "../lib/fleet-utils";
 import { useTranslation } from "../lib/i18n.js";
 import { isAdminGeneralClientName, normalizeAdminClientName } from "../lib/admin-general.js";
+import { isServiceStockPermissionGroup } from "../lib/permissions/profile-groups.js";
 import NotificationsPopover from "./popovers/NotificationsPopover.jsx";
 import UserMenuPopover from "./popovers/UserMenuPopover.jsx";
 import TenantCombobox from "./inputs/TenantCombobox.jsx";
@@ -159,6 +160,8 @@ export function Topbar({ title, hideTenantSwitch = false }) {
     mirrorContextMode,
     activeMirrorOwnerClientId,
     contextSwitching,
+    permissionContext,
+    role,
   } = useTenant();
   const navigate = useNavigate();
   const location = useLocation();
@@ -171,6 +174,11 @@ export function Topbar({ title, hideTenantSwitch = false }) {
   const switchTimerRef = useRef(null);
   const searchDebounceRef = useRef(null);
   const [adminScope, setAdminScope] = useState(() => readAdminScope());
+  const isServiceStockRestrictedProfile = isServiceStockPermissionGroup(permissionContext);
+  const normalizedRole = String(role || "")
+    .trim()
+    .toLowerCase();
+  const isTechnicianRole = normalizedRole === "technician" || normalizedRole === "tecnico";
 
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
@@ -620,24 +628,29 @@ export function Topbar({ title, hideTenantSwitch = false }) {
       : { filter: "brightness(0)" };
 
   return (
-    <header className="sticky top-0 z-[9998] border-b border-border bg-surface backdrop-blur">
-      <div className="flex w-full items-center gap-4 px-4 py-3 md:px-6 lg:px-8">
-        <div className="flex flex-1 items-center gap-3">
+    <header className="e-topbar sticky top-0 z-[9990] border-b border-border bg-surface backdrop-blur">
+      <div className="flex w-full flex-wrap items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 md:flex-nowrap md:gap-4 md:px-6 lg:px-8">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
           <button type="button" className="btn md:hidden" onClick={toggleSidebar} aria-label={t("topbar.openMenu")}>
             <Menu size={18} />
           </button>
 
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-medium leading-none text-text">
               <img
                 src="https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png"
                 alt="Euro Soluções Tecnológicas"
-                className="h-8 max-h-8 w-auto object-contain"
+                className="h-7 max-h-8 w-auto object-contain sm:h-8"
                 style={logoStyle}
                 loading="lazy"
                 referrerPolicy="no-referrer"
               />
             </div>
+            {title ? (
+              <p className="max-w-[44vw] truncate pt-1 text-[11px] text-sub sm:max-w-[220px] md:max-w-[320px] md:text-xs">
+                {title}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -701,11 +714,11 @@ export function Topbar({ title, hideTenantSwitch = false }) {
           ) : null}
         </form>
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
           {!hideTenantSwitch && (
-            <div className="hidden items-center md:flex">
+            <div className="flex min-w-0 items-center">
               <TenantCombobox
-                className="min-w-[220px]"
+                className="w-[min(58vw,220px)] sm:w-[220px]"
                 value={selectValue}
                 options={tenantOptions}
                 onChange={handleTenantSelect}
@@ -741,7 +754,7 @@ export function Topbar({ title, hideTenantSwitch = false }) {
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          <NotificationsPopover onSelectDevice={handleDeviceFocus} />
+          {!isServiceStockRestrictedProfile && !isTechnicianRole && <NotificationsPopover onSelectDevice={handleDeviceFocus} />}
           <UserMenuPopover />
         </div>
       </div>

@@ -52,7 +52,19 @@ import { EQUIPMENT_STATUS_OPTIONS, normalizeEquipmentStatusValue } from "../lib/
 import { isServiceStockGlobalPermissionGroup } from "../lib/permissions/profile-groups.js";
 
 const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
-const DEVICE_EDITOR_TABS = ["geral", "vinculos", "status", "telemetria", "portas", "garantia", "condicoes", "historico", "massa", "acoes"];
+const DEVICE_EDITOR_TABS = [
+  "geral",
+  "vinculos",
+  "status",
+  "propriedade",
+  "telemetria",
+  "portas",
+  "garantia",
+  "condicoes",
+  "historico",
+  "massa",
+  "acoes",
+];
 const EQUIPMENT_CONDITION_OPTIONS = [
   "Novo",
   "Usado funcionando",
@@ -144,6 +156,7 @@ function getDeviceTabLabel(key) {
   if (key === "geral") return "Geral";
   if (key === "vinculos") return "Vínculos";
   if (key === "status") return "Status";
+  if (key === "propriedade") return "Propriedade";
   if (key === "telemetria") return "Telemetria";
   if (key === "portas") return "Portas";
   if (key === "garantia") return "Garantia";
@@ -175,6 +188,11 @@ function formatTransferDate(value) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(parsed));
+}
+
+function normalizeOwnershipTypeValue(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized === "VENDA" ? "VENDA" : "COMODATO";
 }
 
 function isTechnicalIdentifier(value) {
@@ -272,7 +290,7 @@ function DeviceRow({
         </td>
       )}
       {showModel && (
-        <td className="w-[240px] min-w-[220px] px-3 py-2 align-middle">
+        <td className="e-hide-mobile w-[240px] min-w-[220px] px-3 py-2 align-middle sm:table-cell">
           <div className="max-w-[220px] truncate text-white" title={modelLabel}>
             {modelLabel}
           </div>
@@ -294,7 +312,7 @@ function DeviceRow({
         </td>
       )}
       {showLastPosition && (
-        <td className="w-[340px] min-w-[280px] px-3 py-2 align-middle">
+        <td className="e-hide-mobile w-[340px] min-w-[280px] px-3 py-2 align-middle md:table-cell">
           <div
             className="max-w-[320px] truncate whitespace-nowrap text-xs leading-snug text-white/70"
             title={positionLabel || ""}
@@ -304,7 +322,7 @@ function DeviceRow({
         </td>
       )}
       {showLink && (
-        <td className="w-[280px] min-w-[240px] px-3 py-2 align-middle">
+        <td className="w-[280px] min-w-[220px] px-3 py-2 align-middle sm:min-w-[240px]">
           {isLinked ? (
             <button
               type="button"
@@ -334,21 +352,21 @@ function DeviceRow({
         </td>
       )}
       {showClient && (
-        <td className="w-[220px] min-w-[180px] px-3 py-2 align-middle">
+        <td className="e-hide-mobile w-[220px] min-w-[180px] px-3 py-2 align-middle md:table-cell">
           <div className="max-w-[200px] truncate text-white/70" title={clientLabel}>
             {clientLabel}
           </div>
         </td>
       )}
       {showWarranty && (
-        <td className="w-[250px] min-w-[220px] px-3 py-2 align-middle text-white/70">
+        <td className="e-hide-mobile w-[250px] min-w-[220px] px-3 py-2 align-middle text-white/70 md:table-cell">
           <span className="inline-block max-w-[220px] truncate whitespace-nowrap" title={warrantyLabel}>
             {warrantyLabel}
           </span>
         </td>
       )}
       {showActions && (
-        <td className="sticky right-0 z-10 w-[170px] min-w-[170px] bg-[#111722] px-3 py-2 text-right align-middle group-hover:bg-[#192233]">
+        <td className="w-[170px] min-w-[170px] bg-[#111722] px-3 py-2 text-right align-middle group-hover:bg-[#192233] md:sticky md:right-0 md:z-10">
           <div className="inline-flex items-center gap-2">
             <button
               type="button"
@@ -474,6 +492,7 @@ export default function Devices() {
   const isServiceStockGlobalProfile = isServiceStockGlobalPermissionGroup(permissionContext);
   const serviceStockColumnsCount = 7;
   const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
+  const canCreateDevice = !isTechnician && !isServiceStockGlobalProfile && devicesPermission.isFull;
   const baseLayer = DEFAULT_MAP_LAYER;
   const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileAttribution =
@@ -500,6 +519,7 @@ export default function Devices() {
   const [savingDevice, setSavingDevice] = useState(false);
   const [savingPorts, setSavingPorts] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [editingClientId, setEditingClientId] = useState("");
   const [showDeviceDrawer, setShowDeviceDrawer] = useState(false);
   const [conflictDevice, setConflictDevice] = useState(null);
   const [linkTarget, setLinkTarget] = useState(null);
@@ -542,6 +562,7 @@ export default function Devices() {
     modelId: "",
     internalCode: "",
     gprsCommunication: true,
+    ownershipType: "COMODATO",
     equipmentStatus: "ESTOQUE NOVO",
     chipId: "",
     vehicleId: "",
@@ -1306,7 +1327,7 @@ export default function Devices() {
     setDeviceHistoryLoading(true);
     setDeviceHistoryError("");
     try {
-      const scopedClientId = resolveWriteClientId(editingDevice?.clientId, resolvedClientId) || undefined;
+      const scopedClientId = resolveWriteClientId(editingClientId, editingDevice?.clientId, resolvedClientId) || undefined;
       const response = await CoreApi.getDeviceHistory(editingId, scopedClientId ? { clientId: scopedClientId } : undefined);
       setDeviceHistoryRows(Array.isArray(response?.items) ? response.items : []);
     } catch (historyError) {
@@ -1315,7 +1336,7 @@ export default function Devices() {
     } finally {
       setDeviceHistoryLoading(false);
     }
-  }, [editingDevice?.clientId, editingId, resolveWriteClientId, resolvedClientId]);
+  }, [editingClientId, editingDevice?.clientId, editingId, resolveWriteClientId, resolvedClientId]);
 
   useEffect(() => {
     if (!editingId || drawerTab !== "historico") {
@@ -1352,7 +1373,7 @@ export default function Devices() {
     return "—";
   }
 
-  function formatWarranty(device) {
+  function resolveWarrantyEndDate(device) {
     const attrs = device?.attributes || {};
     let warrantyEnd = attrs.warrantyEndDate || attrs.warrantyUntil || attrs.warrantyDate || null;
     const origin = attrs.warrantyOrigin || "production";
@@ -1371,15 +1392,28 @@ export default function Devices() {
         }
       }
     }
-    const startLabel = origin === "installation" ? "Instalação" : "Produção";
-    const startValue = start ? formatDate(start) : null;
-    const endValue = warrantyEnd ? formatDate(warrantyEnd) : null;
-    if (startValue && endValue) {
-      return `${startLabel}: ${startValue} · Fim: ${endValue}`;
-    }
-    if (startValue) return `${startLabel}: ${startValue}`;
-    if (endValue) return `Fim: ${endValue}`;
-    return "—";
+    return warrantyEnd || null;
+  }
+
+  function normalizeWarrantyDateKey(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const directDateMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (directDateMatch) return directDateMatch[1];
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  }
+
+  function formatWarrantyDate(value) {
+    const normalizedDate = normalizeWarrantyDateKey(value);
+    if (!normalizedDate) return "—";
+    const [year, month, day] = normalizedDate.split("-");
+    return `${day}/${month}/${year}`;
+  }
+
+  function formatWarranty(device) {
+    return formatWarrantyDate(resolveWarrantyEndDate(device));
   }
 
   function formatLastServiceDate(value) {
@@ -1479,6 +1513,22 @@ export default function Devices() {
       return true;
     });
   }, [chipById, devices, filters.link, filters.model, filters.status, modeloById, query, resolveLinkedVehicle]);
+
+  const sharedServiceStockWarrantyLabel = useMemo(() => {
+    if (!isServiceStockGlobalProfile || !filteredDevices.length) return null;
+    const grouped = new Map();
+    filteredDevices.forEach((device) => {
+      const dateKey = normalizeWarrantyDateKey(resolveWarrantyEndDate(device));
+      if (!dateKey) return;
+      grouped.set(dateKey, (grouped.get(dateKey) || 0) + 1);
+    });
+    if (!grouped.size) return null;
+    const sorted = Array.from(grouped.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return Date.parse(b[0]) - Date.parse(a[0]);
+    });
+    return formatWarrantyDate(sorted[0][0]);
+  }, [filteredDevices, isServiceStockGlobalProfile]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -1673,6 +1723,7 @@ export default function Devices() {
       modelId: "",
       internalCode: "",
       gprsCommunication: true,
+      ownershipType: "COMODATO",
       equipmentStatus: "ESTOQUE NOVO",
       chipId: "",
       vehicleId: "",
@@ -1689,6 +1740,7 @@ export default function Devices() {
       note: "",
     });
     setEditingId(null);
+    setEditingClientId("");
   }
 
   async function handleSaveDevice(event) {
@@ -1745,6 +1797,7 @@ export default function Devices() {
         modelId: deviceForm.modelId || undefined,
         chipId: deviceForm.chipId || undefined,
         vehicleId: deviceForm.vehicleId || undefined,
+        ownershipType: normalizeOwnershipTypeValue(deviceForm.ownershipType),
         equipmentStatus: normalizeEquipmentStatusValue(deviceForm.equipmentStatus),
         gprsCommunication: deviceForm.gprsCommunication,
         internalCode: editingId ? resolvedInternalCode || undefined : undefined,
@@ -2088,12 +2141,14 @@ export default function Devices() {
       return rightTime - leftTime;
     })[0];
     setEditingId(device.id);
+    setEditingClientId(String(device.clientId || ""));
     setDeviceForm({
       name: device.name || "",
       uniqueId: device.uniqueId || "",
       modelId: device.modelId || device.attributes?.modelId ? String(device.modelId || device.attributes?.modelId) : "",
       internalCode: device.attributes?.internalCode || "",
       gprsCommunication: device.attributes?.gprsCommunication !== false,
+      ownershipType: normalizeOwnershipTypeValue(device.ownershipType || device.attributes?.ownershipType),
       equipmentStatus: normalizeEquipmentStatusValue(
         device.equipmentStatus || device.status || device.attributes?.equipmentStatus,
       ),
@@ -2520,16 +2575,18 @@ export default function Devices() {
                       )}
                     </div>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={openNewDeviceEditor}
-                    className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <Plus className="h-4 w-4" />
-                      Novo equipamento
-                    </span>
-                  </button>
+                  {canCreateDevice ? (
+                    <button
+                      type="button"
+                      onClick={openNewDeviceEditor}
+                      className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Plus className="h-4 w-4" />
+                        Novo equipamento
+                      </span>
+                    </button>
+                  ) : null}
                 </>
               ) : null}
             </div>
@@ -2548,7 +2605,7 @@ export default function Devices() {
           <FilterBar
             left={
               <div className="flex flex-1 flex-wrap items-center gap-3 md:flex-nowrap">
-                <div className="relative min-w-[240px] flex-1">
+                <div className="relative min-w-0 flex-1 sm:min-w-[240px]">
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                   <input
                     value={query}
@@ -2560,7 +2617,7 @@ export default function Devices() {
                 <select
                   value={filters.link}
                   onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
-                  className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                  className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:min-w-[200px]"
                 >
                   <option value="all">Vínculo: Todos</option>
                   <option value="linked">Vínculo: Vinculado</option>
@@ -2570,7 +2627,7 @@ export default function Devices() {
                   <select
                     value={filters.status}
                     onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-                    className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:min-w-[200px]"
                   >
                     <option value="all">Status: Todos</option>
                     <option value="online">Online</option>
@@ -2580,7 +2637,7 @@ export default function Devices() {
                     <option value=">24h">&gt;24h</option>
                   </select>
                 ) : null}
-                <div className="min-w-[240px] flex-1">
+                <div className="min-w-0 flex-1 sm:min-w-[240px]">
                   <AutocompleteSelect
                     value={modelDraft}
                     onChange={(nextValue) => setModelDraft(String(nextValue || ""))}
@@ -2600,7 +2657,7 @@ export default function Devices() {
               </div>
             }
             right={
-              <div className="relative flex items-center gap-3">
+              <div className="relative flex w-full flex-wrap items-center justify-between gap-3 md:w-auto md:justify-end">
                 <span className="text-xs text-white/60">
                   {filteredDevices.length} de {devices.length} equipamentos
                 </span>
@@ -2628,13 +2685,13 @@ export default function Devices() {
           )}
 
           <div className="pb-4">
-            <div className="overflow-x-auto overflow-y-visible rounded-none border border-white/10">
-              <DataTable horizontalScroll={false} className="overflow-visible" tableClassName="min-w-max w-full table-auto text-white/80">
+            <div className="rounded-none border border-white/10">
+              <DataTable horizontalScroll className="overflow-x-auto overflow-y-visible" tableClassName="min-w-max w-full table-auto text-white/80">
                 <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
                   {isTechnician ? (
                     <tr>
                       <th className="px-3 py-3 text-left">Cliente</th>
-                      <th className="px-3 py-3 text-left">Modelo</th>
+                      <th className="e-hide-mobile px-3 py-3 text-left sm:table-cell">Modelo</th>
                       <th className="px-3 py-3 text-left">ID do Equipamento</th>
                       <th className="px-3 py-3 text-left">Data transferido</th>
                     </tr>
@@ -2643,29 +2700,33 @@ export default function Devices() {
                       <th className="px-3 py-3 text-left">ID / IMEI</th>
                       <th className="px-3 py-3 text-left">Modelo</th>
                       <th className="px-3 py-3 text-left">Localização</th>
-                      <th className="px-3 py-3 text-left">Técnico</th>
-                      <th className="px-3 py-3 text-left">Garantia</th>
-                      <th className="px-3 py-3 text-left">Data do Último Serviço</th>
+                      <th className="e-hide-mobile px-3 py-3 text-left md:table-cell">Técnico</th>
+                      <th className="e-hide-mobile px-3 py-3 text-left md:table-cell">Garantia</th>
+                      <th className="e-hide-mobile px-3 py-3 text-left md:table-cell">Data do Último Serviço</th>
                       <th className="px-3 py-3 text-left">Propriedade</th>
                     </tr>
                   ) : (
                     <tr>
                       {columnVisibility.id && <th className="w-[220px] min-w-[220px] px-3 py-3 text-left">ID / IMEI</th>}
-                      {columnVisibility.model && <th className="w-[240px] min-w-[220px] px-3 py-3 text-left">Modelo</th>}
+                      {columnVisibility.model && (
+                        <th className="e-hide-mobile w-[240px] min-w-[220px] px-3 py-3 text-left sm:table-cell">Modelo</th>
+                      )}
                       {columnVisibility.status && <th className="w-[180px] min-w-[170px] px-3 py-3 text-left">Status</th>}
                       {columnVisibility.lastCommunication && (
                         <th className="w-[190px] min-w-[180px] px-3 py-3 text-left">Última comunicação</th>
                       )}
                       {columnVisibility.lastPosition && (
-                        <th className="w-[340px] min-w-[280px] px-3 py-3 text-left">Última posição</th>
+                        <th className="e-hide-mobile w-[340px] min-w-[280px] px-3 py-3 text-left md:table-cell">Última posição</th>
                       )}
                       {columnVisibility.link && <th className="w-[280px] min-w-[240px] px-3 py-3 text-left">Vínculo</th>}
-                      {columnVisibility.client && <th className="w-[220px] min-w-[180px] px-3 py-3 text-left">Cliente</th>}
+                      {columnVisibility.client && (
+                        <th className="e-hide-mobile w-[220px] min-w-[180px] px-3 py-3 text-left md:table-cell">Cliente</th>
+                      )}
                       {columnVisibility.warranty && (
-                        <th className="w-[250px] min-w-[220px] px-3 py-3 text-left">Garantia</th>
+                        <th className="e-hide-mobile w-[250px] min-w-[220px] px-3 py-3 text-left md:table-cell">Garantia</th>
                       )}
                       {columnVisibility.actions && (
-                        <th className="sticky right-0 z-20 w-[170px] min-w-[170px] bg-[#151d2b] px-3 py-3 text-right">
+                        <th className="w-[170px] min-w-[170px] bg-[#151d2b] px-3 py-3 text-right md:sticky md:right-0 md:z-20">
                           Ações
                         </th>
                       )}
@@ -2700,7 +2761,7 @@ export default function Devices() {
                       >
                         <EmptyState
                           title="Nenhum equipamento encontrado com os filtros atuais."
-                          subtitle={isTechnician ? "Não há equipamentos vinculados ao técnico." : "Ajuste filtros ou cadastre um novo equipamento."}
+                          subtitle={isTechnician ? "Não há equipamentos vinculados ao técnico." : "Ajuste os filtros para buscar equipamentos."}
                           action={
                             isTechnician ? null : (
                               <div className="flex flex-wrap justify-center gap-2">
@@ -2717,16 +2778,18 @@ export default function Devices() {
                                     Limpar filtros
                                   </span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={openNewDeviceEditor}
-                                  className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                                >
-                                  <span className="inline-flex items-center gap-2">
-                                    <Plus className="h-4 w-4" />
-                                    Cadastrar equipamento
-                                  </span>
-                                </button>
+                                {canCreateDevice ? (
+                                  <button
+                                    type="button"
+                                    onClick={openNewDeviceEditor}
+                                    className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                                  >
+                                    <span className="inline-flex items-center gap-2">
+                                      <Plus className="h-4 w-4" />
+                                      Cadastrar equipamento
+                                    </span>
+                                  </button>
+                                ) : null}
                               </div>
                             )
                           }
@@ -2751,7 +2814,7 @@ export default function Devices() {
                             <td className="px-3 py-3 text-white/70">
                               {device.clientName || device.vehicle?.clientName || "—"}
                             </td>
-                            <td className="px-3 py-3 text-white/70">{model?.name || device.modelName || "—"}</td>
+                            <td className="e-hide-mobile px-3 py-3 text-white/70 sm:table-cell">{model?.name || device.modelName || "—"}</td>
                             <td className="px-3 py-3 text-white">{device.uniqueId || device.id || "—"}</td>
                             <td className="px-3 py-3 text-white/70">{formatTransferDate(transferDate)}</td>
                           </tr>
@@ -2760,17 +2823,19 @@ export default function Devices() {
                       if (isServiceStockGlobalProfile) {
                         const deviceModelId = device.modelId || device.attributes?.modelId || null;
                         const model = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
-                        const warrantyLabel = formatWarranty(device);
+                        const warrantyLabel = sharedServiceStockWarrantyLabel || formatWarranty(device);
                         const propertyLabel = formatOwnershipType(device);
                         const locationLabel = device.locationLabel || (device.vehicleId ? "No veículo" : "Base");
+                        const isLinkedToVehicle = Boolean(device.vehicleId || device.vehicle?.id);
+                        const technicianLabel = isLinkedToVehicle ? "—" : device.technicianName || "—";
                         return (
                           <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
                             <td className="px-3 py-3 text-white">{device.uniqueId || device.id || "—"}</td>
                             <td className="px-3 py-3 text-white/80">{model?.name || device.modelName || "—"}</td>
                             <td className="px-3 py-3 text-white/70">{locationLabel}</td>
-                            <td className="px-3 py-3 text-white/70">{device.technicianName || "—"}</td>
-                            <td className="px-3 py-3 text-white/70">{warrantyLabel}</td>
-                            <td className="px-3 py-3 text-white/70">{formatLastServiceDate(device.lastServiceAt)}</td>
+                            <td className="e-hide-mobile px-3 py-3 text-white/70 md:table-cell">{technicianLabel}</td>
+                            <td className="e-hide-mobile px-3 py-3 text-white/70 md:table-cell">{warrantyLabel}</td>
+                            <td className="e-hide-mobile px-3 py-3 text-white/70 md:table-cell">{formatLastServiceDate(device.lastServiceAt)}</td>
                             <td className="px-3 py-3 text-white/70">{propertyLabel}</td>
                           </tr>
                         );
@@ -3048,6 +3113,40 @@ export default function Devices() {
               </Button>
               <Button type="submit" disabled={savingDevice}>
                 {savingDevice ? "Salvando..." : "Salvar status"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {drawerTab === "propriedade" && (
+          <form onSubmit={handleSaveDevice} className="space-y-4">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="text-xs uppercase tracking-[0.12em] text-white/50">Propriedade do equipamento</div>
+              <p className="mt-1 text-xs text-white/60">
+                Define se o equipamento está em regime de comodato ou venda.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <Select
+                  label="Tipo de propriedade"
+                  value={normalizeOwnershipTypeValue(deviceForm.ownershipType)}
+                  onChange={(event) =>
+                    setDeviceForm((current) => ({
+                      ...current,
+                      ownershipType: normalizeOwnershipTypeValue(event.target.value),
+                    }))
+                  }
+                >
+                  <option value="COMODATO">Comodato</option>
+                  <option value="VENDA">Venda</option>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={closeDeviceEditor}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={savingDevice}>
+                {savingDevice ? "Salvando..." : "Salvar propriedade"}
               </Button>
             </div>
           </form>

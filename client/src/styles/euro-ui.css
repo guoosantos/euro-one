@@ -135,3 +135,95 @@ input, select, button{
 :root[data-theme="light"] .e-subheading{
   color: var(--text-2) !important;
 }
+
+/* Mobile usability helpers */
+.e-scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.e-no-scroll {
+  overflow: hidden !important;
+}
+
+.e-no-scroll .app-shell__content {
+  overflow: hidden !important;
+}
+
+.e-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.e-table th,
+.e-table td {
+  font-size: 0.875rem;
+}
+
+.e-filter-bar__right {
+  justify-content: flex-end;
+}
+
+.e-topbar {
+  padding-top: env(safe-area-inset-top);
+}
+
+.app-shell__content {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.app-shell,
+.app-shell__main,
+.app-shell__content {
+  max-width: 100%;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .app-shell__content:not(.p-0) {
+    padding: 0.875rem !important;
+  }
+
+  .e-table th,
+  .e-table td {
+    font-size: 0.8125rem;
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+  }
+
+  .e-filter-bar__left,
+  .e-filter-bar__right {
+    width: 100%;
+  }
+
+  .e-filter-bar__left > *,
+  .e-filter-bar__right > * {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .e-filter-bar__right {
+    justify-content: stretch;
+  }
+
+  .e-filter-bar input,
+  .e-filter-bar select,
+  .e-filter-bar button,
+  .e-filter-bar .btn {
+    min-height: 44px;
+  }
+
+  .e-hide-mobile {
+    display: none !important;
+  }
+}
