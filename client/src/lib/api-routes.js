@@ -97,6 +97,17 @@ export const API_ROUTES = {
   media: {
     faceAlerts: "media/face/alerts",
   },
+  nt407: {
+    health: "nt407/health",
+    devices: "nt407/devices",
+    videos: "nt407/videos",
+    faces: "nt407/faces",
+    fatigue: "nt407/fatigue",
+    liveStart: "nt407/live/start",
+    liveStop: "nt407/live/stop",
+    livePlaylist: (liveId) => `nt407/live/stream/${liveId}.m3u8`,
+    mediaDownload: (mediaId) => `nt407/media/${mediaId}/download`,
+  },
   core: {
     base: "core",
     models: "core/models",

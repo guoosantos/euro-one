@@ -52,9 +52,17 @@ const META = {
   },
   "/services/:id": { title: "Detalhes da OS" },
   "/services/:id/execute": { title: "Execução da OS" },
+  "/service-requests": {
+    title: "Solicitações",
+    subtitle: "Gestão operacional com cliente, veículo e janela de atendimento por solicitação.",
+  },
   "/appointments": {
     title: "Agendamentos",
     subtitle: "Gestão operacional com janela, responsável e status por agendamento.",
+  },
+  "/var": {
+    title: "Auditoria do Serviço",
+    subtitle: "Auditoria operacional com status e técnico para acompanhamento dos atendimentos.",
   },
   "/deliveries": { title: "Entregas" },
   "/tasks": { title: "Tasks" },
@@ -79,7 +87,11 @@ const META = {
   "/live": {
     title: "Streams ao vivo",
     subtitle:
-      "O Euro One detecta automaticamente URLs de streaming nos atributos dos dispositivos Traccar (streamUrl, videoUrl).",
+      "Inicie e acompanhe streams ao vivo JT/T 1078 dos dispositivos NT407 conectados ao listener do Euro One.",
+  },
+  "/fatigue": {
+    title: "Sensor de Fadiga",
+    subtitle: "Eventos de sonolência/distração com severidade, score e vínculo de vídeo por dispositivo e período.",
   },
   "/ranking": { title: "Ranking" },
   "/analytics/heatmap": {

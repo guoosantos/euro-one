@@ -34,6 +34,7 @@ import Events from "./pages/Events";
 import ConditionalActions from "./pages/ConditionalActions.jsx";
 import Videos from "./pages/Videos";
 import Face from "./pages/Face";
+import Fatigue from "./pages/Fatigue";
 import Ranking from "./pages/Ranking";
 import ReportsPositions from "./pages/ReportsPositions.jsx";
 import ReportsAnalytic from "./pages/ReportsAnalytic.jsx";
@@ -82,13 +83,13 @@ export const routeConfig = [
   { path: "/routes", element: RoutesPage, title: "Rotas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "routes" } },
   { path: "/rotas", element: RoutesPage, title: "Rotas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "routes" } },
   { path: "/devices", element: Devices, title: "Equipamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-  { path: "/devices/new", element: Devices, title: "Novo equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-  { path: "/devices/:id/edit", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-  { path: "/devices/:id/editar", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/devices/new", element: Devices, title: "Novo equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true } },
+  { path: "/devices/:id/edit", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true } },
+  { path: "/devices/:id/editar", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true } },
   { path: "/equipamentos", element: Devices, title: "Equipamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-  { path: "/equipamentos/new", element: Devices, title: "Novo equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-  { path: "/equipamentos/:id/edit", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
-  { path: "/equipamentos/:id/editar", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list" } },
+  { path: "/equipamentos/new", element: Devices, title: "Novo equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true } },
+  { path: "/equipamentos/:id/edit", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true } },
+  { path: "/equipamentos/:id/editar", element: Devices, title: "Editar equipamento", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true } },
   { path: "/devices/chips", element: Chips, title: "Chips", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-chips" } },
   { path: "/chips", element: Chips, title: "Chips", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-chips" } },
   { path: "/devices/products", element: Products, title: "Modelos & Portas", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "devices", subKey: "devices-models" } },
@@ -97,13 +98,91 @@ export const routeConfig = [
   { path: "/commands", element: Commands, title: "Comandos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "commands" } },
   { path: "/commands/create", element: CreateCommands, title: "Criar Comandos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true } },
   { path: "/vehicles", element: Vehicles, title: "Veículos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-  { path: "/vehicles/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-  { path: "/vehicles/:id/edit", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-  { path: "/vehicles/:id/editar", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
+  {
+    path: "/vehicles/:id",
+    element: VehicleDetailsPage,
+    title: "Veículo",
+    requireTenant: true,
+    permission: {
+      anyOf: [
+        { menuKey: "fleet", pageKey: "vehicles" },
+        { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+      ],
+    },
+  },
+  {
+    path: "/vehicles/:id/edit",
+    element: VehicleDetailsPage,
+    title: "Veículo",
+    requireTenant: true,
+    permission: {
+      anyOf: [
+        { menuKey: "fleet", pageKey: "vehicles" },
+        { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+      ],
+    },
+  },
+  {
+    path: "/vehicles/:id/editar",
+    element: VehicleDetailsPage,
+    title: "Veículo",
+    requireTenant: true,
+    permission: {
+      anyOf: [
+        { menuKey: "fleet", pageKey: "vehicles" },
+        { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+      ],
+    },
+  },
   { path: "/veiculos", element: Vehicles, title: "Veículos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-  { path: "/veiculos/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-  { path: "/veiculos/:id/edit", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-  { path: "/veiculos/:id/editar", element: VehicleDetailsPage, title: "Veículo", requireTenant: true, permission: { menuKey: "fleet", pageKey: "vehicles" } },
+  {
+    path: "/veiculos/:id",
+    element: VehicleDetailsPage,
+    title: "Veículo",
+    requireTenant: true,
+    permission: {
+      anyOf: [
+        { menuKey: "fleet", pageKey: "vehicles" },
+        { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+      ],
+    },
+  },
+  {
+    path: "/veiculos/:id/edit",
+    element: VehicleDetailsPage,
+    title: "Veículo",
+    requireTenant: true,
+    permission: {
+      anyOf: [
+        { menuKey: "fleet", pageKey: "vehicles" },
+        { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+      ],
+    },
+  },
+  {
+    path: "/veiculos/:id/editar",
+    element: VehicleDetailsPage,
+    title: "Veículo",
+    requireTenant: true,
+    permission: {
+      anyOf: [
+        { menuKey: "fleet", pageKey: "vehicles" },
+        { menuKey: "fleet", pageKey: "services", subKey: "service-orders" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-list" },
+        { menuKey: "primary", pageKey: "devices", subKey: "devices-stock" },
+      ],
+    },
+  },
   { path: "/groups", element: Groups, title: "Grupos", requireTenant: true },
   { path: "/drivers", element: Drivers, title: "Motoristas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "documents", subKey: "drivers" } },
   { path: "/documents", element: Docs, title: "Documentos", requireTenant: true, permission: { menuKey: "fleet", pageKey: "documents", subKey: "contracts" } },
@@ -111,10 +190,10 @@ export const routeConfig = [
   { path: "/services/new", element: ServiceOrderNew, title: "Nova Ordem de Serviço", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
   { path: "/services/import", element: ServiceOrderImport, title: "Importar OS", requireTenant: true, roles: ["admin"], permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
   { path: "/services/:id", element: ServiceOrderDetails, title: "Detalhes da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
-  { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
+  { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
   { path: "/service-requests", element: ServiceRequests, title: "Solicitações", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
   { path: "/appointments", element: Appointments, title: "Agendamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "appointments" } },
-  { path: "/var", element: VarLive, title: "VAR / Auditoria ao vivo", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "var-live" } },
+  { path: "/var", element: VarLive, title: "Auditoria do Serviço", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "var-live" } },
   { path: "/deliveries", element: Deliveries, title: "Entregas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "deliveries" } },
   { path: "/tasks", element: Tasks, title: "Tasks", requireTenant: true },
   { path: "/tasks/new", element: TaskForm, title: "Nova task", requireTenant: true },
@@ -129,6 +208,7 @@ export const routeConfig = [
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },
+  { path: "/fatigue", element: Fatigue, title: "Sensor de Fadiga", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "fatigue" } },
   { path: "/ranking", element: Ranking, title: "Ranking", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "ranking" } },
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
   { path: "/analytics/risk-area", element: RiskArea, title: "Área de Risco", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
@@ -136,8 +216,8 @@ export const routeConfig = [
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
-  { path: "/settings", element: Settings, title: "Configurações", requireTenant: true },
-  { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true },
+  { path: "/settings", element: Settings, title: "Configurações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
+  { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/clients", element: Clients, title: "Clientes", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/clients/:id", element: ClientDetailsPage, title: "Detalhes do cliente", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/mirrors/received", element: MirrorReceivers, title: "Espelhamento", requireTenant: true, permission: { menuKey: "admin", pageKey: "mirrors" } },

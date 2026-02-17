@@ -468,6 +468,7 @@ const TRANSLATIONS = {
     "Entregas": "Deliveries",
     "Vídeos": "Videos",
     "Reconhecimento Facial": "Face Recognition",
+    "Sensor de Fadiga": "Drowsiness Sensor",
     "Combustível": "Fuel",
     "Manutenção": "Maintenance",
     "Relatórios": "Reports",
