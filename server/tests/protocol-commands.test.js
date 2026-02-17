@@ -41,3 +41,10 @@ test("resolveCommandPayload gera payload IOTM para saída 2", () => {
   assert.equal(offPayload.type, "custom");
   assert.equal(offPayload.attributes?.data, "01010000");
 });
+
+test("getProtocolCommands inclui comandos de live para NT407", () => {
+  const commands = getProtocolCommands("nt407") || [];
+  const ids = new Set(commands.map((command) => command?.id));
+  assert.ok(ids.has("nt407-live-start"));
+  assert.ok(ids.has("nt407-live-stop"));
+});

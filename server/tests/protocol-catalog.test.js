@@ -31,3 +31,9 @@ test("getProtocolEvents inclui ITINERARIO_INVERTIDO em todos os protocolos cadas
     assert.ok(ids.has("ITINERARIO_INVERTIDO"), `Protocolo ${protocolId} sem ITINERARIO_INVERTIDO`);
   });
 });
+
+test("getProtocolList inclui protocolo NT407", () => {
+  const protocols = getProtocolList();
+  const ids = new Set((protocols || []).map((entry) => String(entry?.id || "")));
+  assert.ok(ids.has("nt407"));
+});
