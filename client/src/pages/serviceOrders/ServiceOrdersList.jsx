@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Eye, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import FilterBar from "../../components/ui/FilterBar.jsx";
@@ -125,12 +125,6 @@ function formatStatusWithType(status, type) {
 
 function resolveOrderDate(item) {
   return item?.startAt || item?.createdAt || item?.updatedAt || null;
-}
-
-function formatKmTotal(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return "—";
-  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(parsed)} km`;
 }
 
 function buildEquipmentLabels(item) {
@@ -446,9 +440,9 @@ export default function ServiceOrdersList() {
               value={q}
               onChange={(event) => setQ(event.target.value)}
               placeholder="Buscar por OS, placa, contato, técnico..."
-              className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none sm:min-w-[220px]"
+              className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
             />
-            <div className="min-w-0 flex-1 sm:min-w-[220px]">
+            <div className="min-w-[220px] flex-1">
               <AutocompleteSelect
                 placeholder="Buscar cliente"
                 value={clientId}
@@ -460,7 +454,7 @@ export default function ServiceOrdersList() {
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:min-w-[200px]"
+              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -472,13 +466,13 @@ export default function ServiceOrdersList() {
               type="date"
               value={from}
               onChange={(event) => setFrom(event.target.value)}
-              className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:min-w-[160px]"
+              className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             />
             <input
               type="date"
               value={to}
               onChange={(event) => setTo(event.target.value)}
-              className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:min-w-[160px]"
+              className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             />
           </div>
         }
@@ -522,16 +516,15 @@ export default function ServiceOrdersList() {
         </div>
       ) : (
         <>
-          <DataTable className="w-full" tableClassName="min-w-[1180px] w-full">
+          <DataTable className="w-full" tableClassName="min-w-[1100px] w-full">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
                 <th className="w-32 px-4 py-3">OS</th>
                 <th className="w-24 px-4 py-3">Placa</th>
-                <th className="e-hide-mobile w-48 px-4 py-3 sm:table-cell">Cliente</th>
-                <th className="e-hide-mobile w-32 px-4 py-3 md:table-cell">Técnico</th>
-                <th className="e-hide-mobile px-4 py-3 md:table-cell">Equipamentos</th>
+                <th className="w-48 px-4 py-3">Cliente</th>
+                <th className="w-32 px-4 py-3">Técnico</th>
+                <th className="px-4 py-3">Equipamentos</th>
                 <th className="w-36 px-4 py-3">Data</th>
-                <th className="e-hide-mobile w-28 px-4 py-3 md:table-cell">KM total</th>
                 <th className="w-28 px-4 py-3">Status</th>
                 <th className="w-20 px-4 py-3 text-right">Ações</th>
               </tr>
@@ -539,14 +532,14 @@ export default function ServiceOrdersList() {
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6">
-                    <SkeletonTable rows={6} columns={9} />
+                  <td colSpan={8} className="px-4 py-6">
+                    <SkeletonTable rows={6} columns={8} />
                   </td>
                 </tr>
               )}
               {!loading && error && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8">
+                  <td colSpan={8} className="px-4 py-8">
                     <DataState
                       tone="error"
                       state="error"
@@ -558,7 +551,7 @@ export default function ServiceOrdersList() {
               )}
               {!loading && !error && actionError && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-4">
+                  <td colSpan={8} className="px-4 py-4">
                     <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                       {actionError}
                     </div>
@@ -567,7 +560,7 @@ export default function ServiceOrdersList() {
               )}
               {!loading && !error && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8">
+                  <td colSpan={8} className="px-4 py-8">
                     <EmptyState
                       title="Nenhuma ordem de serviço encontrada com os filtros atuais."
                       subtitle="Crie uma nova OS para iniciar o fluxo."
@@ -590,11 +583,11 @@ export default function ServiceOrdersList() {
                       {item.osInternalId || item.id.slice(0, 8)}
                     </td>
                     <td className="px-4 py-3 truncate">{item.vehicle?.plate || "—"}</td>
-                    <td className="e-hide-mobile px-4 py-3 truncate text-white sm:table-cell">
+                    <td className="px-4 py-3 truncate text-white">
                       {item.clientName || item.vehicle?.clientName || item.vehicle?.client?.name || "—"}
                     </td>
-                    <td className="e-hide-mobile px-4 py-3 truncate md:table-cell">{item.technicianName || "—"}</td>
-                    <td className="e-hide-mobile px-4 py-3 md:table-cell">
+                    <td className="px-4 py-3 truncate">{item.technicianName || "—"}</td>
+                    <td className="px-4 py-3">
                       {(() => {
                         const labels = buildEquipmentLabels(item).filter(Boolean);
                         if (!labels.length) return "—";
@@ -613,43 +606,29 @@ export default function ServiceOrdersList() {
                       })()}
                     </td>
                     <td className="px-4 py-3">{formatDate(item.startAt)}</td>
-                    <td className="e-hide-mobile px-4 py-3 md:table-cell">{formatKmTotal(item.km)}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
                         {formatStatusWithType(item.status, item.type)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {item?.id ? (
+                      {listPermission.isFull ? (
                         <div className="inline-flex items-center justify-end gap-2">
-                          {user?.role !== "technician" ? (
-                            <Link
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
-                              to={`/services/${item.id}`}
-                              aria-label="Detalhes da OS"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Link>
-                          ) : null}
-                          {listPermission.isFull ? (
-                            <>
-                              <Link
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
-                                to={`/services/${item.id}`}
-                                aria-label="Editar OS"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Link>
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(item)}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
-                                aria-label="Excluir OS"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </>
-                          ) : null}
+                          <Link
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+                            to={`/services/${item.id}`}
+                            aria-label="Editar OS"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500/40 text-red-300 transition hover:bg-red-500/10"
+                            aria-label="Excluir OS"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
                       ) : (
                         <span className="text-xs text-white/50">—</span>
