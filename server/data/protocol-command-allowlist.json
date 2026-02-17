@@ -49,5 +49,11 @@
     "iotm-tachograph-ddd-driver1",
     "iotm-tachograph-ddd-driver2",
     "custom"
+  ],
+  "nt407": [
+    "nt407-live-start",
+    "nt407-live-stop",
+    "nt407-query-media",
+    "custom"
   ]
 }

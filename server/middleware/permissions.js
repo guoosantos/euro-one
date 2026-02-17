@@ -7,6 +7,7 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import { getGroupById } from "../models/group.js";
 import { getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
 import { ACCESS_REASONS } from "../utils/access-reasons.js";
+import { buildPermissionGroupMeta } from "../utils/permission-group.js";
 
 const PERMISSION_LEVELS = new Set(["none", "view", "read", "full"]);
 const DEFAULT_LEVEL = "none";
@@ -119,6 +120,7 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
         videos: "read",
         face: "read",
         live: "read",
+        fatigue: "read",
       },
     },
     "euro-can": {
@@ -142,6 +144,47 @@ export const MIRROR_FALLBACK_PERMISSIONS = {
     },
   },
 };
+
+export const TECHNICIAN_FALLBACK_PERMISSIONS = {
+  primary: {
+    home: "read",
+    devices: {
+      visible: true,
+      access: "read",
+      subpages: {
+        "devices-list": "read",
+        "devices-stock": "read",
+      },
+    },
+  },
+  fleet: {
+    vehicles: "read",
+    services: {
+      visible: true,
+      access: "read",
+      subpages: {
+        "service-orders": "read",
+        "service-orders-all": "read",
+        "service-orders-installation": "read",
+        "service-orders-maintenance": "read",
+        "service-orders-removal": "read",
+        "service-orders-socorro": "read",
+        "service-orders-remanejamento": "read",
+        "service-orders-reinstall": "read",
+        appointments: "read",
+        "service-requests": "read",
+        "var-live": "read",
+      },
+    },
+  },
+};
+
+function resolveRoleDefaultPermissions(role) {
+  if (role === "technician") {
+    return TECHNICIAN_FALLBACK_PERMISSIONS;
+  }
+  return null;
+}
 
 function normaliseLevel(value) {
   if (typeof value !== "string") return null;
@@ -308,6 +351,22 @@ function buildPermissionContextCacheKey({
   ].join(":");
 }
 
+function buildPermissionContextPayload({
+  permissions = null,
+  level = null,
+  isFull = false,
+  permissionGroupId = null,
+  permissionGroup = null,
+} = {}) {
+  return {
+    permissions: permissions && typeof permissions === "object" ? permissions : null,
+    level,
+    isFull: Boolean(isFull),
+    permissionGroupId: permissionGroupId ?? null,
+    ...buildPermissionGroupMeta(permissionGroup),
+  };
+}
+
 function minAccess(left, right) {
   const ranks = { none: 0, read: 1, full: 2 };
   const leftRank = ranks[left] ?? 0;
@@ -381,13 +440,12 @@ function applyPresentationPermissions(permissions, presentation) {
 }
 
 function canBypassAdminPermission(req, menuKey) {
-  return req?.user?.role === "admin" && menuKey === "admin";
+  return req?.user?.role === "admin";
 }
 
 function canBypassAdminPermissionList(req, permissions) {
   if (req?.user?.role !== "admin") return false;
-  if (!Array.isArray(permissions)) return false;
-  return permissions.some((permission) => permission?.menuKey === "admin");
+  return true;
 }
 
 function resolvePermissionEntry(permissions, menuKey, pageKey, subKey) {
@@ -474,7 +532,7 @@ export async function resolvePermissionContext(req) {
       const cached = permissionContextCache.get(cacheKey);
       if (cached) return cached;
       if (!adminPermissionGroupId) {
-        const payload = { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+        const payload = buildPermissionContextPayload({ level: "full", isFull: true });
         permissionContextCache.set(cacheKey, payload);
         return payload;
       }
@@ -484,16 +542,15 @@ export async function resolvePermissionContext(req) {
           ? adminGroup?.attributes?.permissions || {}
           : adminGroup?.attributes?.permissions || {};
       if (!adminGroup || !adminPermissions || Object.keys(adminPermissions).length === 0) {
-        const payload = { permissions: null, level: "full", isFull: true, permissionGroupId: null };
+        const payload = buildPermissionContextPayload({ level: "full", isFull: true });
         permissionContextCache.set(cacheKey, payload);
         return payload;
       }
-      const payload = {
+      const payload = buildPermissionContextPayload({
         permissions: applyPresentation(adminPermissions),
-        level: null,
-        isFull: false,
         permissionGroupId: adminPermissionGroupId,
-      };
+        permissionGroup: adminGroup,
+      });
       permissionContextCache.set(cacheKey, payload);
       return payload;
     }
@@ -543,24 +600,20 @@ export async function resolvePermissionContext(req) {
               : fallbackGroup?.attributes?.permissions || {};
           if (fallbackGroup && fallbackPermissions && Object.keys(fallbackPermissions).length > 0) {
             logMirrorPermissions({ permissionGroupIdUsed: fallbackPermissionGroupId, usedFallback: false });
-            const payload = {
+            const payload = buildPermissionContextPayload({
               permissions: applyPresentation(fallbackPermissions),
-              level: null,
-              isFull: false,
               permissionGroupId: fallbackPermissionGroupId,
-            };
+              permissionGroup: fallbackGroup,
+            });
             permissionContextCache.set(cacheKey, payload);
             return payload;
           }
         }
 
         logMirrorPermissions({ permissionGroupIdUsed: null, usedFallback: true });
-        const payload = {
+        const payload = buildPermissionContextPayload({
           permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
-          level: null,
-          isFull: false,
-          permissionGroupId: null,
-        };
+        });
         permissionContextCache.set(cacheKey, payload);
         return payload;
       }
@@ -582,23 +635,19 @@ export async function resolvePermissionContext(req) {
 
       if (!mirrorGroup || !isPermissionGroup || !permissions || Object.keys(permissions).length === 0) {
         logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: true });
-        const payload = {
+        const payload = buildPermissionContextPayload({
           permissions: applyPresentation(MIRROR_FALLBACK_PERMISSIONS),
-          level: null,
-          isFull: false,
-          permissionGroupId: null,
-        };
+        });
         permissionContextCache.set(cacheKey, payload);
         return payload;
       }
 
       logMirrorPermissions({ permissionGroupIdUsed: mirrorPermissionGroupId, usedFallback: false });
-      const payload = {
+      const payload = buildPermissionContextPayload({
         permissions: applyPresentation(permissions),
-        level: null,
-        isFull: false,
         permissionGroupId: mirrorPermissionGroupId,
-      };
+        permissionGroup: mirrorGroup,
+      });
       permissionContextCache.set(cacheKey, payload);
       return payload;
     }
@@ -637,29 +686,50 @@ export async function resolvePermissionContext(req) {
     const cached = permissionContextCache.get(cacheKey);
     if (cached) return cached;
 
-    if (!permissionGroupId) {
-      const payload = {
-        permissions: applyPresentation(null),
-        level: null,
-        isFull: false,
-        permissionGroupId: null,
-      };
+    const permissionGroup = permissionGroupId ? getGroupById(permissionGroupId) : null;
+
+    if (req.user?.role === "technician") {
+      const technicianGroupPermissions =
+        permissionGroup?.attributes?.kind === "PERMISSION_GROUP"
+          ? permissionGroup?.attributes?.permissions || {}
+          : permissionGroup?.attributes?.permissions || {};
+      if (permissionGroupId && permissionGroup && Object.keys(technicianGroupPermissions).length > 0) {
+        const payload = buildPermissionContextPayload({
+          permissions: applyPresentation(technicianGroupPermissions),
+          permissionGroupId,
+          permissionGroup,
+        });
+        permissionContextCache.set(cacheKey, payload);
+        return payload;
+      }
+      const payload = buildPermissionContextPayload({
+        permissions: applyPresentation(TECHNICIAN_FALLBACK_PERMISSIONS),
+        permissionGroupId: permissionGroupId || null,
+        permissionGroup,
+      });
       permissionContextCache.set(cacheKey, payload);
       return payload;
     }
 
-    const permissionGroup = getGroupById(permissionGroupId);
+    if (!permissionGroupId) {
+      const roleDefaultPermissions = resolveRoleDefaultPermissions(req.user?.role);
+      const payload = buildPermissionContextPayload({
+        permissions: applyPresentation(roleDefaultPermissions),
+      });
+      permissionContextCache.set(cacheKey, payload);
+      return payload;
+    }
+
     const permissions =
       permissionGroup?.attributes?.kind === "PERMISSION_GROUP"
         ? permissionGroup?.attributes?.permissions || {}
         : permissionGroup?.attributes?.permissions || {};
 
-    const payload = {
+    const payload = buildPermissionContextPayload({
       permissions: applyPresentation(permissions),
-      level: null,
-      isFull: false,
       permissionGroupId,
-    };
+      permissionGroup,
+    });
     permissionContextCache.set(cacheKey, payload);
     return payload;
   })();

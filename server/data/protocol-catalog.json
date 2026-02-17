@@ -14,6 +14,11 @@
       "id": "suntech",
       "label": "Suntech",
       "description": "Linha Suntech"
+    },
+    {
+      "id": "nt407",
+      "label": "NT407-PRO",
+      "description": "Dashcam X3Tech NT407-PRO (JT/T 808 + JT/T 1078 direto no Euro One)"
     }
   ],
   "commands": {
@@ -795,6 +800,61 @@
           }
         ]
       }
+    ],
+    "nt407": [
+      {
+        "id": "nt407-live-start",
+        "code": "nt407-live-start",
+        "name": "Iniciar live (9101)",
+        "description": "Solicita stream ao vivo via JT/T 1078 (mensagem 0x9101).",
+        "type": "custom",
+        "tags": ["video", "live", "jt1078"],
+        "parameters": [
+          { "key": "channel", "label": "Canal", "type": "number", "min": 1, "defaultValue": 1 },
+          { "key": "dataType", "label": "Tipo de mídia", "type": "number", "min": 0, "defaultValue": 0 },
+          { "key": "streamType", "label": "Tipo de stream", "type": "number", "min": 0, "defaultValue": 0 }
+        ]
+      },
+      {
+        "id": "nt407-live-stop",
+        "code": "nt407-live-stop",
+        "name": "Parar live (9102)",
+        "description": "Encerra stream ao vivo via JT/T 1078 (mensagem 0x9102).",
+        "type": "custom",
+        "tags": ["video", "live", "jt1078"],
+        "parameters": [
+          { "key": "channel", "label": "Canal", "type": "number", "min": 1, "defaultValue": 1 }
+        ]
+      },
+      {
+        "id": "nt407-query-media",
+        "code": "nt407-query-media",
+        "name": "Consultar mídia (9205)",
+        "description": "Consulta lista de arquivos/eventos de mídia no terminal.",
+        "type": "custom",
+        "tags": ["video", "media", "jt1078"],
+        "parameters": [
+          { "key": "channel", "label": "Canal", "type": "number", "min": 1, "defaultValue": 1 },
+          { "key": "from", "label": "Início (ISO)", "type": "text", "required": false },
+          { "key": "to", "label": "Fim (ISO)", "type": "text", "required": false }
+        ]
+      },
+      {
+        "id": "custom",
+        "code": "custom",
+        "name": "Comando customizado",
+        "description": "Envio de comando bruto conforme manual JT/T 808/1078.",
+        "type": "custom",
+        "tags": ["avancado", "jt808", "jt1078"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload",
+            "type": "text",
+            "required": true
+          }
+        ]
+      }
     ]
   },
   "events": {
@@ -935,6 +995,25 @@
       { "id": "commandResult", "name": "Resultado de comando", "description": "Resposta do dispositivo a comandos." },
       { "id": "textMessage", "name": "Mensagem", "description": "Mensagem recebida do dispositivo." },
       { "id": "media", "name": "Mídia", "description": "Foto ou mídia recebida." }
+    ],
+    "nt407": [
+      { "id": "register", "name": "Registro do terminal", "description": "Mensagem 0x0100 recebida do terminal." },
+      { "id": "auth", "name": "Autenticação", "description": "Mensagem 0x0102 de autenticação recebida." },
+      { "id": "position", "name": "Posição GPS", "description": "Relatório de posição JT/T 808 (0x0200)." },
+      { "id": "batch-position", "name": "Lote de posições", "description": "Upload em lote JT/T 808 (0x0704)." },
+      { "id": "media-event", "name": "Evento de mídia", "description": "Evento de mídia JT/T 808 (0x0800)." },
+      { "id": "media-upload", "name": "Upload de mídia", "description": "Upload de mídia JT/T 808 (0x0801)." },
+      { "id": "resource-list", "name": "Lista de recursos", "description": "Resumo de arquivos JT/T 1078 (0x1205)." },
+      { "id": "file-upload-complete", "name": "Upload finalizado", "description": "Término de upload (0x1206)." },
+      { "id": "live", "name": "Live", "description": "Tráfego de stream ao vivo JT/T 1078." },
+      { "id": "fatigue", "name": "Fadiga", "description": "Evento de sonolência/fadiga do motorista." },
+      { "id": "drowsiness", "name": "Sonolência", "description": "Evento de sonolência detectado por DSM." },
+      { "id": "phone-use", "name": "Uso de celular", "description": "Motorista ao celular durante condução." },
+      { "id": "smoking", "name": "Fumando", "description": "Motorista fumando durante condução." },
+      { "id": "collision", "name": "Colisão", "description": "Colisão detectada pelo equipamento." },
+      { "id": "rollover", "name": "Capotamento", "description": "Capotamento detectado pelo equipamento." },
+      { "id": "danger", "name": "Perigo", "description": "Evento crítico de segurança detectado." },
+      { "id": "face-match", "name": "Reconhecimento facial", "description": "Evento associado a reconhecimento facial." }
     ]
   }
 }

@@ -372,6 +372,21 @@ async function bootstrapServer() {
       }
     }
 
+    let stopNt407 = () => {};
+    const nt407Module = await importWithLog("./services/nt407/nt407-server.js");
+    if (nt407Module?.startNt407Server) {
+      try {
+        await nt407Module.startNt407Server();
+        stopNt407 = () => {
+          if (typeof nt407Module.stopNt407Server === "function") {
+            void nt407Module.stopNt407Server();
+          }
+        };
+      } catch (error) {
+        console.warn("[startup] Falha ao iniciar listener NT407", error?.message || error);
+      }
+    }
+
     const appModule = await importWithLog("./app.js", { required: true });
     const realApp = appModule?.default;
     if (!realApp) {
@@ -591,6 +606,7 @@ async function bootstrapServer() {
       stopGeocodeWorker();
       stopGeocodeMonitor();
       stopXdmPoller();
+      stopNt407();
     };
 
     process.on("SIGTERM", shutdown);
