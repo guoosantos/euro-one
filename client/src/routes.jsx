@@ -8,16 +8,10 @@ import RequireTenant from "./components/RequireTenant.jsx";
 import RequirePermission from "./components/RequirePermission.jsx";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
-import Monitoring from "./pages/Monitoring";
-import Monitoramento from "./pages/Monitoramento";
-import Trips from "./pages/Trips";
-import Devices from "./pages/Devices";
 import Chips from "./pages/Chips";
 import Products from "./pages/Products";
-import Stock from "./pages/Stock";
 import Commands from "./pages/Commands";
 import CreateCommands from "./pages/CreateCommands";
-import Vehicles from "./pages/Vehicles";
 import Docs from "./pages/Docs";
 import Services from "./pages/Services";
 import ServiceOrderDetails from "./pages/serviceOrders/ServiceOrderDetails.jsx";
@@ -28,8 +22,6 @@ import ServiceRequests from "./pages/ServiceRequests.jsx";
 import VarLive from "./pages/VarLive.jsx";
 import Deliveries from "./pages/Deliveries";
 import DeviceImport from "./pages/DeviceImport";
-import Geofences from "./pages/Geofences.jsx";
-import Targets from "./pages/Targets.jsx";
 import Events from "./pages/Events";
 import ConditionalActions from "./pages/ConditionalActions.jsx";
 import Videos from "./pages/Videos";
@@ -38,7 +30,6 @@ import Fatigue from "./pages/Fatigue";
 import Ranking from "./pages/Ranking";
 import ReportsPositions from "./pages/ReportsPositions.jsx";
 import ReportsAnalytic from "./pages/ReportsAnalytic.jsx";
-import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
 import RiskArea from "./pages/Analytics/RiskArea.jsx";
 import SecurityAnalytics from "./pages/Analytics/Security.jsx";
 import Account from "./pages/Account";
@@ -62,15 +53,25 @@ import IotSensors from "./pages/IotSensors";
 import VideoTelematics from "./pages/VideoTelematics";
 import LivePage from "./pages/Live";
 import NotFound from "./pages/NotFound";
-import RoutesPage from "./pages/Routes";
 import Tasks from "./pages/Tasks";
 import TaskForm from "./pages/TaskForm";
 import TaskDetails from "./pages/TaskDetails";
 import Crm from "./pages/Crm";
-import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
 import Appointments from "./pages/Appointments.jsx";
+
+const Monitoring = React.lazy(() => import("./pages/Monitoring"));
+const Monitoramento = React.lazy(() => import("./pages/Monitoramento"));
+const Trips = React.lazy(() => import("./pages/Trips"));
+const RoutesPage = React.lazy(() => import("./pages/Routes"));
+const Devices = React.lazy(() => import("./pages/Devices"));
+const Stock = React.lazy(() => import("./pages/Stock"));
+const Vehicles = React.lazy(() => import("./pages/Vehicles"));
+const Geofences = React.lazy(() => import("./pages/Geofences.jsx"));
+const Targets = React.lazy(() => import("./pages/Targets.jsx"));
+const Itineraries = React.lazy(() => import("./pages/Itineraries.jsx"));
+const AnalyticsHeatmap = React.lazy(() => import("./pages/Analytics/Heatmap"));
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -265,7 +266,11 @@ export function AppRoutes() {
       <Route element={<PrivateRoute />}>
         <Route path="/" element={<Navigate to="/home" replace />} />
         {routeConfig.map(({ path, element: Component, title, hideTitle, roles, requireTenant, permission }) => {
-          const content = <Component />;
+          const content = (
+            <React.Suspense fallback={<div className="p-4 text-sm text-white/70">Carregando...</div>}>
+              <Component />
+            </React.Suspense>
+          );
           const guarded = applyGuards(withLayout(content, { title, hideTitle }), { roles, requireTenant, permission });
           return <Route key={path} path={path} element={guarded} />;
         })}

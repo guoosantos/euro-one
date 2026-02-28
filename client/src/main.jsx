@@ -12,7 +12,7 @@ import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 import "./styles.css";
 import "./styles/euro-ui.css";
-import "./lib/map/leaflet-default-icon.js";
+import "./styles/map-common.css";
 
 installFiltersPolish();
 

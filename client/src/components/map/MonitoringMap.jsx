@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip, Polyline, Polygon } from "react-leaflet";
+import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip, Polyline, Polygon, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -92,13 +92,17 @@ function PopupContent({ marker }) {
   }, [marker.address]);
 
   return (
-    <div className="space-y-1.5 text-white min-w-[200px]">
+    <div className="euro-map-popup__content space-y-1.5 text-white">
       <div className="text-sm font-bold leading-tight text-white">{primaryLabel}</div>
       {secondaryLabel ? (
         <div className="text-[11px] text-white/70">{secondaryLabel}</div>
       ) : null}
       
-      {addressText && <div className="text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">{addressText}</div>}
+      {addressText && (
+        <div className="euro-map-popup__address text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">
+          {addressText}
+        </div>
+      )}
       
       <div className="flex items-center gap-2 text-xs text-white/80 mt-2">
         <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-white">
@@ -317,9 +321,18 @@ function MarkerLayer({
           else if (!ref && marker.id) markerRefs.current.delete(marker.id);
         }}
       >
-        <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
+        <Popup
+          className="monitoring-popup euro-map-popup"
+          autoPan
+          keepInView
+          autoPanPadding={[20, 20]}
+          offset={[0, -40]}
+          closeButton={false}
+          minWidth={220}
+          maxWidth={420}
+        >
           <PopupContent marker={marker} />
-        </Tooltip>
+        </Popup>
       </Marker>
     );
   });
@@ -337,7 +350,7 @@ function RegionOverlay({ target }) {
       radius={radius}
       pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.12, weight: 2 }}
     >
-      <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
+      <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup euro-map-tooltip">
         <div className="space-y-1">
           <OverlayHoverTooltip name={targetLabel} type="Alvo" tolerance={toleranceLabel} />
           <div className="text-[11px] text-white/60">{formatAddress(target.address)}</div>
@@ -360,7 +373,7 @@ function AddressMarker({ marker }) {
         radius={8}
         pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.28, weight: 2 }}
       >
-        <Tooltip direction="top" offset={[0, -6]} opacity={0.9} className="monitoring-popup">
+        <Tooltip direction="top" offset={[0, -6]} opacity={0.9} className="monitoring-popup euro-map-tooltip">
           <div className="text-xs text-white/80">
             <div className="font-semibold text-white">{marker.label || "Ponto de referência"}</div>
             <div className="text-white/60">Toque para centralizar</div>
@@ -461,7 +474,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
               positions={polygon}
               pathOptions={corridorStyle}
             >
-              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup euro-map-tooltip">
                 <OverlayHoverTooltip name={routeTooltipLabel} type="Rota" tolerance={routeBufferLabel} />
               </Tooltip>
             </Polygon>
@@ -472,7 +485,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
               positions={line}
               pathOptions={routeStyle}
             >
-              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup euro-map-tooltip">
                 <OverlayHoverTooltip name={routeTooltipLabel} type="Rota" tolerance={routeBufferLabel} />
               </Tooltip>
             </Polyline>
@@ -483,7 +496,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
           positions={geofence.polygons}
           pathOptions={geofenceStyle}
         >
-          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup euro-map-tooltip">
             <OverlayHoverTooltip
               name={geofence.name || "Cerca"}
               type="Cerca"
@@ -499,7 +512,7 @@ function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shou
           radius={6}
           pathOptions={checkpointStyle}
         >
-          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup euro-map-tooltip">
             <OverlayHoverTooltip
               name={checkpoint.name || "Alvo"}
               type="Alvo"

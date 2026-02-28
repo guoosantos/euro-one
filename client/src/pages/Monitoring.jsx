@@ -34,6 +34,7 @@ import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js"
 import useOverlayActivity from "../lib/hooks/useOverlayActivity.js";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
+import useThrottledValue from "../lib/hooks/useThrottledValue.js";
 import { isBlockingAccessReason, isNoVehiclesReason, resolveAccessReason } from "../lib/access-reasons.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
@@ -2293,6 +2294,7 @@ export default function Monitoring() {
         };
       });
   }, [filteredRows, locale, selectedDeviceId, t]);
+  const throttledMarkers = useThrottledValue(markers, 150);
 
   const summary = useMemo(() => {
     const base = {
@@ -2951,7 +2953,7 @@ export default function Monitoring() {
         <div className="relative min-h-0 h-full min-w-0 overflow-hidden border-b border-white/10">
           <MonitoringMap
             ref={mapControllerRef}
-            markers={markers}
+            markers={throttledMarkers}
             focusMarkerId={selectedDeviceId}
             mapViewport={mapViewport}
             onViewportChange={setMapViewport}
