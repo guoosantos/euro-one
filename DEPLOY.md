@@ -20,6 +20,7 @@ Guia rápido para subir e validar o backend do Euro One (PM2 + geração de rela
 Para evitar drift de frontend, o deploy padrao usa sempre o archive canônico:
 
 - `/home/ubuntu/backups/euro-one-front/OFFICIAL_FRONT_BUILD.mapbox-livefix-2026-03-01T021817Z.tgz`
+- `sha256`: `423296904c5eac3e9ea509b4a16b3b3dc8f1b320ad8ba9c59ca11974c371d935`
 
 Comandos oficiais:
 
