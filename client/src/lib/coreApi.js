@@ -103,6 +103,17 @@ export const CoreApi = {
   createEquipmentTransfer: (payload) => http("equipment-transfers", { method: "POST", payload }),
   listTechnicianInventory: (params) => http("technician-inventory", { params }).then((data) => data?.items || []),
   importEuroXlsx: (payload) => http("euro/import-xlsx", { method: "POST", payload }),
+  trustCenterUserOptions: (params) => http("trust-center/users/options", { params }),
+  trustCenterListUsers: (params) => http("trust-center/users", { params }),
+  trustCenterUserSummary: (id, params) => http(`trust-center/users/${id}/summary`, { params }),
+  trustCenterRotateChallenge: (payload) => http("trust-center/challenge/rotate", { method: "POST", payload }),
+  trustCenterSimulateCounterKey: (payload) => http("trust-center/counter-key/simulate", { method: "POST", payload }),
+  trustCenterListActivity: (params) => http("trust-center/activity", { params }),
+  trustCenterExportActivityCsv: (params) => http("trust-center/activity/export", { params }),
+  trustCenterListCounterKeys: (params) => http("trust-center/counter-keys", { params }),
+  trustCenterCreateCounterKey: (payload) => http("trust-center/counter-keys", { method: "POST", payload }),
+  trustCenterUseCounterKey: (id, payload) => http(`trust-center/counter-keys/${id}/use`, { method: "POST", payload }),
+  trustCenterCancelCounterKey: (id, payload) => http(`trust-center/counter-keys/${id}/cancel`, { method: "POST", payload }),
   // tasks
   listTasks: (paramsOrOptions) => {
     const hasOptions =

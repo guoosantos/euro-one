@@ -71,6 +71,7 @@ import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
 import Appointments from "./pages/Appointments.jsx";
+import TrustCenterPage, { TrustCenterRedirect } from "./pages/trust-center/TrustCenterPage.jsx";
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -205,6 +206,10 @@ export const routeConfig = [
   { path: "/itineraries", element: Itineraries, title: "Embarcar Itinerários", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "itineraries" } },
   { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
   { path: "/conditional-actions", element: ConditionalActions, title: "Ação Condicional", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
+  { path: "/trust-center", element: TrustCenterRedirect, title: "Trust Center", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "users" } },
+  { path: "/trust-center/users", element: TrustCenterPage, title: "Trust Center", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "users" } },
+  { path: "/trust-center/activity", element: TrustCenterPage, title: "Trust Center", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "activity" } },
+  { path: "/trust-center/counter-key", element: TrustCenterPage, title: "Trust Center", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "counter-key" } },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },
