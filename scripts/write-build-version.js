@@ -17,9 +17,16 @@ function resolveGitSha() {
   }
 }
 
+function resolveHotfix() {
+  const candidate = process.env.BUILD_HOTFIX || process.env.HOTFIX || "";
+  const normalized = String(candidate).trim();
+  return normalized || null;
+}
+
 const payload = {
   gitSha: resolveGitSha(),
   builtAt: new Date().toISOString(),
+  hotfix: resolveHotfix(),
 };
 
 try {
