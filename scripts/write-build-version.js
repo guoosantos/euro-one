@@ -19,6 +19,7 @@ function resolveGitSha() {
 
 const payload = {
   gitSha: resolveGitSha(),
+  hotfix: String(process.env.BUILD_HOTFIX || process.env.HOTFIX || "no-hotfix"),
   builtAt: new Date().toISOString(),
 };
 
