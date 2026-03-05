@@ -71,6 +71,7 @@ import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
 import Appointments from "./pages/Appointments.jsx";
+import TrustCenter from "./pages/TrustCenter.jsx";
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -204,6 +205,10 @@ export const routeConfig = [
   { path: "/alvos", element: Targets, title: "Alvos", requireTenant: true, permission: { menuKey: "fleet", pageKey: "targets" } },
   { path: "/itineraries", element: Itineraries, title: "Embarcar Itinerários", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "itineraries" } },
   { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
+  { path: "/trust-center", element: TrustCenter, title: "Trust Center", requireTenant: true, permission: { menuKey: "trust_center", pageKey: "view" } },
+  { path: "/trust-center/users", element: TrustCenter, title: "Trust Center", requireTenant: true, permission: { menuKey: "trust_center", pageKey: "view" } },
+  { path: "/trust-center/activity", element: TrustCenter, title: "Trust Center", requireTenant: true, permission: { menuKey: "trust_center", pageKey: "audit_view" } },
+  { path: "/trust-center/counter-key", element: TrustCenter, title: "Trust Center", requireTenant: true, permission: { menuKey: "trust_center", pageKey: "manage_counter_key" } },
   { path: "/conditional-actions", element: ConditionalActions, title: "Ação Condicional", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },

@@ -681,3 +681,88 @@ model CustomCommand {
   @@index([clientId, sortOrder])
   @@map("custom_commands")
 }
+
+model TrustCenterUserState {
+  id               String   @id @default(uuid())
+  clientId         String
+  userId           String?
+  userName         String?
+  profile          String?
+  clientName       String?
+  vehicleId        String?
+  vehicleLabel     String?
+  esp32Device      String?
+  actionType       String?
+  result           String?
+  state            String
+  challenge        String?
+  validationMethod String?
+  lastHeartbeatAt  DateTime?
+  lastAttemptAt    DateTime?
+  lastAccessAt     DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([clientId, state], map: "trust_center_user_states_client_state_idx")
+  @@index([clientId, userId], map: "trust_center_user_states_client_user_idx")
+  @@index([clientId, esp32Device], map: "trust_center_user_states_client_device_idx")
+  @@index([lastHeartbeatAt], map: "trust_center_user_states_heartbeat_idx")
+  @@map("trust_center_user_states")
+}
+
+model TrustCenterActivityEvent {
+  id          String   @id @default(uuid())
+  clientId    String
+  userId      String?
+  userName    String?
+  profile     String?
+  clientName  String?
+  vehicleId   String?
+  vehicleLabel String?
+  esp32Device String?
+  method      String?
+  action      String
+  result      String?
+  state       String?
+  eventType   String   @default("activity")
+  payload     Json?
+  createdBy   String?
+  usedBy      String?
+  createdAt   DateTime @default(now())
+
+  @@index([clientId, createdAt], map: "trust_center_activity_client_created_idx")
+  @@index([clientId, userId, createdAt], map: "trust_center_activity_client_user_created_idx")
+  @@index([clientId, esp32Device, createdAt], map: "trust_center_activity_client_device_created_idx")
+  @@map("trust_center_activity_events")
+}
+
+model TrustCenterCounterKey {
+  id             String   @id @default(uuid())
+  clientId       String
+  userId         String
+  userName       String?
+  targetUserId   String?
+  targetUserName String?
+  clientName     String?
+  vehicleId      String?
+  vehicleLabel   String?
+  esp32Device    String?
+  basePinHash    String
+  challenge      String?
+  counterKey     String
+  status         String   @default("ATIVA")
+  usesCount      Int      @default(0)
+  maxUses        Int?
+  expiresAt      DateTime?
+  firstUsedAt    DateTime?
+  lastUsedAt     DateTime?
+  createdBy      String?
+  usedBy         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([clientId, status, createdAt], map: "trust_center_counter_keys_client_status_created_idx")
+  @@index([clientId, userId, createdAt], map: "trust_center_counter_keys_client_user_created_idx")
+  @@index([clientId, targetUserId, createdAt], map: "trust_center_counter_keys_client_target_created_idx")
+  @@map("trust_center_counter_keys")
+}

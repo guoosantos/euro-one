@@ -19,6 +19,7 @@ import {
   Package,
   Radio,
   ShieldCheck,
+  Shield,
   Target,
   Terminal,
   UploadCloud,
@@ -75,6 +76,15 @@ export const PERMISSION_REGISTRY = [
           { subKey: "report-active-filter", label: "Filtro Todos/Somente ativos" },
         ],
       },
+    ],
+  },
+  {
+    menuKey: "trust_center",
+    label: "Trust Center",
+    pages: [
+      { pageKey: "view", label: "Trust Center - Usuários" },
+      { pageKey: "audit_view", label: "Trust Center - Histórico" },
+      { pageKey: "manage_counter_key", label: "Trust Center - Contra-senha" },
     ],
   },
   {
@@ -230,6 +240,7 @@ export const MENU_REGISTRY = [
         ],
       },
       { to: "/events", label: "Eventos", icon: Video, permission: { menuKey: "primary", pageKey: "events" } },
+      { to: "/trust-center/users", label: "Trust Center", icon: Shield, permission: { menuKey: "trust_center", pageKey: "view" } },
       {
         to: "/conditional-actions",
         label: "Ação Condicional",

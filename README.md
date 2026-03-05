@@ -177,6 +177,7 @@ Em produção, qualquer ausência de `clientId` em tokens ou requisições auten
 
 - Consulte `docs/fase5-checklist.md` para o checklist de aceite funcional, otimizações e passos de deploy.
 - Para validar rastreadores e CRM ponta a ponta, siga o roteiro rápido em `docs/smoke-tests-traccar.md` (migrations, seeds, cadastro de tenants/usuários, associação de devices e conversão de leads).
+- Para o módulo novo de segurança operacional, consulte `docs/trust-center.md` (rotas, permissões, endpoints e variáveis `.env`).
 - Antes de publicar, rode `npm run build` na raiz para validar o pacote front-end e garanta que o backend sobe com `NODE_ENV=production` e variáveis (`VITE_API_BASE_URL`, `PORT`, `TRACCAR_BASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`) configuradas no host escolhido (Vercel/Render/Railway).
 - Execute `npx prisma migrate deploy` (ou equivalente na pipeline) antes de iniciar o backend em produção para garantir que os modelos Prisma estejam sincronizados com o banco.
 - Registre no checklist as URLs públicas e quaisquer etapas manuais de provisionamento realizadas.

@@ -74,6 +74,22 @@ const META = {
   "/alvos": { title: "Alvos" },
   "/itineraries": { title: "Embarcar Itinerários" },
   "/events": { title: "Eventos", subtitle: "Monitore protocolos, personalize severidades e extraia relatórios." },
+  "/trust-center": {
+    title: "Trust Center",
+    subtitle: "Painel de gerenciamento de acessos, auditoria de ações e geração de contra-senha para dispositivos ESP32.",
+  },
+  "/trust-center/users": {
+    title: "Trust Center",
+    subtitle: "Painel de gerenciamento de acessos, auditoria de ações e geração de contra-senha para dispositivos ESP32.",
+  },
+  "/trust-center/activity": {
+    title: "Trust Center",
+    subtitle: "Painel de gerenciamento de acessos, auditoria de ações e geração de contra-senha para dispositivos ESP32.",
+  },
+  "/trust-center/counter-key": {
+    title: "Trust Center",
+    subtitle: "Painel de gerenciamento de acessos, auditoria de ações e geração de contra-senha para dispositivos ESP32.",
+  },
   "/conditional-actions": {
     title: "Ação Condicional",
     subtitle: "Configure regras IF/THEN por escopo de veículos/equipamentos e acompanhe a auditoria de disparos.",
