@@ -20,7 +20,6 @@ import {
   Radio,
   Shield,
   ShieldCheck,
-  Shield,
   Target,
   Terminal,
   UploadCloud,
