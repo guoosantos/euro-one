@@ -12,9 +12,16 @@ router.get("/user/preferences", (req, res, next) => {
     const preferences = getUserPreferences(req.user.id) || {
       userId: req.user.id,
       monitoringTableColumns: null,
+      monitoringColumnWidths: null,
       routeReportColumns: null,
       tripsReportColumns: null,
       monitoringDefaultFilters: null,
+      monitoringLayoutVisibility: null,
+      monitoringMapLayerKey: null,
+      monitoringMapHeight: null,
+      monitoringSearchRadius: null,
+      monitoringPanelRatio: null,
+      monitoringContexts: null,
     };
     return res.json({ preferences });
   } catch (error) {

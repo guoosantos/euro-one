@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, Filter, X } from "lucide-react";
 import AddressCell from "../../ui/AddressCell.jsx";
+import DropdownMenu from "../../ui/DropdownMenu.jsx";
+import Input from "../../ui/Input.jsx";
 import { useTranslation } from "../../lib/i18n.js";
 
 const MIN_COLUMN_WIDTH = 60;
@@ -10,6 +13,33 @@ const DEFAULT_COLUMN_WIDTH = 120;
 const DATE_KEYS = new Set(["serverTime", "deviceTime", "gpsTime"]);
 const ADDRESS_KEYS = new Set(["address", "endereco"]);
 const BOOLEAN_KEYS = new Set(["valid", "ignition", "blocked"]);
+
+const FILTER_OPERATORS = {
+  string: [
+    { value: "contains", label: "Contém" },
+    { value: "not_contains", label: "Não contém" },
+    { value: "equals", label: "Igual" },
+    { value: "not_equals", label: "Diferente" },
+  ],
+  number: [
+    { value: "equals", label: "Igual" },
+    { value: "not_equals", label: "Diferente" },
+    { value: "greater", label: "Maior que" },
+    { value: "less", label: "Menor que" },
+    { value: "between", label: "Entre" },
+  ],
+  date: [
+    { value: "equals", label: "Igual" },
+    { value: "not_equals", label: "Diferente" },
+    { value: "greater", label: "Depois de" },
+    { value: "less", label: "Antes de" },
+    { value: "between", label: "Entre" },
+  ],
+  boolean: [
+    { value: "equals", label: "Igual" },
+    { value: "not_equals", label: "Diferente" },
+  ],
+};
 
 export default function MonitoringTable({
   rows = [],
@@ -25,6 +55,10 @@ export default function MonitoringTable({
   sortDir,
   onSortChange,
   sortableColumns = [],
+  columnFilters = {},
+  onColumnFilterChange,
+  columnFilterOptions = {},
+  filtersEnabled = true,
 }) {
   const { t } = useTranslation();
   const normalizedColumns = useMemo(() => {
@@ -77,6 +111,35 @@ export default function MonitoringTable({
     () => new Set(Array.isArray(sortableColumns) ? sortableColumns : []),
     [sortableColumns],
   );
+  const [filterMenu, setFilterMenu] = useState({ key: null, anchor: null });
+  const activeFilterColumn = filterMenu.key ? columnLookup[filterMenu.key] : null;
+  const [filterSearch, setFilterSearch] = useState("");
+
+  const closeFilterMenu = () => setFilterMenu({ key: null, anchor: null });
+  const openFilterMenu = (key, event) => {
+    if (!filtersEnabled) return;
+    if (typeof onColumnFilterChange !== "function") return;
+    event.stopPropagation();
+    setFilterMenu({ key, anchor: event.currentTarget });
+  };
+  const isFilterActive = (key) => {
+    const filter = columnFilters?.[key];
+    return Boolean(filter && (filter.value || filter.valueTo || (filter.selected && filter.selected.length)));
+  };
+  const activeFilterColumns = useMemo(() => {
+    const next = new Set();
+    normalizedColumns.forEach((column) => {
+      if (isFilterActive(column.key)) {
+        next.add(column.key);
+      }
+    });
+    return next;
+  }, [columnFilters, normalizedColumns]);
+
+  useEffect(() => {
+    if (!filterMenu.key) return;
+    setFilterSearch("");
+  }, [filterMenu.key]);
 
   useEffect(() => {
     liveWidthsRef.current = columnWidths;
@@ -190,6 +253,22 @@ export default function MonitoringTable({
     return value;
   };
 
+  const activeFilter = filterMenu.key ? columnFilters?.[filterMenu.key] || {} : {};
+  const activeFilterType = activeFilterColumn?.filterType || "string";
+  const operatorOptions = FILTER_OPERATORS[activeFilterType] || FILTER_OPERATORS.string;
+  const activeOperator = activeFilter.operator || operatorOptions[0]?.value || "contains";
+  const activeValues = Array.isArray(activeFilter.selected) ? activeFilter.selected : [];
+  const activeSortDirection =
+    filterMenu.key && sortKey === filterMenu.key && (sortDir === "asc" || sortDir === "desc")
+      ? sortDir
+      : null;
+  const menuAnchorRef = useMemo(() => ({ current: filterMenu.anchor }), [filterMenu.anchor]);
+  const rawValueOptions = filterMenu.key ? (columnFilterOptions?.[filterMenu.key] || []) : [];
+  const filteredValueOptions = rawValueOptions.filter((value) => {
+    if (!filterSearch) return true;
+    return String(value).toLowerCase().includes(filterSearch.toLowerCase());
+  });
+
   return (
     <div ref={containerRef} className="h-full min-h-[260px] min-w-0 w-full overflow-auto bg-[#0b0f17]">
       <table className="min-w-full w-full table-fixed border-collapse text-left" style={{ tableLayout: "fixed" }}>
@@ -207,12 +286,19 @@ export default function MonitoringTable({
                 : isSortable
                   ? "↕"
                   : null;
+              const allowFilter = filtersEnabled && col.key !== "actions";
+              const filterActive = allowFilter && isFilterActive(col.key);
+              const headerClassName = `relative border-r px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] last:border-r-0 ${
+                filterActive
+                  ? "border-primary/40 bg-primary/15 text-white shadow-[inset_2px_0_0_0_rgba(59,130,246,0.75),inset_-2px_0_0_0_rgba(59,130,246,0.75),inset_0_-2px_0_0_rgba(59,130,246,0.45)]"
+                  : "border-white/5 text-white/60"
+              }`;
               return (
               <th
                 key={col.key}
                 style={getWidthStyle(col.key)}
 
-                className="relative border-r border-white/5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
+                className={headerClassName}
                 title={columnTitle}
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
@@ -237,12 +323,25 @@ export default function MonitoringTable({
                     </span>
                   )}
 
+                  {allowFilter && (
+                    <button
+                      type="button"
+                      onClick={(event) => openFilterMenu(col.key, event)}
+                      className={`flex h-6 w-6 items-center justify-center rounded-md border text-white/60 transition ${
+                        filterActive ? "border-primary/50 bg-primary/20 text-white" : "border-white/10 hover:border-white/30"
+                      }`}
+                      title="Filtrar coluna"
+                    >
+                      <Filter size={12} />
+                    </button>
+                  )}
+
                   <span
                     role="separator"
                     tabIndex={0}
                     onMouseDown={(event) => startResize(col.key, event)}
                     onClick={(event) => event.stopPropagation()}
-                    className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                    className="table-resize-handle ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
                     title={t("monitoring.resizeColumn")}
                   />
                 </div>
@@ -278,6 +377,7 @@ export default function MonitoringTable({
               >
                 {normalizedColumns.map((col) => {
                   let cellValue = col.render ? col.render(row) : row[col.key];
+                  const isFilteredColumn = activeFilterColumns.has(col.key);
 
                   const isAddressColumn = col.key === "address" || col.key === "endereco";
 
@@ -319,8 +419,11 @@ export default function MonitoringTable({
                     <td
                       key={`${row.key}-${col.key}`}
                       style={getWidthStyle(col.key)}
-
-                      className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
+                      className={`px-2 py-1 text-[11px] leading-tight last:border-r-0 ${
+                        isFilteredColumn
+                          ? "border-r border-primary/35 bg-primary/[0.06] text-white shadow-[inset_2px_0_0_0_rgba(59,130,246,0.65),inset_-2px_0_0_0_rgba(59,130,246,0.65)]"
+                          : "border-r border-white/5 text-white/80"
+                      }`}
                     >
                       <div
                         className={`${contentClass} min-w-0`}
@@ -336,6 +439,195 @@ export default function MonitoringTable({
           )}
         </tbody>
       </table>
+      <DropdownMenu
+        open={Boolean(filterMenu.key)}
+        anchorRef={menuAnchorRef}
+        onClose={closeFilterMenu}
+        align="start"
+        minWidth={280}
+      >
+        {filterMenu.key && (
+          <div className="flex flex-col gap-3 p-3 text-xs text-white/80">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-[11px] uppercase tracking-[0.12em] text-white/50">Filtro</p>
+                <p className="truncate text-sm font-semibold text-white">
+                  {activeFilterColumn?.label || "Coluna"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onColumnFilterChange?.(filterMenu.key, null)}
+                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white/60 hover:border-white/30"
+              >
+                <X size={12} />
+                Limpar
+              </button>
+            </div>
+
+            {sortableSet.has(filterMenu.key) && typeof onSortChange === "function" && (
+              <div
+                className={`rounded-lg border px-2 py-2 ${
+                  activeSortDirection
+                    ? "border-primary/65 bg-primary/[0.14] shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.85)]"
+                    : "border-white/10 bg-white/[0.02]"
+                }`}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em]">
+                  <span className={activeSortDirection ? "text-primary/90" : "text-white/50"}>Ordenação</span>
+                  {activeSortDirection ? (
+                    <span className="rounded-full border border-primary/55 bg-primary/25 px-2 py-0.5 text-[9px] font-semibold text-blue-100">
+                      Ativo
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(filterMenu.key, "asc")}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+                      activeSortDirection === "asc"
+                        ? "border-primary/70 bg-primary/30 text-blue-100 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/50 hover:text-white"
+                    }`}
+                  >
+                    <ArrowUp size={12} />
+                    Ascendente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(filterMenu.key, "desc")}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+                      activeSortDirection === "desc"
+                        ? "border-primary/70 bg-primary/30 text-blue-100 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/50 hover:text-white"
+                    }`}
+                  >
+                    <ArrowDown size={12} />
+                    Descendente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(filterMenu.key, "clear")}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+                      activeSortDirection
+                        ? "border-primary/45 text-blue-100/85 hover:border-primary/65 hover:text-blue-100"
+                        : "border-white/10 text-white/50 hover:border-white/40"
+                    }`}
+                  >
+                    Limpar ordenação
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <label className="text-[10px] uppercase tracking-[0.12em] text-white/50">
+              Condição
+              <select
+                value={activeOperator}
+                onChange={(event) =>
+                  onColumnFilterChange?.(filterMenu.key, {
+                    ...activeFilter,
+                    operator: event.target.value,
+                  })
+                }
+                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
+              >
+                {operatorOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-[10px] uppercase tracking-[0.12em] text-white/50">
+              Valor
+              <Input
+                value={activeFilter.value || ""}
+                onChange={(event) =>
+                  onColumnFilterChange?.(filterMenu.key, {
+                    ...activeFilter,
+                    value: event.target.value,
+                  })
+                }
+                className="mt-1 text-xs"
+                placeholder="Digite para filtrar"
+              />
+            </label>
+
+            {activeOperator === "between" && (
+              <label className="text-[10px] uppercase tracking-[0.12em] text-white/50">
+                Até
+                <Input
+                  value={activeFilter.valueTo || ""}
+                  onChange={(event) =>
+                    onColumnFilterChange?.(filterMenu.key, {
+                      ...activeFilter,
+                      valueTo: event.target.value,
+                    })
+                  }
+                  className="mt-1 text-xs"
+                  placeholder="Valor final"
+                />
+              </label>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em] text-white/50">
+                <span>Valores</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onColumnFilterChange?.(filterMenu.key, {
+                      ...activeFilter,
+                      selected: [],
+                    })
+                  }
+                  className="text-[10px] text-white/60 hover:text-white"
+                >
+                  Limpar seleção
+                </button>
+              </div>
+              <Input
+                value={filterSearch}
+                onChange={(event) => setFilterSearch(event.target.value)}
+                className="text-xs"
+                placeholder="Buscar valores"
+              />
+              <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
+                {filteredValueOptions.length === 0 && (
+                  <p className="text-[11px] text-white/40">Nenhum valor encontrado.</p>
+                )}
+                {filteredValueOptions.map((value) => {
+                  const isChecked = activeValues.includes(value);
+                  return (
+                    <label
+                      key={value}
+                      className="flex items-center gap-2 rounded-md border border-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-white/20"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          const next = new Set(activeValues);
+                          if (isChecked) next.delete(value);
+                          else next.add(value);
+                          onColumnFilterChange?.(filterMenu.key, {
+                            ...activeFilter,
+                            selected: Array.from(next.values()),
+                          });
+                        }}
+                      />
+                      <span className="truncate">{value}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </DropdownMenu>
     </div>
   );
 }

@@ -10,9 +10,6 @@ export default function Notifications() {
   return (
     <div className="space-y-6">
       <PageHeader
-        overline="Central de notificações"
-        title="Notificações"
-        subtitle="Monitoramento contínuo das regras de alerta do Traccar."
         actions={
           <button
             type="button"

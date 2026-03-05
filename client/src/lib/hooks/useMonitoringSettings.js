@@ -14,6 +14,21 @@ const MAP_HEIGHT_KEY = "monitoring.map.height";
 const SEARCH_RADIUS_KEY = "monitoring.search.radius";
 const DEFAULT_RADIUS = 500;
 
+function readScopedNumberValue(primaryKey, fallbackKey = null) {
+  if (typeof window === "undefined") return Number.NaN;
+  try {
+    const primary = Number(window.localStorage.getItem(primaryKey));
+    if (Number.isFinite(primary)) return primary;
+    if (fallbackKey) {
+      const fallback = Number(window.localStorage.getItem(fallbackKey));
+      if (Number.isFinite(fallback)) return fallback;
+    }
+  } catch (_error) {
+    // ignore
+  }
+  return Number.NaN;
+}
+
 export default function useMonitoringSettings({
   columns,
   storageKey = DEFAULT_STORAGE_KEY,
@@ -23,6 +38,9 @@ export default function useMonitoringSettings({
   defaultColumnKeys = null,
   alwaysVisibleKeys = [],
 }) {
+  const panelStorageKey = useMemo(() => `${PANEL_STORAGE_KEY}:${storageKey}`, [storageKey]);
+  const mapHeightStorageKey = useMemo(() => `${MAP_HEIGHT_KEY}:${storageKey}`, [storageKey]);
+  const searchRadiusStorageKey = useMemo(() => `${SEARCH_RADIUS_KEY}:${storageKey}`, [storageKey]);
   const lockedKeys = useMemo(
     () => new Set(Array.isArray(alwaysVisibleKeys) ? alwaysVisibleKeys.filter(Boolean) : []),
     [alwaysVisibleKeys],
@@ -102,13 +120,13 @@ export default function useMonitoringSettings({
     if (Number.isFinite(remoteRatio) && remoteRatio > 0 && remoteRatio < 1) {
       setPanelRatio((prev) => (prev !== remoteRatio ? remoteRatio : prev));
     } else {
-      const storedRatio = Number(localStorage.getItem(PANEL_STORAGE_KEY));
+      const storedRatio = readScopedNumberValue(panelStorageKey, PANEL_STORAGE_KEY);
       if (Number.isFinite(storedRatio) && storedRatio > 0 && storedRatio < 1) {
         setPanelRatio((prev) => (prev !== storedRatio ? storedRatio : prev));
       }
     }
 
-    const storedMapHeight = Number(localStorage.getItem(MAP_HEIGHT_KEY));
+    const storedMapHeight = readScopedNumberValue(mapHeightStorageKey, MAP_HEIGHT_KEY);
     const remoteMapHeight = Number(remotePreferences?.monitoringMapHeight);
     if (Number.isFinite(remoteMapHeight) && remoteMapHeight > 10 && remoteMapHeight < 90) {
       setMapHeightPercent((prev) => (prev !== remoteMapHeight ? remoteMapHeight : prev));
@@ -117,7 +135,7 @@ export default function useMonitoringSettings({
     }
 
     const remoteRadius = Number(remotePreferences?.monitoringSearchRadius);
-    const storedRadius = Number(localStorage.getItem(SEARCH_RADIUS_KEY));
+    const storedRadius = readScopedNumberValue(searchRadiusStorageKey, SEARCH_RADIUS_KEY);
     const resolvedRadius = Number.isFinite(remoteRadius) ? remoteRadius : storedRadius;
     if (Number.isFinite(resolvedRadius) && resolvedRadius >= 50 && resolvedRadius <= 5000) {
       setSearchRadius((prev) => (prev !== resolvedRadius ? resolvedRadius : prev));
@@ -126,8 +144,11 @@ export default function useMonitoringSettings({
     columns?.length,
     defaults,
     loadingPreferences,
+    mapHeightStorageKey,
     mergePrefs,
+    panelStorageKey,
     remotePreferences,
+    searchRadiusStorageKey,
     storageKey,
   ]);
 
@@ -178,6 +199,7 @@ export default function useMonitoringSettings({
     });
     setColumnPrefs(next);
     persistColumns(next);
+    return next;
   }, [defaults, lockedKeys, persistColumns]);
 
   const moveColumn = useCallback(
@@ -219,7 +241,11 @@ export default function useMonitoringSettings({
       if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return;
 
       setPanelRatio((prev) => (prev !== ratio ? ratio : prev));
-      localStorage.setItem(PANEL_STORAGE_KEY, ratio);
+      try {
+        localStorage.setItem(panelStorageKey, String(ratio));
+      } catch (_error) {
+        // ignore local persistence failures
+      }
 
       if (typeof savePreferences === "function" && !loadingPreferences) {
         savePreferences({ monitoringPanelRatio: ratio }).catch((error) => {
@@ -227,7 +253,7 @@ export default function useMonitoringSettings({
         });
       }
     },
-    [loadingPreferences, savePreferences]
+    [loadingPreferences, panelStorageKey, savePreferences]
   );
 
   const updateMapHeight = useCallback(
@@ -235,7 +261,7 @@ export default function useMonitoringSettings({
       if (!Number.isFinite(heightPercent) || heightPercent <= 0 || heightPercent >= 100) return;
       setMapHeightPercent((prev) => (prev !== heightPercent ? heightPercent : prev));
       try {
-        localStorage.setItem(MAP_HEIGHT_KEY, String(heightPercent));
+        localStorage.setItem(mapHeightStorageKey, String(heightPercent));
       } catch (_error) {
         // ignore local persistence failures
       }
@@ -246,7 +272,7 @@ export default function useMonitoringSettings({
         });
       }
     },
-    [loadingPreferences, savePreferences],
+    [loadingPreferences, mapHeightStorageKey, savePreferences],
   );
 
   const applyColumns = useCallback(
@@ -261,6 +287,7 @@ export default function useMonitoringSettings({
       });
       setColumnPrefs(merged);
       persistColumns(merged);
+      return merged;
     },
     [defaults, lockedKeys, mergePrefs, persistColumns],
   );
@@ -285,7 +312,7 @@ export default function useMonitoringSettings({
         const clamped = Math.min(5000, Math.max(50, radius));
         setSearchRadius((prev) => (prev !== clamped ? clamped : prev));
         try {
-          localStorage.setItem(SEARCH_RADIUS_KEY, String(clamped));
+          localStorage.setItem(searchRadiusStorageKey, String(clamped));
         } catch (_err) {
           // ignore
         }
@@ -296,7 +323,7 @@ export default function useMonitoringSettings({
           });
         }
       },
-      [loadingPreferences, savePreferences],
+      [loadingPreferences, savePreferences, searchRadiusStorageKey],
     ),
   };
 }

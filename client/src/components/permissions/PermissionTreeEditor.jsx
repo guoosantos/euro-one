@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { PERMISSION_REGISTRY } from "../../lib/permissions/registry";
@@ -6,6 +6,7 @@ import {
   buildPermissionEditorState,
   normalizePermissionLevel,
 } from "../../lib/permissions/permission-utils";
+import { resolvePermissionEntry as resolveScopeEntry } from "../../lib/permissions/permission-gate";
 
 const ACCESS_OPTIONS = [
   { value: "none", label: "Sem acesso" },
@@ -17,24 +18,101 @@ function matchesQuery(text, query) {
   return String(text || "").toLowerCase().includes(query);
 }
 
-export default function PermissionTreeEditor({
+function hasAccess(entry) {
+  return Boolean(entry?.visible) && entry?.access !== "none" && entry?.access !== null;
+}
+
+function filterRegistryByPermissions(registry, permissions) {
+  if (!permissions || typeof permissions !== "object") return [];
+  return (registry || [])
+    .map((menu) => {
+      const pages = (menu.pages || [])
+        .map((page) => {
+          if (page.subpages?.length) {
+            const visibleSubpages = page.subpages.filter((subpage) =>
+              hasAccess(resolveScopeEntry(permissions, menu.menuKey, page.pageKey, subpage.subKey)),
+            );
+            const pageEntry = resolveScopeEntry(permissions, menu.menuKey, page.pageKey);
+            const canShowPage = hasAccess(pageEntry) || visibleSubpages.length > 0;
+            if (!canShowPage) return null;
+            return {
+              ...page,
+              subpages: visibleSubpages.length ? visibleSubpages : undefined,
+            };
+          }
+          const entry = resolveScopeEntry(permissions, menu.menuKey, page.pageKey);
+          if (!hasAccess(entry)) return null;
+          return page;
+        })
+        .filter(Boolean);
+      if (!pages.length) return null;
+      return { ...menu, pages };
+    })
+    .filter(Boolean);
+}
+
+function mergeScopedPermissions(base = {}, scoped = {}, registry = []) {
+  const merged = { ...(base || {}) };
+  (registry || []).forEach((menu) => {
+    const menuKey = menu.menuKey;
+    const scopedMenu = scoped?.[menuKey];
+    if (!scopedMenu) return;
+    const baseMenu = merged[menuKey] && typeof merged[menuKey] === "object" ? { ...merged[menuKey] } : {};
+    menu.pages.forEach((page) => {
+      const pageKey = page.pageKey;
+      if (!Object.prototype.hasOwnProperty.call(scopedMenu, pageKey)) return;
+      const scopedPage = scopedMenu[pageKey];
+      if (page.subpages?.length) {
+        const basePage = baseMenu[pageKey] && typeof baseMenu[pageKey] === "object" ? baseMenu[pageKey] : {};
+        const scopedSubpages = scopedPage?.subpages || {};
+        const nextSubpages = { ...(basePage.subpages || {}) };
+        page.subpages.forEach((subpage) => {
+          if (Object.prototype.hasOwnProperty.call(scopedSubpages, subpage.subKey)) {
+            nextSubpages[subpage.subKey] = scopedSubpages[subpage.subKey];
+          }
+        });
+        baseMenu[pageKey] = { ...basePage, ...scopedPage, subpages: nextSubpages };
+      } else {
+        baseMenu[pageKey] = scopedPage;
+      }
+    });
+    merged[menuKey] = baseMenu;
+  });
+  return merged;
+}
+
+function PermissionTreeEditor({
   permissions = {},
   onChange,
   registry = PERMISSION_REGISTRY,
+  scopePermissions = null,
+  allowBulkActions = true,
+  readOnly = false,
 }) {
   const [search, setSearch] = useState("");
   const [openMenus, setOpenMenus] = useState({});
   const [bulkLevels, setBulkLevels] = useState({});
+  const isReadOnly = Boolean(readOnly);
+  const originalPermissionsRef = useRef(permissions);
+
+  useEffect(() => {
+    originalPermissionsRef.current = permissions;
+  }, [permissions]);
+
+  const effectiveRegistry = useMemo(
+    () => (scopePermissions ? filterRegistryByPermissions(registry, scopePermissions) : registry),
+    [registry, scopePermissions],
+  );
 
   const normalizedPermissions = useMemo(
-    () => buildPermissionEditorState(permissions, registry),
-    [permissions, registry],
+    () => buildPermissionEditorState(permissions, effectiveRegistry),
+    [permissions, effectiveRegistry],
   );
 
   const filteredRegistry = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return registry;
-    return registry
+    if (!query) return effectiveRegistry;
+    return effectiveRegistry
       .map((menu) => {
         const menuMatches = matchesQuery(menu.label, query);
         const pages = menu.pages
@@ -56,7 +134,7 @@ export default function PermissionTreeEditor({
         return null;
       })
       .filter(Boolean);
-  }, [registry, search]);
+  }, [effectiveRegistry, search]);
 
   const getEntry = (menuKey, pageKey, subKey) => {
     const menu = normalizedPermissions?.[menuKey] || {};
@@ -80,9 +158,13 @@ export default function PermissionTreeEditor({
   };
 
   const updatePermissions = (updater) => {
-    const next = buildPermissionEditorState(normalizedPermissions, registry);
+    if (isReadOnly) return;
+    const next = buildPermissionEditorState(normalizedPermissions, effectiveRegistry);
     updater(next);
-    onChange?.(next);
+    const merged = scopePermissions
+      ? mergeScopedPermissions(originalPermissionsRef.current || {}, next, effectiveRegistry)
+      : next;
+    onChange?.(merged);
   };
 
   const setPageVisibility = (menuKey, pageKey, visible, pageConfig) => {
@@ -221,28 +303,31 @@ export default function PermissionTreeEditor({
                   </span>
                   {menu.label}
                 </button>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <select
-                    value={bulkLevel}
-                    onChange={(event) =>
-                      setBulkLevels((prev) => ({ ...prev, [menu.menuKey]: event.target.value }))
-                    }
-                    className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
-                  >
-                    {ACCESS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => applyMenuLevel(menu.menuKey, bulkLevel, menu.pages)}
-                    className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/70 transition hover:border-white/30"
-                  >
-                    Aplicar para todos
-                  </button>
-                </div>
+                {allowBulkActions && !isReadOnly && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <select
+                      value={bulkLevel}
+                      onChange={(event) =>
+                        setBulkLevels((prev) => ({ ...prev, [menu.menuKey]: event.target.value }))
+                      }
+                      className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+                    >
+                      {ACCESS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={isReadOnly}
+                      onClick={() => applyMenuLevel(menu.menuKey, bulkLevel, menu.pages)}
+                      className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/70 transition hover:border-white/30 disabled:opacity-50"
+                    >
+                      Aplicar para todos
+                    </button>
+                  </div>
+                )}
               </div>
 
               {isOpen && (
@@ -262,6 +347,7 @@ export default function PermissionTreeEditor({
                               <input
                                 type="checkbox"
                                 checked={isPageVisible}
+                                disabled={isReadOnly}
                                 onChange={() =>
                                   setPageVisibility(menu.menuKey, page.pageKey, !isPageVisible, page)
                                 }
@@ -271,6 +357,7 @@ export default function PermissionTreeEditor({
                             {isPageVisible && (
                               <select
                                 value={pageAccess}
+                                disabled={isReadOnly}
                                 onChange={(event) =>
                                   setPageAccess(menu.menuKey, page.pageKey, event.target.value, page)
                                 }
@@ -283,7 +370,7 @@ export default function PermissionTreeEditor({
                                 ))}
                               </select>
                             )}
-                            {page.subpages?.length ? (
+                            {page.subpages?.length && allowBulkActions && !isReadOnly ? (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -336,7 +423,7 @@ export default function PermissionTreeEditor({
                                             !isSubVisible,
                                           )
                                         }
-                                        disabled={!isPageVisible}
+                                        disabled={!isPageVisible || isReadOnly}
                                       />
                                       Mostrar
                                     </label>
@@ -352,7 +439,7 @@ export default function PermissionTreeEditor({
                                           )
                                         }
                                         className="min-w-[180px] rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
-                                        disabled={!isPageVisible}
+                                        disabled={!isPageVisible || isReadOnly}
                                       >
                                         {ACCESS_OPTIONS.map((option) => (
                                           <option key={option.value} value={option.value}>
@@ -379,3 +466,5 @@ export default function PermissionTreeEditor({
     </div>
   );
 }
+
+export default React.memo(PermissionTreeEditor);

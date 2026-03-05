@@ -28,11 +28,15 @@ export const CoreApi = {
     const response = await api.get(API_ROUTES.models, { params });
     return response?.data || null;
   },
+  getModel: (id, params) => http(`models/${id}`, { params }),
   createModel: (payload) => http("models", { method: "POST", payload }),
   updateModel: (id, payload) => http(`models/${id}`, { method: "PUT", payload }),
   listDevices: async (params) => {
     const data = await http("devices", { params });
-    return normaliseListPayload(data);
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.devices)) return data.devices;
+    if (Array.isArray(data?.data)) return data.data;
+    return [];
   },
   searchDevices: (params) => http("devices", { params }),
   createDevice: (payload) => http("devices", { method: "POST", payload }),
@@ -44,6 +48,7 @@ export const CoreApi = {
   },
   importDevice: (payload) => http("devices/import", { method: "POST", payload }),
   syncDevicesFromTraccar: (payload) => http("devices/sync", { method: "POST", payload }),
+  backfillDeviceInternalCodes: (payload) => http("devices/backfill-internal-codes", { method: "POST", payload }),
   listChips: async (params) => {
     const data = await http("chips", { params });
     return normaliseListPayload(data);
@@ -52,9 +57,19 @@ export const CoreApi = {
   createChip: (payload) => http("chips", { method: "POST", payload }),
   updateChip: (id, payload) => http(`chips/${id}`, { method: "PUT", payload }),
   deleteChip: (id, params) => http(`chips/${id}`, { method: "DELETE", params }),
-  listVehicles: async (params) => {
-    const data = await http("vehicles", { params });
-    return normaliseListPayload(data);
+  listVehicles: async (paramsOrOptions) => {
+    const hasOptions =
+      paramsOrOptions &&
+      typeof paramsOrOptions === "object" &&
+      (Object.prototype.hasOwnProperty.call(paramsOrOptions, "params") ||
+        Object.prototype.hasOwnProperty.call(paramsOrOptions, "headers"));
+    const params = hasOptions ? paramsOrOptions.params : paramsOrOptions;
+    const headers = hasOptions ? paramsOrOptions.headers : undefined;
+    const data = await http("vehicles", { params, headers });
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.vehicles)) return data.vehicles;
+    if (Array.isArray(data?.data)) return data.data;
+    return [];
   },
   listAccessibleVehicles: async (params, options = {}) => {
     const response = await api.request({
@@ -62,10 +77,12 @@ export const CoreApi = {
       url: `${CORE_BASE}/vehicles`,
       params: { ...(params || {}), accessible: true },
       headers: options?.headers,
+      signal: options?.signal,
     });
     return response?.data ?? null;
   },
   searchVehicles: (params) => http("vehicles", { params }),
+  getVehicleHistory: (vehicleId, params) => http(`vehicles/${vehicleId}/history`, { params }),
   listVehicleAttributes: async (params) => {
     const data = await http("vehicle-attributes", { params });
     return normaliseListPayload(data);
@@ -82,9 +99,21 @@ export const CoreApi = {
   createStockItem: (payload) => http("stock", { method: "POST", payload }),
   updateStockItem: (id, payload) => http(`stock/${id}`, { method: "PUT", payload }),
   deleteStockItem: (id, params) => http(`stock/${id}`, { method: "DELETE", params }),
+  listEquipmentTransfers: (params) => http("equipment-transfers", { params }).then((data) => data?.items || []),
+  createEquipmentTransfer: (payload) => http("equipment-transfers", { method: "POST", payload }),
+  listTechnicianInventory: (params) => http("technician-inventory", { params }).then((data) => data?.items || []),
   importEuroXlsx: (payload) => http("euro/import-xlsx", { method: "POST", payload }),
   // tasks
-  listTasks: (params) => http("tasks", { params }),
+  listTasks: (paramsOrOptions) => {
+    const hasOptions =
+      paramsOrOptions &&
+      typeof paramsOrOptions === "object" &&
+      (Object.prototype.hasOwnProperty.call(paramsOrOptions, "params") ||
+        Object.prototype.hasOwnProperty.call(paramsOrOptions, "headers"));
+    const params = hasOptions ? paramsOrOptions.params : paramsOrOptions;
+    const headers = hasOptions ? paramsOrOptions.headers : undefined;
+    return http("tasks", { params, headers });
+  },
   createTask: (payload) => http("tasks", { method: "POST", payload }),
   updateTask: (id, payload) => http(`tasks/${id}`, { method: "PUT", payload }),
   searchTechnicians: (params) => http("technicians", { params }),
@@ -127,7 +156,7 @@ export function normaliseListPayload(payload) {
     if (!value) return null;
     if (Array.isArray(value)) return value;
     if (value && typeof value === "object") {
-      for (const key of ["devices", "items", "data", "results", "rows", "models", "chips", "vehicles"]) {
+      for (const key of ["vehicles", "devices", "data", "items", "results", "rows", "models", "chips"]) {
         if (Array.isArray(value[key])) return value[key];
       }
     }

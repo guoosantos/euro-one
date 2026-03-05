@@ -1,9 +1,18 @@
 import test from "node:test";
 import assert from "node:assert";
-import http from "node:http";
+import { requestApp } from "./app-request.js";
+
+import { loadCollection, saveCollection } from "../../server/services/storage.js";
 
 let serverApp;
 let signSession;
+
+const ensureTestUser = (user) => {
+  const users = loadCollection("users", []);
+  const next = Array.isArray(users) ? users.filter((item) => String(item?.id) !== String(user.id)) : [];
+  next.push(user);
+  saveCollection("users", next);
+};
 
 const ensureServer = async () => {
   process.env.TRACCAR_ADMIN_USER ??= "admin";
@@ -15,33 +24,20 @@ const ensureServer = async () => {
     ({ signSession } = await import("../../server/middleware/auth.js"));
   }
 
+  ensureTestUser({ id: "user-2", role: "admin", clientId: "client-1", attributes: {} });
+
   return { serverApp, signSession };
 };
 
-async function startTestServer() {
-  const { serverApp: app } = await ensureServer();
-  return new Promise((resolve) => {
-    const server = http.createServer(app);
-    server.listen(0, () => resolve(server));
-  });
-}
-
-function closeTestServer(server) {
-  return new Promise((resolve) => server.close(resolve));
-}
-
 test("GET /api/devices retorna lista do Traccar", async () => {
-  const { signSession } = await ensureServer();
+  const { signSession, serverApp } = await ensureServer();
   const token = signSession({ id: "user-2", role: "admin" });
   const originalFetch = global.fetch;
-  const realFetch = originalFetch.bind(globalThis);
   global.fetch = async () => new Response(JSON.stringify({ devices: [{ id: 1, name: "Truck" }] }), { status: 200 });
 
-  const server = await startTestServer();
-  const base = `http://127.0.0.1:${server.address().port}`;
-
   try {
-    const response = await realFetch(`${base}/api/devices`, {
+    const response = await requestApp(serverApp, {
+      url: "/api/devices",
       headers: { Authorization: `Bearer ${token}` },
     });
     const body = await response.json();
@@ -50,22 +46,18 @@ test("GET /api/devices retorna lista do Traccar", async () => {
     assert.deepStrictEqual(body.devices, [{ id: 1, name: "Truck" }]);
   } finally {
     global.fetch = originalFetch;
-    await closeTestServer(server);
   }
 });
 
 test("GET /api/devices sinaliza indisponibilidade do Traccar", async () => {
-  const { signSession } = await ensureServer();
+  const { signSession, serverApp } = await ensureServer();
   const token = signSession({ id: "user-2", role: "admin" });
   const originalFetch = global.fetch;
-  const realFetch = originalFetch.bind(globalThis);
   global.fetch = async () => new Response(JSON.stringify({ message: "Traccar offline" }), { status: 503 });
 
-  const server = await startTestServer();
-  const base = `http://127.0.0.1:${server.address().port}`;
-
   try {
-    const response = await realFetch(`${base}/api/devices`, {
+    const response = await requestApp(serverApp, {
+      url: "/api/devices",
       headers: { Authorization: `Bearer ${token}` },
     });
     const body = await response.json();
@@ -75,6 +67,5 @@ test("GET /api/devices sinaliza indisponibilidade do Traccar", async () => {
     assert.match(body.message, /Não foi possível consultar o Traccar/);
   } finally {
     global.fetch = originalFetch;
-    await closeTestServer(server);
   }
 });

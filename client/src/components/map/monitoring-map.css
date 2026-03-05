@@ -66,3 +66,152 @@
 .monitoring-map-controls > * {
   pointer-events: auto;
 }
+
+.monitoring-test-banner {
+  border-radius: 14px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface) 86%);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+}
+
+.monitoring-test-banner__text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.monitoring-test-banner__label {
+  color: var(--danger);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.monitoring-test-banner__message {
+  color: var(--text);
+}
+
+.monitoring-test-banner__status {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.monitoring-test-banner__status--confirmed {
+  color: var(--primary);
+}
+
+.monitoring-test-banner--confirmed {
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface) 88%);
+}
+
+.monitoring-test-banner--disembarked {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface) 88%);
+}
+
+:root[data-theme='dark'] .monitoring-test-banner {
+  background: color-mix(in srgb, var(--surface) 72%, var(--danger) 28%);
+  border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+  box-shadow: var(--shadow-2);
+}
+
+:root[data-theme='dark'] .monitoring-test-banner--confirmed {
+  background: color-mix(in srgb, var(--surface) 72%, var(--primary) 28%);
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+:root[data-theme='dark'] .monitoring-test-banner--disembarked {
+  background: color-mix(in srgb, var(--surface) 72%, var(--warning) 28%);
+  border-color: color-mix(in srgb, var(--warning) 70%, transparent);
+}
+
+.address-pin__wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.address-pin__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--primary) 70%, transparent);
+  border: 2px solid color-mix(in srgb, var(--text) 85%, transparent);
+}
+
+.fleet-marker__wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 62px;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.35));
+}
+
+.fleet-marker__base {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.35);
+}
+
+.fleet-marker__label {
+  margin-top: 4px;
+  max-width: 120px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #f8fafc;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme='light'] .leaflet-container .monitoring-popup.leaflet-tooltip,
+:root[data-theme='light'] .leaflet-container .monitoring-popup .leaflet-popup-content-wrapper {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: var(--shadow-2);
+}
+
+:root[data-theme='light'] .fleet-marker__base {
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+:root[data-theme='light'] .fleet-marker__label {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+:root[data-theme='light'] .cluster-marker {
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-1);
+  color: var(--text-2);
+}

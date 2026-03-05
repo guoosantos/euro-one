@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { normalizeEquipmentStatus } from "../utils/equipment-status.js";
+import { getVehicleById } from "./vehicle.js";
 
 const STORAGE_KEY = "devices";
 const devices = new Map();
@@ -10,6 +12,39 @@ const byUniqueId = new Map();
 const byTraccarId = new Map();
 const missingClients = new Set();
 const duplicateUniqueWarnings = new Set();
+
+function normalizeOwnershipType(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized === "VENDA" ? "VENDA" : "COMODATO";
+}
+
+function resolveOwnershipTypeFromRecord(record) {
+  const attributes = record?.attributes && typeof record.attributes === "object" ? record.attributes : {};
+  return normalizeOwnershipType(record?.ownershipType || attributes.ownershipType);
+}
+
+function resolveEquipmentStatusFromRecord(record, { linked = null } = {}) {
+  const attributes = record?.attributes && typeof record.attributes === "object" ? record.attributes : {};
+  const linkedToVehicle = linked === null ? Boolean(record?.vehicleId) : Boolean(linked);
+  const source =
+    record?.equipmentStatus ??
+    record?.status ??
+    attributes?.equipmentStatus ??
+    attributes?.status ??
+    null;
+  return normalizeEquipmentStatus(source, { linked: linkedToVehicle });
+}
+
+function isOwnershipTypeRuntimeError(error) {
+  const message = String(error?.message || "");
+  if (!message) return false;
+  const hasOwnershipField = message.includes("ownershipType");
+  const unknownField =
+    message.includes("Unknown arg") ||
+    message.includes("Unknown field") ||
+    message.includes("Unknown argument");
+  return hasOwnershipField && unknownField;
+}
 
 function logOnce(target, key, message, payload) {
   if (target.has(key)) return;
@@ -63,6 +98,21 @@ function findDeviceRecord(id) {
   return devices.get(key) || byTraccarId.get(key) || null;
 }
 
+function normalizeClientId(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+function resolveDeviceClientId(record) {
+  const directClientId = normalizeClientId(record?.clientId);
+  if (directClientId) return directClientId;
+  const vehicleId = record?.vehicleId ? String(record.vehicleId) : null;
+  if (!vehicleId) return null;
+  const vehicle = getVehicleById(vehicleId);
+  return normalizeClientId(vehicle?.clientId);
+}
+
 function removeIndexes(record) {
   if (!record) return;
   if (record.uniqueId) {
@@ -76,11 +126,24 @@ function removeIndexes(record) {
 const persistedDevices = loadCollection(STORAGE_KEY, []);
 persistedDevices.forEach((record) => {
   if (!record?.id) return;
-  const stored = persist({ ...record }, { skipSync: true });
-  // Garante que registros pré-existentes também sejam refletidos no banco quando disponível.
-  if (stored?.id) {
-    void syncDeviceToPrisma(stored);
-  }
+  // Carrega snapshot legado apenas em memória; o banco é fonte de verdade no boot.
+  const attributes = record?.attributes && typeof record.attributes === "object" ? record.attributes : {};
+  const ownershipType = resolveOwnershipTypeFromRecord(record);
+  const equipmentStatus = resolveEquipmentStatusFromRecord(record);
+  persist(
+    {
+      ...record,
+      attributes: {
+        ...attributes,
+        ownershipType,
+        equipmentStatus,
+      },
+      ownershipType,
+      status: equipmentStatus,
+      equipmentStatus,
+    },
+    { skipSync: true },
+  );
 });
 
 export function listDevices({ clientId } = {}) {
@@ -88,7 +151,10 @@ export function listDevices({ clientId } = {}) {
   if (!clientId) {
     return list.map(clone);
   }
-  return list.filter((device) => String(device.clientId) === String(clientId)).map(clone);
+  const scopedClientId = String(clientId);
+  return list
+    .filter((device) => String(resolveDeviceClientId(device) || "") === scopedClientId)
+    .map(clone);
 }
 
 export function getDeviceById(id) {
@@ -126,7 +192,19 @@ export async function findDeviceByUniqueIdInDb(uniqueId, { clientId, matchAnyCli
 async function syncDeviceToPrisma(record) {
   if (!isPrismaReady() || !record?.id || !record?.uniqueId) return;
   try {
-    const clientId = String(record.clientId);
+    const clientId = resolveDeviceClientId(record);
+    if (!clientId) {
+      console.warn("[devices] dispositivo sem clientId válido; ignorando sync", {
+        deviceId: record.id,
+        uniqueId: record.uniqueId,
+        vehicleId: record.vehicleId || null,
+      });
+      return;
+    }
+    if (String(record.clientId || "") !== String(clientId)) {
+      record.clientId = String(clientId);
+      syncStorage();
+    }
     const uniqueId = String(record.uniqueId);
 
     const client = await prisma.client.findUnique({ where: { id: clientId } });
@@ -179,33 +257,51 @@ async function syncDeviceToPrisma(record) {
       traccarId: record.traccarId ? String(record.traccarId) : null,
       chipId: record.chipId ? String(record.chipId) : null,
       vehicleId: record.vehicleId ? String(record.vehicleId) : null,
-      attributes: record.attributes || {},
+      attributes: {
+        ...(record.attributes && typeof record.attributes === "object" ? record.attributes : {}),
+        ownershipType: resolveOwnershipTypeFromRecord(record),
+        equipmentStatus: resolveEquipmentStatusFromRecord(record),
+      },
+      ownershipType: resolveOwnershipTypeFromRecord(record),
     };
 
-    if (existing) {
-      await prisma.device.update({
-        where: { id: existing.id },
-        data: {
-          ...payload,
+    const saveWithPayload = async (data) => {
+      if (existing) {
+        await prisma.device.update({
+          where: { id: existing.id },
+          data: {
+            ...data,
+            updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+          },
+        });
+        return;
+      }
+
+      await prisma.device.upsert({
+        where: { uniqueId },
+        create: {
+          id: record.id,
+          ...data,
+          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
+          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+        },
+        update: {
+          ...data,
           updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
         },
       });
-      return;
-    }
+    };
 
-    await prisma.device.upsert({
-      where: { uniqueId },
-      create: {
-        id: record.id,
-        ...payload,
-        createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-        updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
-      },
-      update: {
-        ...payload,
-        updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
-      },
-    });
+    try {
+      await saveWithPayload(payload);
+    } catch (ownershipTypeError) {
+      if (!isOwnershipTypeRuntimeError(ownershipTypeError)) {
+        throw ownershipTypeError;
+      }
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.ownershipType;
+      await saveWithPayload(fallbackPayload);
+    }
   } catch (error) {
     console.warn("[devices] falha ao sincronizar com o banco", error?.message || error);
   }
@@ -229,6 +325,8 @@ async function hydrateDevicesFromPrisma() {
     const dbDevices = await prisma.device.findMany();
     dbDevices.forEach((record) => {
       if (!record?.id) return;
+      const ownershipType = resolveOwnershipTypeFromRecord(record);
+      const equipmentStatus = resolveEquipmentStatusFromRecord(record);
       persist(
         {
           ...record,
@@ -239,7 +337,14 @@ async function hydrateDevicesFromPrisma() {
           traccarId: record.traccarId ? String(record.traccarId) : null,
           chipId: record.chipId ? String(record.chipId) : null,
           vehicleId: record.vehicleId ? String(record.vehicleId) : null,
-          attributes: record.attributes || {},
+          attributes: {
+            ...(record.attributes && typeof record.attributes === "object" ? record.attributes : {}),
+            ownershipType,
+            equipmentStatus,
+          },
+          ownershipType,
+          status: equipmentStatus,
+          equipmentStatus,
           createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
           updatedAt: record.updatedAt ? new Date(record.updatedAt).toISOString() : new Date().toISOString(),
         },
@@ -254,7 +359,17 @@ async function hydrateDevicesFromPrisma() {
 
 void hydrateDevicesFromPrisma();
 
-export function createDevice({ clientId, name, uniqueId, modelId = null, traccarId = null, attributes = {} }) {
+export function createDevice({
+  clientId,
+  name,
+  uniqueId,
+  modelId = null,
+  traccarId = null,
+  attributes = {},
+  ownershipType = null,
+  equipmentStatus = null,
+  status = null,
+}) {
   if (!clientId) {
     throw createError(400, "clientId é obrigatório");
   }
@@ -271,6 +386,10 @@ export function createDevice({ clientId, name, uniqueId, modelId = null, traccar
     throw buildDeviceConflictError(existing, normalizedUniqueId);
   }
 
+  const ownership = normalizeOwnershipType(ownershipType ?? attributes?.ownershipType);
+  const resolvedEquipmentStatus = normalizeEquipmentStatus(equipmentStatus ?? status ?? attributes?.equipmentStatus, {
+    linked: false,
+  });
   const now = new Date().toISOString();
   const record = {
     id: randomUUID(),
@@ -281,7 +400,10 @@ export function createDevice({ clientId, name, uniqueId, modelId = null, traccar
     traccarId: traccarId ? String(traccarId) : null,
     chipId: null,
     vehicleId: null,
-    attributes: { ...attributes },
+    attributes: { ...attributes, ownershipType: ownership, equipmentStatus: resolvedEquipmentStatus },
+    ownershipType: ownership,
+    status: resolvedEquipmentStatus,
+    equipmentStatus: resolvedEquipmentStatus,
     createdAt: now,
     updatedAt: now,
   };
@@ -321,6 +443,48 @@ export function updateDevice(id, updates = {}) {
   if (updates.attributes && typeof updates.attributes === "object") {
     record.attributes = { ...record.attributes, ...updates.attributes };
   }
+  const hasOwnershipOnUpdates = Object.prototype.hasOwnProperty.call(updates, "ownershipType");
+  const hasOwnershipOnAttributes =
+    updates.attributes &&
+    typeof updates.attributes === "object" &&
+    Object.prototype.hasOwnProperty.call(updates.attributes, "ownershipType");
+  if (hasOwnershipOnUpdates || hasOwnershipOnAttributes) {
+    record.ownershipType = normalizeOwnershipType(
+      hasOwnershipOnUpdates ? updates.ownershipType : updates.attributes?.ownershipType,
+    );
+  } else {
+    record.ownershipType = resolveOwnershipTypeFromRecord(record);
+  }
+  const hasStatusOnUpdates =
+    Object.prototype.hasOwnProperty.call(updates, "status") ||
+    Object.prototype.hasOwnProperty.call(updates, "equipmentStatus");
+  const hasStatusOnAttributes =
+    updates.attributes &&
+    typeof updates.attributes === "object" &&
+    (Object.prototype.hasOwnProperty.call(updates.attributes, "status") ||
+      Object.prototype.hasOwnProperty.call(updates.attributes, "equipmentStatus"));
+  const requestedStatus = hasStatusOnUpdates
+    ? updates.equipmentStatus ?? updates.status
+    : hasStatusOnAttributes
+      ? updates.attributes?.equipmentStatus ?? updates.attributes?.status
+      : null;
+  const linkedToVehicle = Object.prototype.hasOwnProperty.call(updates, "vehicleId")
+    ? Boolean(updates.vehicleId)
+    : Boolean(record.vehicleId);
+  const resolvedEquipmentStatus =
+    hasStatusOnUpdates || hasStatusOnAttributes
+      ? normalizeEquipmentStatus(requestedStatus, { linked: linkedToVehicle })
+      : resolveEquipmentStatusFromRecord(record, { linked: linkedToVehicle });
+  record.attributes = {
+    ...(record.attributes && typeof record.attributes === "object" ? record.attributes : {}),
+    ownershipType: record.ownershipType,
+    equipmentStatus: resolvedEquipmentStatus,
+  };
+  if (record.attributes && typeof record.attributes === "object" && Object.prototype.hasOwnProperty.call(record.attributes, "status")) {
+    delete record.attributes.status;
+  }
+  record.status = resolvedEquipmentStatus;
+  record.equipmentStatus = resolvedEquipmentStatus;
   record.updatedAt = new Date().toISOString();
   const stored = persist(record);
   void syncDeviceToPrisma(stored);

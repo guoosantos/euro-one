@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
@@ -7,12 +7,17 @@ import { useLivePositions } from "../lib/hooks/useLivePositions";
 import useTasks from "../lib/hooks/useTasks";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
-import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { formatAddress } from "../lib/format-address.js";
 import useAlerts from "../lib/hooks/useAlerts.js";
 import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
+import usePolling from "../lib/hooks/usePolling.js";
+import safeApi from "../lib/safe-api.js";
+import { API_ROUTES } from "../lib/api-routes.js";
+import { CoreApi } from "../lib/coreApi.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const COMMUNICATION_BUCKETS = [
   { key: "stale_0_1", label: "0–1h", minMinutes: 0, maxMinutes: 60 },
@@ -24,33 +29,356 @@ const COMMUNICATION_BUCKETS = [
   { key: "stale_10d_30d", label: "10–30d", minMinutes: 14400, maxMinutes: 43200 },
   { key: "stale_30d_plus", label: "30+d", minMinutes: 43200, maxMinutes: Infinity },
 ];
+
+function normalizePositionsPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.positions)) return payload.positions;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return payload ? [payload] : [];
+}
+
+function normalizeAlertsPayload(payload) {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.alerts)) return payload.alerts;
+  if (Array.isArray(payload?.events)) return payload.events;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function normalizeTasksPayload(payload) {
+  if (Array.isArray(payload?.tasks)) return payload.tasks;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function dedupeByDevice(positions = []) {
+  const latestByDevice = new Map();
+  positions.forEach((pos) => {
+    const deviceId = pos?.deviceId ?? pos?.device_id ?? pos?.deviceid ?? pos?.deviceID;
+    const key = deviceId != null ? String(deviceId) : null;
+    if (!key) return;
+    const time = Date.parse(pos.fixTime ?? pos.serverTime ?? pos.deviceTime ?? pos.time ?? 0);
+    const current = latestByDevice.get(key);
+    if (!current || (!Number.isNaN(time) && time > current.time)) {
+      latestByDevice.set(key, { pos, time });
+    }
+  });
+  return Array.from(latestByDevice.values())
+    .map((entry) => entry.pos)
+    .filter(Boolean);
+}
+
+function dedupeById(list = [], getId) {
+  const map = new Map();
+  list.forEach((item) => {
+    const key = getId(item);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
+function resolveEntityId(entity, fallbackKey) {
+  const candidate =
+    entity?.id ??
+    entity?.alertId ??
+    entity?.eventId ??
+    entity?.vehicleId ??
+    entity?.deviceId ??
+    entity?.taskId ??
+    null;
+  if (candidate) return String(candidate);
+  if (fallbackKey) return String(fallbackKey);
+  return null;
+}
+
+async function fetchMirrorOwnerBundle({
+  ownerId,
+  canAccessMonitoring,
+  canAccessAlerts,
+  canAccessConjugatedAlerts,
+} = {}) {
+  const headers = ownerId ? { "X-Owner-Client-Id": ownerId } : undefined;
+  const requests = [
+    CoreApi.listVehicles({ params: { accessible: true, skipPositions: true }, headers }).catch(() => []),
+    canAccessMonitoring
+      ? safeApi.get(API_ROUTES.lastPositions, {
+          headers,
+          suppressForbidden: true,
+          forbiddenFallbackData: [],
+        })
+      : Promise.resolve({ data: [] }),
+    canAccessMonitoring && canAccessAlerts
+      ? safeApi.get(API_ROUTES.alerts, {
+          params: { status: "pending" },
+          headers,
+          suppressForbidden: true,
+          forbiddenFallbackData: [],
+        })
+      : Promise.resolve({ data: [] }),
+    canAccessMonitoring && canAccessConjugatedAlerts
+      ? safeApi.get(API_ROUTES.alertsConjugated, {
+          params: { windowHours: 5 },
+          headers,
+          suppressForbidden: true,
+          forbiddenFallbackData: [],
+        })
+      : Promise.resolve({ data: [] }),
+    canAccessMonitoring
+      ? CoreApi.listTasks({ params: {}, headers }).catch(() => [])
+      : Promise.resolve([]),
+  ];
+
+  const [vehicles, positionsResponse, alertsResponse, conjugatedResponse, tasksResponse] = await Promise.all(requests);
+  return {
+    vehicles: Array.isArray(vehicles) ? vehicles : [],
+    positions: normalizePositionsPayload(positionsResponse?.data),
+    alerts: normalizeAlertsPayload(alertsResponse?.data),
+    conjugatedAlerts: normalizeAlertsPayload(conjugatedResponse?.data),
+    tasks: normalizeTasksPayload(tasksResponse),
+  };
+}
+
+async function fetchMirrorAllBundle({
+  ownerIds,
+  canAccessMonitoring,
+  canAccessAlerts,
+  canAccessConjugatedAlerts,
+} = {}) {
+  if (!Array.isArray(ownerIds) || ownerIds.length === 0) {
+    return {
+      vehicles: [],
+      positions: [],
+      alerts: [],
+      conjugatedAlerts: [],
+      tasks: [],
+      partial: false,
+    };
+  }
+
+  const results = await Promise.allSettled(
+    ownerIds.map((ownerId) =>
+      fetchMirrorOwnerBundle({
+        ownerId,
+        canAccessMonitoring,
+        canAccessAlerts,
+        canAccessConjugatedAlerts,
+      }),
+    ),
+  );
+
+  const bundles = [];
+  let failed = 0;
+  results.forEach((result) => {
+    if (result.status === "fulfilled" && result.value) {
+      bundles.push(result.value);
+    } else {
+      failed += 1;
+    }
+  });
+
+  const vehicles = dedupeById(
+    bundles.flatMap((bundle) => bundle.vehicles || []),
+    (item) => resolveEntityId(item),
+  );
+  const positions = dedupeByDevice(bundles.flatMap((bundle) => bundle.positions || []));
+  const alerts = dedupeById(
+    bundles.flatMap((bundle) => bundle.alerts || []),
+    (item, index) => resolveEntityId(item, `alert-${index}`),
+  );
+  const conjugatedAlerts = dedupeById(
+    bundles.flatMap((bundle) => bundle.conjugatedAlerts || []),
+    (item, index) => resolveEntityId(item, `conj-${index}`),
+  );
+  const tasks = dedupeById(
+    bundles.flatMap((bundle) => bundle.tasks || []),
+    (item, index) => resolveEntityId(item, `task-${index}`),
+  );
+
+  return {
+    vehicles,
+    positions,
+    alerts,
+    conjugatedAlerts,
+    tasks,
+    partial: failed > 0,
+  };
+}
+
+async function fetchMirrorOwnerBundleSafe({
+  ownerId,
+  canAccessMonitoring,
+  canAccessAlerts,
+  canAccessConjugatedAlerts,
+} = {}) {
+  if (!ownerId) {
+    return {
+      vehicles: [],
+      positions: [],
+      alerts: [],
+      conjugatedAlerts: [],
+      tasks: [],
+      partial: false,
+    };
+  }
+  const bundle = await fetchMirrorOwnerBundle({
+    ownerId,
+    canAccessMonitoring,
+    canAccessAlerts,
+    canAccessConjugatedAlerts,
+  });
+  return { ...bundle, partial: false };
+}
 export default function Home() {
   const { t, locale } = useTranslation();
-  const { tenantId, canAccess } = useTenant();
+  const {
+    tenantId,
+    tenant,
+    tenantScope,
+    tenants,
+    canAccess,
+    mirrorContextMode,
+    activeMirrorOwnerClientId,
+    mirrorOwners,
+  } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
   const canAccessMonitoring = canAccess("primary", "monitoring");
-  const canAccessAlerts = canAccess("primary", "monitoring", "alerts");
-  const canAccessConjugatedAlerts = canAccess("primary", "monitoring", "alerts-conjugated");
+  const canAccessAlerts = canAccessMonitoring || canAccess("primary", "events");
+  const canAccessConjugatedAlerts = canAccessAlerts;
+  const mirrorOwnerIds = useMemo(
+    () =>
+      Array.isArray(mirrorOwners)
+        ? mirrorOwners.map((owner) => String(owner.id)).filter(Boolean)
+        : [],
+    [mirrorOwners],
+  );
+  const mirrorOwnersKey = useMemo(() => mirrorOwnerIds.join("|"), [mirrorOwnerIds]);
+  const isMirrorAll =
+    mirrorContextMode === "target" &&
+    String(activeMirrorOwnerClientId ?? "") === "all";
+  const mirrorOwnerTenantId =
+    mirrorContextMode === "target" &&
+    activeMirrorOwnerClientId &&
+    String(activeMirrorOwnerClientId) !== "all"
+      ? String(activeMirrorOwnerClientId)
+      : null;
+  const canAggregateMirrorAll = isMirrorAll && mirrorOwnerIds.length > 0;
+  const canAggregateMirrorOwner = Boolean(
+    mirrorContextMode === "target" && mirrorOwnerTenantId && !isMirrorAll,
+  );
+  const effectiveTenantId = isMirrorAll ? null : (mirrorOwnerTenantId || tenantId);
+  const isAllTenantsScope = tenantScope === "ALL";
+  const tasksTenantOverride = isMirrorAll ? null : undefined;
+  const pendingAlertParams = useMemo(() => ({ status: "pending" }), []);
+  const conjugatedAlertParams = useMemo(() => ({ windowHours: 5 }), []);
 
   const { vehicles, loading: loadingVehicles } = useVehicles({ enabled: canAccessMonitoring });
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
     enabled: canAccessMonitoring,
   });
-  const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]), {
+  const taskParams = useMemo(
+    () => (effectiveTenantId ? { clientId: effectiveTenantId } : {}),
+    [effectiveTenantId],
+  );
+  const { tasks } = useTasks(taskParams, {
     enabled: canAccessMonitoring,
+    tenantIdOverride: tasksTenantOverride,
   });
   const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({
-    params: { status: "pending" },
+    params: pendingAlertParams,
     enabled: canAccessMonitoring && canAccessAlerts,
   });
   const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
-    params: { windowHours: 5 },
+    params: conjugatedAlertParams,
     enabled: canAccessMonitoring && canAccessConjugatedAlerts,
   });
+  const mirrorAllPolling = usePolling(
+    useCallback(
+      () =>
+        fetchMirrorAllBundle({
+          ownerIds: mirrorOwnerIds,
+          canAccessMonitoring,
+          canAccessAlerts,
+          canAccessConjugatedAlerts,
+        }),
+      [mirrorOwnerIds, canAccessMonitoring, canAccessAlerts, canAccessConjugatedAlerts],
+    ),
+    {
+      enabled: canAggregateMirrorAll && canAccessMonitoring,
+      intervalMs: 60_000,
+      dependencies: [
+        canAggregateMirrorAll,
+        canAccessMonitoring,
+        mirrorOwnersKey,
+        canAccessAlerts,
+        canAccessConjugatedAlerts,
+      ],
+      resetOnChange: true,
+    },
+  );
+  const mirrorOwnerPolling = usePolling(
+    useCallback(
+      () =>
+        fetchMirrorOwnerBundleSafe({
+          ownerId: mirrorOwnerTenantId,
+          canAccessMonitoring,
+          canAccessAlerts,
+          canAccessConjugatedAlerts,
+        }),
+      [mirrorOwnerTenantId, canAccessMonitoring, canAccessAlerts, canAccessConjugatedAlerts],
+    ),
+    {
+      enabled: canAggregateMirrorOwner && canAccessMonitoring,
+      intervalMs: 60_000,
+      dependencies: [
+        canAggregateMirrorOwner,
+        mirrorOwnerTenantId,
+        canAccessMonitoring,
+        canAccessAlerts,
+        canAccessConjugatedAlerts,
+      ],
+      resetOnChange: true,
+    },
+  );
+  const activeMirrorPolling = isMirrorAll ? mirrorAllPolling : mirrorOwnerPolling;
+  const mirrorBundle = activeMirrorPolling.data;
+  const hasMirrorBundle = Boolean(
+    (isMirrorAll ? canAggregateMirrorAll : canAggregateMirrorOwner) &&
+      mirrorBundle &&
+      !activeMirrorPolling.error,
+  );
+  const mirrorPartial = Boolean(
+    (canAggregateMirrorAll || canAggregateMirrorOwner) &&
+      (activeMirrorPolling.error || mirrorBundle?.partial),
+  );
+  const effectiveVehicles = hasMirrorBundle ? mirrorBundle.vehicles : vehicles;
+  const effectivePositions = hasMirrorBundle ? mirrorBundle.positions : positions;
+  const effectiveTasks = hasMirrorBundle ? mirrorBundle.tasks : tasks;
+  const effectivePendingAlerts = hasMirrorBundle ? mirrorBundle.alerts : pendingAlerts;
+  const effectiveConjugatedAlerts = hasMirrorBundle
+    ? mirrorBundle.conjugatedAlerts
+    : conjugatedAlerts;
+  const effectiveTelemetryFetchedAt = hasMirrorBundle
+    ? activeMirrorPolling.lastUpdated
+    : telemetryFetchedAt;
+  const effectiveVehiclesLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : loadingVehicles;
+  const effectivePositionsLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : loadingPositions;
+  const effectiveAlertsLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : pendingAlertsLoading;
+  const effectiveConjugatedLoading = (canAggregateMirrorAll || canAggregateMirrorOwner)
+    ? activeMirrorPolling.loading
+    : conjugatedAlertsLoading;
 
   const positionByDevice = useMemo(() => {
     const map = new Map();
-    positions.forEach((position) => {
+    effectivePositions.forEach((position) => {
       const key = toDeviceKey(
         position?.deviceId ??
           position?.device?.id ??
@@ -62,33 +390,33 @@ export default function Home() {
       map.set(String(key), position);
     });
     return map;
-  }, [positions]);
+  }, [effectivePositions]);
 
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
-    vehicles.forEach((vehicle) => {
+    effectiveVehicles.forEach((vehicle) => {
       normalizeVehicleDevices(vehicle).forEach((device) => {
-        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        const key = getDeviceKey(device);
         if (key) map.set(String(key), vehicle);
       });
     });
     return map;
-  }, [vehicles]);
+  }, [effectiveVehicles]);
 
   const vehicleTelemetry = useMemo(
     () =>
-      vehicles.map((vehicle) => {
+      effectiveVehicles.map((vehicle) => {
         const devices = normalizeVehicleDevices(vehicle);
         const primaryKey = vehicle.primaryDeviceId ? String(vehicle.primaryDeviceId) : null;
         let primaryDevice = primaryKey
-          ? devices.find((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId) === primaryKey)
+          ? devices.find((device) => getDeviceKey(device) === primaryKey)
           : null;
 
         if (!primaryDevice && devices.length) {
           let newestDevice = null;
           let newestTime = null;
           devices.forEach((device) => {
-            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+            const key = getDeviceKey(device);
             if (!key) return;
             const position = positionByDevice.get(String(key));
             const timestamp = parsePositionTime(position);
@@ -98,22 +426,17 @@ export default function Home() {
               newestDevice = device;
             }
           });
-          primaryDevice = newestDevice ?? null;
+          primaryDevice = newestDevice ?? devices[0] ?? null;
         }
 
-        const deviceKey = primaryDevice
-          ? toDeviceKey(primaryDevice?.id ?? primaryDevice?.deviceId ?? primaryDevice?.uniqueId ?? primaryDevice?.traccarId)
-          : null;
+        const deviceKey = primaryDevice ? getDeviceKey(primaryDevice) : null;
         const position = deviceKey ? positionByDevice.get(String(deviceKey)) : null;
         return { vehicle, device: primaryDevice, deviceKey, position };
       }),
-    [positionByDevice, vehicles],
+    [effectiveVehicles, positionByDevice],
   );
 
-  const linkedVehicles = useMemo(
-    () => vehicleTelemetry.filter((item) => Boolean(item.deviceKey)),
-    [vehicleTelemetry],
-  );
+  const linkedVehicles = useMemo(() => vehicleTelemetry, [vehicleTelemetry]);
 
   const deviceTenantMap = useMemo(() => {
     const map = new Map();
@@ -133,32 +456,42 @@ export default function Home() {
     return map;
   }, [linkedVehicles]);
 
-  const tenantFallbackId = tenantId ?? null;
+  const tenantFallbackId = effectiveTenantId ?? null;
 
   const fleetDevices = useMemo(
     () =>
-      linkedVehicles.map((entry) => ({
-        ...entry.device,
-        id: entry.deviceKey,
-        deviceId: entry.deviceKey,
-        uniqueId: entry.device?.uniqueId ?? entry.deviceKey,
-        name: entry.vehicle?.name ?? entry.device?.name,
-        plate: entry.vehicle?.plate ?? entry.device?.plate,
-        vehicleId: entry.vehicle?.id ?? entry.device?.vehicleId,
-        clientId:
-          entry.vehicle?.clientId ??
-          entry.vehicle?.client?.id ??
-          entry.vehicle?.tenantId ??
-          entry.device?.clientId ??
-          entry.device?.tenantId ??
-          tenantFallbackId,
-      })),
+      linkedVehicles.map((entry, index) => {
+        const vehicleId =
+          entry.vehicle?.id ??
+          entry.vehicle?.vehicleId ??
+          entry.device?.vehicleId ??
+          entry.device?.id ??
+          null;
+        const fallbackKey = vehicleId ? `vehicle-${vehicleId}` : `vehicle-${index}`;
+        const deviceKey = entry.deviceKey ?? fallbackKey;
+        return {
+          ...entry.device,
+          id: deviceKey,
+          deviceId: deviceKey,
+          uniqueId: entry.device?.uniqueId ?? deviceKey,
+          name: entry.vehicle?.name ?? entry.device?.name,
+          plate: entry.vehicle?.plate ?? entry.device?.plate,
+          vehicleId: entry.vehicle?.id ?? entry.device?.vehicleId ?? vehicleId ?? null,
+          clientId:
+            entry.vehicle?.clientId ??
+            entry.vehicle?.client?.id ??
+            entry.vehicle?.tenantId ??
+            entry.device?.clientId ??
+            entry.device?.tenantId ??
+            tenantFallbackId,
+        };
+      }),
     [linkedVehicles, tenantFallbackId],
   );
 
   const fleetPositions = useMemo(() => {
     const keys = new Set(linkedVehicles.map((entry) => String(entry.deviceKey)));
-    return positions
+    return effectivePositions
       .map((position) => {
         const key = toDeviceKey(
           position?.deviceId ??
@@ -178,12 +511,12 @@ export default function Home() {
         };
       })
       .filter(Boolean);
-  }, [deviceTenantMap, linkedVehicles, positions, tenantFallbackId]);
+  }, [deviceTenantMap, effectivePositions, linkedVehicles, tenantFallbackId]);
 
   const { summary, table } = useMemo(() => {
-    const { rows, stats } = buildFleetState(fleetDevices, fleetPositions, { tenantId });
+    const { rows, stats } = buildFleetState(fleetDevices, fleetPositions, { tenantId: effectiveTenantId });
     return { summary: stats, table: rows };
-  }, [fleetDevices, fleetPositions, tenantId]);
+  }, [effectiveTenantId, fleetDevices, fleetPositions]);
 
   const decoratedTable = useMemo(
     () =>
@@ -197,15 +530,195 @@ export default function Home() {
       }),
     [table, vehicleByDeviceId],
   );
+  const [allTenantsCommunication, setAllTenantsCommunication] = useState({
+    loading: false,
+    items: [],
+    error: null,
+  });
 
-  const communicationBuckets = useMemo(() => buildOfflineBuckets(decoratedTable), [decoratedTable]);
+  useEffect(() => {
+    let active = true;
+
+    const loadAllTenantsDevices = async () => {
+      if (!canAccessMonitoring || !isAllTenantsScope || mirrorContextMode === "target") {
+        if (active) {
+          setAllTenantsCommunication((prev) => ({
+            ...prev,
+            loading: false,
+            items: [],
+            error: null,
+          }));
+        }
+        return;
+      }
+
+      const tenantIds = Array.isArray(tenants)
+        ? Array.from(new Set(tenants.map((item) => item?.id).filter(Boolean).map(String)))
+        : [];
+
+      if (tenantIds.length === 0) {
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: [], error: null });
+        }
+        return;
+      }
+
+      if (active) {
+        setAllTenantsCommunication((prev) => ({ ...prev, loading: true, error: null }));
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          tenantIds.map(async (clientId) => {
+            const devices = await CoreApi.listDevices({ clientId });
+            return (Array.isArray(devices) ? devices : []).map((device) => ({
+              ...device,
+              clientId: device?.clientId ?? clientId,
+            }));
+          }),
+        );
+
+        const merged = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && Array.isArray(result.value)) {
+            merged.push(...result.value);
+          }
+        });
+
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: merged, error: null });
+        }
+      } catch (error) {
+        if (active) {
+          setAllTenantsCommunication({ loading: false, items: [], error });
+        }
+      }
+    };
+
+    loadAllTenantsDevices();
+
+    return () => {
+      active = false;
+    };
+  }, [canAccessMonitoring, isAllTenantsScope, mirrorContextMode, tenants]);
+
+  const communicationSource = useMemo(() => {
+    if (isAllTenantsScope && mirrorContextMode !== "target") {
+      return {
+        items: allTenantsCommunication.items,
+        loading: allTenantsCommunication.loading,
+      };
+    }
+    return { items: decoratedTable, loading: false };
+  }, [allTenantsCommunication.items, allTenantsCommunication.loading, decoratedTable, isAllTenantsScope, mirrorContextMode]);
+
+  const communicationStats = useMemo(
+    () => buildCommunicationBuckets(communicationSource.items, { dedupeByClient: isAllTenantsScope }),
+    [communicationSource.items, isAllTenantsScope],
+  );
+  const communicationBuckets = communicationStats.buckets;
   const routeMetrics = useMemo(
-    () => buildRouteMetrics(decoratedTable, tasks, vehicleByDeviceId),
-    [decoratedTable, tasks, vehicleByDeviceId],
+    () => buildRouteMetrics(decoratedTable, effectiveTasks, vehicleByDeviceId),
+    [decoratedTable, effectiveTasks, vehicleByDeviceId],
   );
 
-  const alertRows = useMemo(() => pendingAlerts, [pendingAlerts]);
-  const conjugatedAlertRows = useMemo(() => conjugatedAlerts, [conjugatedAlerts]);
+  const showTelemetryWarning = useMemo(
+    () =>
+      canAccessMonitoring &&
+      !effectivePositionsLoading &&
+      Array.isArray(effectiveVehicles) &&
+      effectiveVehicles.length > 0 &&
+      (!Array.isArray(effectivePositions) || effectivePositions.length === 0),
+    [canAccessMonitoring, effectivePositions, effectivePositionsLoading, effectiveVehicles],
+  );
+  const telemetryAlert = useMemo(() => {
+    if (!showTelemetryWarning) return null;
+    const tenantLabel = tenant?.name || "cliente";
+    return {
+      id: `telemetry-missing:${tenantId ?? "all"}`,
+      deviceId: null,
+      vehicleLabel: tenantLabel,
+      vehicleId: tenantId ?? null,
+      plate: null,
+      createdAt: new Date().toISOString(),
+      eventLabel: "Sem telemetria recente",
+      address: "Sem posição disponível",
+      severity: "Info",
+      system: true,
+    };
+  }, [showTelemetryWarning, tenant?.name, tenantId]);
+  const monitoringAlertFallback = useMemo(() => {
+    if (!canAccessMonitoring) return [];
+    return decoratedTable
+      .map((row) => {
+        const position = row?.position || row?.device?.position || null;
+        const statusText = String(row?.status || "").toLowerCase();
+        const isStatusAlert = statusText === "alert" || statusText === "blocked";
+        const alarm =
+          position?.attributes?.alarm ||
+          position?.attributes?.event ||
+          position?.attributes?.eventLabel ||
+          position?.alarm ||
+          row?.device?.alarm ||
+          row?.alerts?.[0] ||
+          null;
+        const severity =
+          position?.eventSeverity ||
+          position?.attributes?.eventSeverity ||
+          position?.severity ||
+          position?.attributes?.severity ||
+          null;
+        if (!alarm && !isStatusAlert) return null;
+        const label = alarm
+          ? normalizeAlertLabel(alarm)
+          : statusText === "blocked"
+            ? "Bloqueado"
+            : "Alerta ativo";
+        return {
+          id: `monitoring-${row.deviceId || row.id || row.vehicleId || label}-${String(severity || "default").toLowerCase()}`,
+          deviceId: row.deviceId || row.id || null,
+          vehicleId: row.vehicleId || null,
+          vehicleLabel: row.vehicle?.name || row.plate || null,
+          plate: row.vehicle?.plate || row.plate || null,
+          createdAt:
+            position?.serverTime ||
+            position?.deviceTime ||
+            position?.fixTime ||
+            position?.time ||
+            row?.lastUpdate ||
+            new Date().toISOString(),
+          eventLabel: label,
+          address: position?.address || row?.address || null,
+          severity: severity || (statusText === "blocked" ? "high" : null),
+        };
+      })
+      .filter(Boolean);
+  }, [canAccessMonitoring, decoratedTable]);
+  const alertRows = useMemo(() => {
+    const base = Array.isArray(effectivePendingAlerts) ? effectivePendingAlerts : [];
+    const seen = new Set(
+      base.map((alert) => String(alert?.deviceId || alert?.vehicleId || alert?.id || "")),
+    );
+    const fallback = (monitoringAlertFallback || []).filter((entry) => {
+      const key = String(entry?.deviceId || entry?.vehicleId || entry?.id || "");
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const merged = [...base, ...fallback];
+    if (!telemetryAlert || !canAccessAlerts) return merged;
+    return [telemetryAlert, ...merged];
+  }, [canAccessAlerts, effectivePendingAlerts, monitoringAlertFallback, telemetryAlert]);
+  const conjugatedAlertRows = useMemo(
+    () => (Array.isArray(effectiveConjugatedAlerts) ? effectiveConjugatedAlerts : []),
+    [effectiveConjugatedAlerts],
+  );
+
+  const unresolvedConjugatedAlerts = useMemo(
+    () => conjugatedAlertRows.filter((row) => !row?.resolved),
+    [conjugatedAlertRows],
+  );
 
 
   const renderCommunicationSummary = (expanded = false) => (
@@ -244,11 +757,22 @@ export default function Home() {
                   onClick={() => window.open(`/monitoring?filter=${bucket.filterKey}`, "_blank")}
                 >
                   <td className="py-2 pr-4 text-white/80">{bucket.label}</td>
-                  <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "No vehicles" : bucket.vehicles.length}</td>
+                  <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "0" : bucket.vehicles.length}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {communicationSource.loading && (
+            <div className="mt-3 text-xs text-white/50">Carregando dados de comunicação…</div>
+          )}
+          {!communicationSource.loading && communicationStats.totalWithData === 0 && (
+            <div className="mt-3 text-xs text-white/50">Sem dados no período.</div>
+          )}
+          {!communicationSource.loading && communicationStats.missingCount > 0 && communicationStats.totalWithData > 0 && (
+            <div className="mt-3 text-xs text-white/50">
+              {communicationStats.missingCount} veículo(s) sem registro de comunicação.
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -403,7 +927,7 @@ export default function Home() {
         <div className="py-6">
           <DataState state="info" tone="muted" title="Sem permissão para ver alertas conjugados" />
         </div>
-      ) : conjugatedAlertRows.length === 0 ? (
+      ) : unresolvedConjugatedAlerts.length === 0 ? (
         <div className="py-6">
           <DataState state="empty" tone="muted" title="Nenhum alerta crítico nas últimas 5 horas" />
         </div>
@@ -420,7 +944,7 @@ export default function Home() {
               </tr>
             </thead>
             <tbody>
-              {conjugatedAlertRows.slice(0, expanded ? conjugatedAlertRows.length : 8).map((row) => (
+              {unresolvedConjugatedAlerts.slice(0, expanded ? unresolvedConjugatedAlerts.length : 8).map((row) => (
                 <tr
                   key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
@@ -436,8 +960,8 @@ export default function Home() {
                   </td>
                   <td className="py-2 pr-4 text-white/70">{formatDate(row.eventTime, locale)}</td>
                   <td className="py-2 pr-4 text-white/70">{row.eventLabel || "—"}</td>
-                  <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
-                  <td className="py-2 pr-4 text-white/70">{row.severity || "Crítica"}</td>
+                    <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
+                    <td className="py-2 pr-4 text-white/70">{row.severity || "Crítica"}</td>
                 </tr>
               ))}
             </tbody>
@@ -465,31 +989,44 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
+      <PageHeader />
+      {mirrorPartial && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Alguns espelhados nao responderam. Os totais exibidos podem estar incompletos.
+        </div>
+      )}
+      {showTelemetryWarning && (
+        <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+          Sem telemetria recente para {tenant?.name || "este cliente"}. Os veículos podem aparecer como offline.
+        </div>
+      )}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title={t("home.vehiclesMonitored")}
-          value={loadingVehicles ? "…" : summary.total}
+          value={effectiveVehiclesLoading ? "…" : summary.total}
           hint={t("home.syncedAt", {
-            time: telemetryFetchedAt ? new Date(telemetryFetchedAt).toLocaleTimeString(locale) : "—",
+            time: effectiveTelemetryFetchedAt
+              ? new Date(effectiveTelemetryFetchedAt).toLocaleTimeString(locale)
+              : "—",
           })}
           onClick={() => setSelectedCard("monitored")}
         />
         <StatCard
           title={t("home.inRoute")}
-          value={!canAccessMonitoring ? "—" : loadingPositions ? "…" : routeMetrics.totalWithRoute}
+          value={!canAccessMonitoring ? "—" : effectivePositionsLoading ? "…" : routeMetrics.totalWithRoute}
           hint={t("home.onRouteHint", { percent: percentage(routeMetrics.totalWithRoute, summary.total) })}
           onClick={canAccessMonitoring ? () => setSelectedCard("route") : undefined}
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={!canAccessMonitoring ? "—" : pendingAlertsLoading ? "…" : alertRows.length}
+          value={!canAccessMonitoring ? "—" : effectiveAlertsLoading ? "…" : alertRows.length}
           hint="Alertas ativos no monitoramento"
           variant="alert"
           onClick={canAccessMonitoring ? () => setSelectedCard("alert") : undefined}
         />
         <StatCard
           title="Alertas conjugados"
-          value={!canAccessMonitoring ? "—" : conjugatedAlertsLoading ? "…" : conjugatedAlertRows.length}
+          value={!canAccessMonitoring ? "—" : effectiveConjugatedLoading ? "…" : unresolvedConjugatedAlerts.length}
           hint="Alertas graves/críticos nas últimas 5 horas"
           variant="alert"
           onClick={canAccessMonitoring ? () => setSelectedCard("critical") : undefined}
@@ -505,7 +1042,7 @@ export default function Home() {
 function StatCard({ title, value, hint, variant = "default", onClick }) {
   const palette = {
     default: "bg-[#12161f] border border-white/5",
-    alert: "bg-red-500/10 border border-red-500/30",
+    alert: "alert-card",
   };
 
   return (
@@ -538,16 +1075,45 @@ function Metric({ label, value, onClick }) {
   );
 }
 
+function isClosedTaskStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    "final",
+    "finalizado",
+    "finalizada",
+    "concluido",
+    "concluida",
+    "concluído",
+    "concluída",
+    "encerrado",
+    "encerrada",
+    "cancelado",
+    "cancelada",
+    "done",
+    "finished",
+    "completed",
+    "resolved",
+    "closed",
+    "inactive",
+    "inativo",
+  ].some((token) => normalized.includes(token));
+}
+
 function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()) {
-  const activeTasks = Array.isArray(tasks)
-    ? tasks.filter((task) => !String(task.status || "").toLowerCase().includes("final"))
-    : [];
+  const activeTasks = Array.isArray(tasks) ? tasks.filter((task) => !isClosedTaskStatus(task?.status)) : [];
   const routesByVehicle = new Map();
+  const routesByDevice = new Map();
+
   activeTasks.forEach((task) => {
-    const deviceKey = toDeviceKey(task.deviceId ?? task.device?.id ?? task.device?.deviceId ?? "");
-    const resolvedVehicleId = task.vehicleId ?? (deviceKey ? vehicleByDeviceId.get(String(deviceKey))?.id : null);
-    const key = resolvedVehicleId ? String(resolvedVehicleId) : "";
-    if (key) routesByVehicle.set(key, task);
+    const deviceKey = toDeviceKey(task?.deviceId ?? task?.device?.id ?? task?.device?.deviceId ?? "");
+    const resolvedVehicleId = task?.vehicleId ?? (deviceKey ? vehicleByDeviceId.get(String(deviceKey))?.id : null);
+    if (resolvedVehicleId) {
+      routesByVehicle.set(String(resolvedVehicleId), task);
+    }
+    if (deviceKey) {
+      routesByDevice.set(String(deviceKey), task);
+    }
   });
 
   let totalWithRoute = 0;
@@ -560,8 +1126,13 @@ function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()
   const now = Date.now();
 
   for (const vehicle of table) {
-    const key = String(vehicle.vehicleId ?? vehicle.vehicle?.id ?? vehicle.device?.vehicleId ?? vehicle.id ?? "");
-    if (!key || !routesByVehicle.has(key)) continue;
+    const vehicleKey = String(vehicle.vehicleId ?? vehicle.vehicle?.id ?? vehicle.device?.vehicleId ?? vehicle.id ?? "");
+    const deviceKey = String(
+      vehicle.deviceId ?? vehicle.device?.id ?? vehicle.device?.deviceId ?? vehicle.device?.traccarId ?? vehicle.id ?? "",
+    );
+    const task = routesByVehicle.get(vehicleKey) || routesByDevice.get(deviceKey);
+    if (!task) continue;
+
     totalWithRoute += 1;
     const online = vehicle.status === "online";
     if (online) withSignal += 1;
@@ -576,39 +1147,115 @@ function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()
       if (reason.includes("face")) blocked.face += 1;
     }
 
-    const task = routesByVehicle.get(key);
     const startExpected = task?.startTimeExpected ? Date.parse(task.startTimeExpected) : null;
     const endExpected = task?.endTimeExpected ? Date.parse(task.endTimeExpected) : null;
-    const statusText = String(task?.status || "").toLowerCase();
-    if (startExpected && now > startExpected && !statusText.includes("final")) routeDelay += 1;
-    if (endExpected && now > endExpected && !statusText.includes("final")) routeDeviation += 1;
+    const isClosed = isClosedTaskStatus(task?.status);
+    if (startExpected && now > startExpected && !isClosed) routeDelay += 1;
+    if (endExpected && now > endExpected && !isClosed) routeDeviation += 1;
   }
 
   return { totalWithRoute, withoutSignal, withSignal, routeDelay, routeDeviation, blocked };
 }
 
-function buildOfflineBuckets(table = []) {
-  const now = Date.now();
-  const offlineVehicles = table.filter((item) => item.status === "offline" || item.status === "blocked");
+function resolveCommunicationTimestamp(entry) {
+  if (!entry) return null;
+  const device = entry.device || entry;
+  const vehicle = entry.vehicle || null;
+  const position = entry.position || device?.lastPosition || device?.position || null;
+  const candidate =
+    position?.serverTime ||
+    position?.deviceTime ||
+    position?.fixTime ||
+    position?.gpsTime ||
+    position?.time ||
+    device?.lastCommunication ||
+    device?.lastUpdate ||
+    device?.traccar?.lastUpdate ||
+    vehicle?.lastCommunication ||
+    vehicle?.lastUpdate ||
+    entry?.lastUpdate ||
+    null;
 
-  const withLast = offlineVehicles.map((vehicle) => {
-    const lastUpdate = vehicle.lastUpdate ? Date.parse(vehicle.lastUpdate) : null;
-    const minutes = lastUpdate ? (now - lastUpdate) / (1000 * 60) : Infinity;
-    return { ...vehicle, offlineMinutes: minutes };
-  });
+  if (!candidate) return null;
+  const ts = typeof candidate === "number" ? candidate : Date.parse(candidate);
+  return Number.isFinite(ts) ? ts : null;
+}
 
-  return COMMUNICATION_BUCKETS.map((bucket) => ({
+function resolveCommunicationClientId(entry) {
+  const device = entry?.device || entry || {};
+  const vehicle = entry?.vehicle || null;
+  return (
+    entry?.clientId ||
+    device?.clientId ||
+    device?.tenantId ||
+    vehicle?.clientId ||
+    vehicle?.tenantId ||
+    vehicle?.client?.id ||
+    entry?.tenantId ||
+    null
+  );
+}
+
+function resolveCommunicationKey(entry) {
+  const device = entry?.device || entry || {};
+  return (
+    entry?.id ||
+    entry?.deviceId ||
+    entry?.uniqueId ||
+    device?.traccarId ||
+    device?.deviceId ||
+    device?.id ||
+    device?.uniqueId ||
+    null
+  );
+}
+
+function buildCommunicationBuckets(entries = [], { now = Date.now(), dedupeByClient = false } = {}) {
+  const buckets = COMMUNICATION_BUCKETS.map((bucket) => ({
     label: bucket.label,
     filterKey: bucket.key,
-    vehicles: withLast.filter(
-      (vehicle) => vehicle.offlineMinutes >= bucket.minMinutes && vehicle.offlineMinutes < bucket.maxMinutes,
-    ),
+    vehicles: [],
+    minMinutes: bucket.minMinutes,
+    maxMinutes: bucket.maxMinutes,
   }));
+  const missing = [];
+  const seen = new Set();
+
+  (Array.isArray(entries) ? entries : []).forEach((entry, index) => {
+    const clientId = resolveCommunicationClientId(entry);
+    const key = resolveCommunicationKey(entry) ?? `row-${index}`;
+    const compositeKey = dedupeByClient ? `${clientId ?? "unknown"}:${key}` : String(key);
+    if (seen.has(compositeKey)) return;
+    seen.add(compositeKey);
+
+    const ts = resolveCommunicationTimestamp(entry);
+    if (!ts) {
+      missing.push(entry);
+      return;
+    }
+    const minutes = Math.max(0, (now - ts) / (1000 * 60));
+    const bucket = buckets.find((item) => minutes >= item.minMinutes && minutes < item.maxMinutes) || buckets[buckets.length - 1];
+    bucket.vehicles.push(entry);
+  });
+
+  return {
+    buckets,
+    missingCount: missing.length,
+    total: seen.size,
+    totalWithData: Math.max(0, seen.size - missing.length),
+  };
 }
 
 function percentage(value, total) {
-  if (!total) return "0%";
-  return `${Math.round((Number(value || 0) / total) * 100)}%`;
+  if (!total) return "0";
+  return String(Math.round((Number(value || 0) / total) * 100));
+}
+
+function normalizeAlertLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Alerta ativo";
+  const normalized = raw.replace(/[_]+/g, " ").toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function formatDate(value, locale = "pt-BR") {

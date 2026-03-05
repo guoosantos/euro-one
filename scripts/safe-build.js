@@ -13,6 +13,6 @@ mkdirSync(snap, { recursive: true });
 if (existsSync(distDir)) execSync(`cp -a ${distDir} ${snap}/dist`, { stdio: "inherit" });
 console.log(`📦 snapshot: ${snap}`);
 execSync("npm run build --workspace client", { stdio: "inherit", cwd: rootDir });
-execSync(`sudo rsync -a --delete ${distDir}/ /var/www/euro/web/`, { stdio: "inherit" });
+execSync(`sudo rsync -a --delete ${distDir}/ /var/www/euro-one/dist/`, { stdio: "inherit" });
 execSync("sudo systemctl reload nginx", { stdio: "inherit" });
 console.log("✅ publicado");

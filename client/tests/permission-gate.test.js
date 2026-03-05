@@ -4,7 +4,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 
-import { createPermissionResolver } from "../src/lib/permissions/permission-gate.js";
+import { createPermissionResolver, resolveCanManageUsers } from "../src/lib/permissions/permission-gate.js";
 
 const tenantUser = { role: "user", clientId: "client-1" };
 const useTenantHook = () => ({
@@ -58,4 +58,9 @@ test("usePermissionResolver respeita o contexto de permissões carregado no tena
   assert.equal(container.firstChild?.getAttribute("data-access"), "true");
 
   root.unmount();
+});
+
+test("resolveCanManageUsers permite perfil user quando permissão de usuários está visível", () => {
+  assert.equal(resolveCanManageUsers({ role: "user", permission: { canShow: true } }), true);
+  assert.equal(resolveCanManageUsers({ role: "user", permission: { canShow: false } }), false);
 });

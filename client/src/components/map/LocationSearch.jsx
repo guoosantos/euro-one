@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
 
+import { formatSuggestion } from "../../lib/address/autocomplete.js";
 import Input from "../../ui/Input.jsx";
 
 function buildSuggestionLines(item) {
   if (!item) return { title: "", subtitle: "" };
-  const title = item.concise || item.label || item.address || "";
-  const candidates = [item.label, item.address, item.subtitle, item.description].filter(Boolean);
+  const title = formatSuggestion(item, "");
+  const candidates = [item.description, item.subtitle, item.label, item.concise, item.address, item.raw]
+    .map((value) => formatSuggestion(value, ""))
+    .filter(Boolean);
   const subtitle = candidates.find((value) => value !== title) || "";
   return { title, subtitle };
 }
@@ -20,12 +23,16 @@ export default function LocationSearch({
   onSelectSuggestion,
   isSearching,
   errorMessage,
+  emptyMessage = "",
+  loadingMessage = "Buscando...",
   placeholder = "Buscar endereço ou coordenada",
   containerClassName = "",
   floating = false,
   onClear,
   variant = "map",
   portalSuggestions = false,
+  inputClassName = "",
+  disabled = false,
 }) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isFocused, setIsFocused] = useState(false);
@@ -34,7 +41,7 @@ export default function LocationSearch({
   const safeSuggestions = useMemo(() => (Array.isArray(suggestions) ? suggestions : []), [suggestions]);
   const trimmedValue = String(value ?? "").trim();
   const hasSuggestions = safeSuggestions.length > 0;
-  const showSuggestions = isFocused && Boolean(trimmedValue) && hasSuggestions;
+  const showPanel = isFocused && Boolean(trimmedValue) && (hasSuggestions || isSearching || emptyMessage || errorMessage);
   const showClearButton = Boolean(onClear) && Boolean(trimmedValue);
   const isToolbar = variant === "toolbar";
 
@@ -43,7 +50,7 @@ export default function LocationSearch({
   }, [value, safeSuggestions.length]);
 
   useEffect(() => {
-    if (!portalSuggestions || !showSuggestions) {
+    if (!portalSuggestions || !showPanel) {
       setPortalStyle(null);
       return;
     }
@@ -58,7 +65,7 @@ export default function LocationSearch({
         top: rect.bottom + 8,
         left: rect.left,
         width: rect.width,
-        zIndex: 1400,
+        zIndex: 12000,
       });
     };
 
@@ -69,9 +76,11 @@ export default function LocationSearch({
       window.removeEventListener("resize", updatePosition);
       document.removeEventListener("scroll", updatePosition, true);
     };
-  }, [portalSuggestions, showSuggestions]);
+  }, [portalSuggestions, showPanel]);
 
   const handleKeyDown = (event) => {
+    // Prevent global key handlers (map shortcuts, etc.) from swallowing input spaces.
+    event.stopPropagation();
     if (event.key === "ArrowDown") {
       if (!hasSuggestions) return;
       event.preventDefault();
@@ -105,38 +114,52 @@ export default function LocationSearch({
     }
   };
 
-  const suggestionList = showSuggestions ? (
+  const suggestionList = showPanel ? (
     <div
       className={isToolbar ? "map-search-suggestions left-0 w-full" : "map-search-suggestions"}
       style={portalSuggestions ? portalStyle : undefined}
     >
       <ul className="max-h-64 overflow-auto text-xs text-white/80">
-        {safeSuggestions.map((item, index) => {
-          const key = item.id || `${item.lat}-${item.lng}-${index}`;
-          const isActive = index === activeIndex;
-          const { title, subtitle } = buildSuggestionLines(item);
-          return (
-            <li
-              key={key}
-              className={`flex cursor-pointer items-start gap-2 px-3 py-2 text-left transition ${
-                isActive ? "bg-white/10" : "hover:bg-white/5"
-              }`}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onSelectSuggestion?.(item);
-                setIsFocused(false);
-              }}
-            >
-              <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-white">{title}</span>
-                {subtitle ? (
-                  <span className="truncate text-[10px] text-white/60">{subtitle}</span>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
+        {hasSuggestions
+          ? safeSuggestions.map((item, index) => {
+              const key = item.id || item.placeId || item.place_id || `${item.lat}-${item.lng}-${index}`;
+              const isActive = index === activeIndex;
+              const { title, subtitle } = buildSuggestionLines(item);
+              return (
+                <li
+                  key={key}
+                  className={`flex cursor-pointer items-start gap-2 px-3 py-2 text-left transition ${
+                    isActive ? "bg-white/10" : "hover:bg-white/5"
+                  }`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onSelectSuggestion?.(item);
+                    setIsFocused(false);
+                  }}
+                >
+                  <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate text-white">{title}</span>
+                    {subtitle ? (
+                      <span className="truncate text-[10px] text-white/60">{subtitle}</span>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })
+          : isSearching
+            ? (
+              <li className="px-3 py-2 text-xs text-white/60">{loadingMessage}</li>
+            )
+            : errorMessage
+              ? (
+                <li className="px-3 py-2 text-xs text-amber-300/80">{errorMessage}</li>
+              )
+              : emptyMessage
+                ? (
+                  <li className="px-3 py-2 text-xs text-white/50">{emptyMessage}</li>
+                )
+                : null}
       </ul>
     </div>
   ) : null;
@@ -145,7 +168,7 @@ export default function LocationSearch({
     return (
       <div
         ref={containerRef}
-        className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${
+        className={`monitoring-search-shell relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${
           containerClassName
         }`}
       >
@@ -160,16 +183,11 @@ export default function LocationSearch({
           onChange={onChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="ml-2 w-full bg-transparent pr-10 text-xs text-white placeholder-white/40 focus:outline-none"
+          className={`ml-2 w-full bg-transparent pr-10 text-xs text-white placeholder-white/40 focus:outline-none ${inputClassName}`}
+          disabled={disabled}
         />
 
         <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-2 text-white/40">
-          {isSearching ? (
-            <div
-              className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent"
-              aria-label="loading"
-            />
-          ) : null}
           {showClearButton ? (
             <button
               type="button"
@@ -211,8 +229,9 @@ export default function LocationSearch({
           onBlur={() => setIsFocused(false)}
           placeholder={placeholder}
           icon={Search}
-          className="map-search-input pr-12"
+          className={`map-search-input pr-12 ${inputClassName}`}
           onKeyDown={handleKeyDown}
+          disabled={disabled}
         />
         <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2 text-xs text-white/70">
           {isSearching ? "Buscando..." : errorMessage || ""}

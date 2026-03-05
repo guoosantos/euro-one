@@ -15,6 +15,13 @@ persisted.forEach((entry) => {
     resolvedAt: entry.resolvedAt || entry.resolved_at || null,
     resolvedBy: entry.resolvedBy || entry.resolved_by || null,
     resolvedByName: entry.resolvedByName || entry.resolved_by_name || null,
+    notes: entry.notes || entry.note || null,
+    vehicleId: entry.vehicleId ? String(entry.vehicleId) : null,
+    deviceId: entry.deviceId ? String(entry.deviceId) : null,
+    vehicleLabel: entry.vehicleLabel || entry.vehicle_name || null,
+    eventLabel: entry.eventLabel || entry.event_name || null,
+    eventType: entry.eventType || entry.event_type || null,
+    eventTime: entry.eventTime || entry.event_time || null,
   });
 });
 
@@ -31,6 +38,9 @@ function persist() {
 }
 
 export function listResolvedEvents({ clientId } = {}) {
+  if (typeof clientId === "undefined") {
+    return Array.from(records.values()).map(clone);
+  }
   const targetClient = clientId != null ? String(clientId) : null;
   return Array.from(records.values())
     .filter((record) => record.clientId === targetClient)
@@ -43,7 +53,21 @@ export function getEventResolution(eventId, { clientId } = {}) {
   return clone(records.get(key));
 }
 
-export function markEventResolved(eventId, { clientId = null, resolvedBy = null, resolvedByName = null } = {}) {
+export function markEventResolved(
+  eventId,
+  {
+    clientId = null,
+    resolvedBy = null,
+    resolvedByName = null,
+    notes = null,
+    vehicleId = null,
+    deviceId = null,
+    vehicleLabel = null,
+    eventLabel = null,
+    eventType = null,
+    eventTime = null,
+  } = {},
+) {
   const normalizedId = String(eventId || "").trim();
   if (!normalizedId) {
     throw createError(400, "ID do evento é obrigatório");
@@ -55,6 +79,13 @@ export function markEventResolved(eventId, { clientId = null, resolvedBy = null,
     resolvedAt: new Date().toISOString(),
     resolvedBy: resolvedBy != null ? String(resolvedBy) : null,
     resolvedByName: resolvedByName || null,
+    notes: notes || null,
+    vehicleId: vehicleId != null ? String(vehicleId) : null,
+    deviceId: deviceId != null ? String(deviceId) : null,
+    vehicleLabel: vehicleLabel || null,
+    eventLabel: eventLabel || null,
+    eventType: eventType || null,
+    eventTime: eventTime || null,
   };
 
   const key = buildKey(normalizedId, clientId);

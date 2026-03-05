@@ -115,7 +115,7 @@ export default function AdminImportXlsx() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Importar Base (XLSX)" description="Carregue a planilha EXPORT_VEICULO_EQUIP_OS_FINAL.xlsx" />
+      <PageHeader />
 
       <div className="grid gap-6 rounded-2xl border border-white/10 bg-white/5 p-6">
         <Field label="Arquivo XLSX">

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useRef } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -7,7 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
-import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -19,32 +19,46 @@ function normalise(payload) {
 const LivePositionsContext = createContext({ data: [], positions: [], loading: false, error: null, refresh: () => {} });
 
 export function LivePositionsProvider({ children, interval = 60_000 }) {
-  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const {
+    tenantId,
+    isAuthenticated,
+    initialising,
+    loading: tenantLoading,
+    mirrorContextMode,
+    activeMirror,
+    activeMirrorOwnerClientId,
+    contextSwitching,
+    contextSwitchKey,
+    contextAbortSignal,
+  } = useTenant();
   const { t } = useTranslation();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
-  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const autoRefresh = useAutoRefresh({
+    enabled: isAuthenticated && !initialising && !tenantLoading && !contextSwitching,
+    intervalMs: interval,
+    pauseWhenOverlayOpen: true,
+  });
   const canAccessMonitoring = monitoringPermission.hasAccess;
+  const lastPositionsRef = useRef([]);
 
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
   const params = useMemo(
     () => resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId }),
     [mirrorContextMode, mirrorOwnerClientId, tenantId],
   );
-  const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
-  );
-
   const fetchPositions = useCallback(async () => {
     if (!canAccessMonitoring) return [];
     const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, {
       params,
-      headers: mirrorHeaders,
       suppressForbidden: true,
       forbiddenFallbackData: [],
+      signal: contextAbortSignal,
     });
     if (error) {
+      if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") {
+        return lastPositionsRef.current;
+      }
       const status = Number(error?.response?.status ?? error?.status);
       const friendly = error?.response?.data?.message || error.message || t("errors.loadPositions");
       const normalised = new Error(friendly);
@@ -55,15 +69,32 @@ export function LivePositionsProvider({ children, interval = 60_000 }) {
       if (error?.permanent) normalised.permanent = true;
       throw normalised;
     }
-    return normalise(payload);
-  }, [canAccessMonitoring, mirrorHeaders, params, t]);
+    const normalised = normalise(payload);
+    lastPositionsRef.current = normalised;
+    return normalised;
+  }, [canAccessMonitoring, params, t]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchPositions,
     intervalMs: autoRefresh.intervalMs,
-    enabled: isAuthenticated && canAccessMonitoring,
+    enabled:
+      isAuthenticated &&
+      canAccessMonitoring &&
+      !initialising &&
+      !tenantLoading &&
+      !accessLoading &&
+      !contextSwitching,
     paused: autoRefresh.paused,
-    dependencies: [canAccessMonitoring, mirrorContextMode, mirrorHeaders, tenantId, isAuthenticated],
+    dependencies: [
+      canAccessMonitoring,
+      mirrorContextMode,
+      tenantId,
+      isAuthenticated,
+      initialising,
+      tenantLoading,
+      accessLoading,
+      contextSwitchKey,
+    ],
     resetOnChange: true,
   });
 

@@ -12,9 +12,11 @@ import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import { usePermissionGate, usePermissionResolver } from "../lib/permissions/permission-gate.js";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
+import CommandSendModal from "../components/commands/CommandSendModal.jsx";
 import {
   filterCommandsBySearch,
   mergeCommands,
@@ -22,12 +24,7 @@ import {
   resolveCommandSendError,
 } from "./commands-helpers.js";
 import CreateCommands from "./CreateCommands.jsx";
-
-const COMMAND_TABS = [
-  { id: "list", label: "Comandos", permission: { menuKey: "primary", pageKey: "commands", subKey: "list" } },
-  { id: "advanced", label: "Avançado", permission: { menuKey: "primary", pageKey: "commands", subKey: "advanced" } },
-  { id: "create", label: "Criar comandos", permission: { menuKey: "primary", pageKey: "commands", subKey: "create" } },
-];
+import { COMMAND_TABS, filterCommandTabs } from "./commands-tabs.js";
 const HISTORY_COLUMNS = [
   { id: "sentAt", label: "Enviado em", width: 170, minWidth: 150 },
   { id: "responseAt", label: "Respondido em", width: 170, minWidth: 150 },
@@ -45,6 +42,42 @@ const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_HISTORY_PAGE_SIZE = 20;
 
 const normalizeValue = (value) => String(value ?? "");
+
+const resolveVehicleBrand = (vehicle) => {
+  const attrs = vehicle?.attributes ?? {};
+  return (
+    vehicle?.brand ||
+    vehicle?.make ||
+    vehicle?.vehicleBrand ||
+    attrs.vehicleBrand ||
+    attrs.brand ||
+    attrs.make ||
+    attrs.vehicleMake ||
+    attrs.manufacturer ||
+    ""
+  );
+};
+
+const resolveVehicleModel = (vehicle) => {
+  const attrs = vehicle?.attributes ?? {};
+  return (
+    vehicle?.model ||
+    vehicle?.modelName ||
+    vehicle?.vehicleModel ||
+    attrs.vehicleModel ||
+    attrs.model ||
+    attrs.modelName ||
+    attrs.vehicleModelName ||
+    ""
+  );
+};
+
+const formatVehicleDescriptor = (vehicle) => {
+  const brand = resolveVehicleBrand(vehicle);
+  const model = resolveVehicleModel(vehicle);
+  const descriptor = [brand, model].filter(Boolean).join(" ").trim();
+  return descriptor ? descriptor.toUpperCase() : "";
+};
 
 const resolveParamLabel = (param, index) => {
   const label = typeof param?.label === "string" ? param.label.trim() : "";
@@ -192,21 +225,36 @@ const mergeHistoryItems = (items = []) => {
 const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export default function Commands() {
-  const { tenantId, tenant, user } = useTenant();
+  const { tenantId, tenantScope, homeClientId } = useTenant();
+  const { isAdminGeneral } = useAdminGeneralAccess();
   const { getPermission } = usePermissionResolver();
   const listPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "list" });
   const advancedPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "advanced" });
   const createPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "create" });
+  const historyResponsePermission = usePermissionGate({
+    menuKey: "primary",
+    pageKey: "commands",
+    subKey: "history-response",
+  });
   const canEditList = listPermission.isFull;
   const canEditAdvanced = advancedPermission.isFull;
   const canEditCreate = createPermission.isFull;
-  const canAccessCreateTab = createPermission.hasAccess;
-  const { vehicles, loading: vehiclesLoading } = useVehicles();
-  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
-  const { confirmDelete } = useConfirmDialog();
+  const canAccessCreateTab = createPermission.canShow;
+  const canConfigureCommands = isAdminGeneral && listPermission.isFull;
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0].id);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const { vehicles, loading: vehiclesLoading } = useVehicles({ includeTelemetry: false });
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)),
+    [vehicles, selectedVehicleId],
+  );
+  const resolvedClientId = useMemo(() => {
+    if (tenantScope !== "ALL" && tenantId) return tenantId;
+    return homeClientId ?? null;
+  }, [homeClientId, tenantId, tenantScope]);
+  const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
+  const { confirmDelete } = useConfirmDialog();
   const [device, setDevice] = useState(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceError, setDeviceError] = useState(null);
@@ -250,29 +298,25 @@ export default function Commands() {
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingCommandId, setDeletingCommandId] = useState(null);
-  const isMasterTenant = useMemo(() => {
-    const candidate =
-      tenant?.attributes?.isMasterAdmin ||
-      tenant?.attributes?.clientProfile?.clientType ||
-      tenant?.attributes?.clientType ||
-      user?.attributes?.isMasterAdmin ||
-      user?.attributes?.clientProfile?.clientType ||
-      user?.attributes?.clientType ||
-      null;
-    if (candidate === true) return true;
-    if (typeof candidate === "string") {
-      return candidate.trim().toUpperCase() === "ADMIN_MASTER";
-    }
-    return false;
-  }, [tenant, user]);
+  const [commandModalOpen, setCommandModalOpen] = useState(false);
+  const [commandModalSearch, setCommandModalSearch] = useState("");
+  const [commandModalSelectedKey, setCommandModalSelectedKey] = useState("");
+  const [commandModalStatus, setCommandModalStatus] = useState("idle");
+  const [commandModalMessage, setCommandModalMessage] = useState("");
+  const [commandModalOptions, setCommandModalOptions] = useState({});
+  const commandModalTimeoutRef = useRef(null);
+  const canShowHistoryResponse = historyResponsePermission.canShow;
   const historyColumns = useMemo(
-    () => HISTORY_COLUMNS.filter((column) => column.id !== "result" || isMasterTenant),
-    [isMasterTenant],
+    () =>
+      HISTORY_COLUMNS.filter((column) => {
+        if (column.id === "result" || column.id === "responseAt") {
+          return canShowHistoryResponse;
+        }
+        return true;
+      }),
+    [canShowHistoryResponse],
   );
-  const availableTabs = useMemo(
-    () => COMMAND_TABS.filter((tab) => getPermission(tab.permission).canShow),
-    [getPermission],
-  );
+  const availableTabs = useMemo(() => filterCommandTabs(getPermission), [getPermission]);
 
   useEffect(() => {
     if (!availableTabs.length) {
@@ -329,14 +373,21 @@ export default function Commands() {
 
   const protocolCommandsWithManual = useMemo(() => {
     if (!selectedVehicleId) return protocolCommands;
+    if (!isAdminGeneral) return protocolCommands;
     const alreadyAdded = (protocolCommands || []).some((command) => command.manualCustom);
     if (alreadyAdded) return protocolCommands;
     return [...(protocolCommands || []), manualCustomCommand];
-  }, [manualCustomCommand, protocolCommands, selectedVehicleId]);
+  }, [isAdminGeneral, manualCustomCommand, protocolCommands, selectedVehicleId]);
 
   useEffect(() => () => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (commandModalTimeoutRef.current) {
+      clearTimeout(commandModalTimeoutRef.current);
     }
   }, []);
 
@@ -368,6 +419,12 @@ export default function Commands() {
     }
   }, [commandPreferences]);
 
+  useEffect(() => {
+    if (!commandModalOpen) return;
+    setCommandModalStatus("idle");
+    setCommandModalMessage("");
+  }, [commandModalOpen, commandModalSelectedKey]);
+
   const showToast = useCallback((message, type = "success") => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
@@ -378,11 +435,15 @@ export default function Commands() {
 
   const vehicleSelectOptions = useMemo(
     () =>
-      vehicles.map((vehicle) => ({
-        value: String(vehicle.id),
-        label: formatVehicleLabel(vehicle),
-        description: vehicle.plate || "",
-      })),
+      vehicles.map((vehicle) => {
+        const descriptor = formatVehicleDescriptor(vehicle);
+        return {
+          value: String(vehicle.id),
+          label: formatVehicleLabel(vehicle),
+          description: descriptor,
+          searchText: [vehicle.plate, vehicle.name, vehicle.identifier, descriptor].filter(Boolean).join(" "),
+        };
+      }),
     [vehicles],
   );
 
@@ -401,8 +462,12 @@ export default function Commands() {
   );
 
   const mergedCommands = useMemo(
-    () => mergeCommands(protocolCommandsWithManual, customCommands, { deviceProtocol: device?.protocol }),
-    [customCommands, device?.protocol, protocolCommandsWithManual],
+    () =>
+      mergeCommands(protocolCommandsWithManual, customCommands, {
+        includeHiddenCustom: canEditCreate,
+        deviceProtocol: device?.protocol,
+      }),
+    [canEditCreate, customCommands, device?.protocol, protocolCommandsWithManual],
   );
 
   const advancedCommands = useMemo(
@@ -412,6 +477,29 @@ export default function Commands() {
         deviceProtocol: device?.protocol,
       }),
     [customCommands, device?.protocol, protocolCommandsWithManual],
+  );
+
+  const modalCommandSource = useMemo(() => {
+    const base = canConfigureCommands
+      ? mergedCommands
+      : mergedCommands.filter((command) => !(Array.isArray(command.parameters) && command.parameters.length));
+
+    if (!commandModalSelectedKey) return base;
+    const alreadyIncluded = base.some((command) => getCommandKey(command) === commandModalSelectedKey);
+    if (alreadyIncluded) return base;
+    const selectedFromAdvanced = advancedCommands.find((command) => getCommandKey(command) === commandModalSelectedKey);
+    if (!selectedFromAdvanced) return base;
+    return [...base, selectedFromAdvanced];
+  }, [advancedCommands, canConfigureCommands, commandModalSelectedKey, mergedCommands]);
+
+  const modalCommands = useMemo(
+    () => filterCommandsBySearch(modalCommandSource, commandModalSearch),
+    [commandModalSearch, modalCommandSource],
+  );
+
+  const selectedModalCommand = useMemo(
+    () => modalCommands.find((command) => getCommandKey(command) === commandModalSelectedKey) || null,
+    [modalCommands, commandModalSelectedKey],
   );
 
   const smsPresetOptions = useMemo(
@@ -435,10 +523,14 @@ export default function Commands() {
 
   const availableCommandKeys = useMemo(() => new Set(mergedCommands.map((command) => resolveUiCommandKey(command))), [mergedCommands]);
 
-  const filteredCommands = useMemo(
-    () => filterCommandsBySearch(mergedCommands, commandSearch),
-    [commandSearch, mergedCommands],
-  );
+  const filteredCommands = useMemo(() => {
+    const searched = filterCommandsBySearch(mergedCommands, commandSearch);
+    if (canConfigureCommands) return searched;
+    return searched.filter((command) => !(Array.isArray(command.parameters) && command.parameters.length));
+  }, [canConfigureCommands, commandSearch, mergedCommands]);
+
+  const modalLoading = commandsLoading || customCommandsLoading;
+  const modalError = commandsError || customCommandsError;
 
   const scopedPreferences = useMemo(() => {
     const scopeKey = getProtocolKey(device?.protocol);
@@ -515,13 +607,24 @@ export default function Commands() {
       setCommandErrors({});
       return;
     }
-    setDeviceLoading(true);
-    setDeviceError(null);
     setProtocolCommands([]);
     setCommandsError(null);
     setExpandedCommandId(null);
     setCommandParams({});
     setCommandErrors({});
+    const cachedDevice = selectedVehicle?.primaryDevice ?? selectedVehicle?.device ?? null;
+    if (selectedVehicle && !cachedDevice) {
+      setDevice(null);
+      setDeviceError("Veículo sem equipamento vinculado no Traccar");
+      return;
+    }
+    if (cachedDevice && !cachedDevice.traccarId) {
+      setDevice(null);
+      setDeviceError("Equipamento vinculado sem traccarId");
+      return;
+    }
+    setDeviceLoading(true);
+    setDeviceError(null);
     try {
       const traccarDevice = await resolveDeviceFromVehicle(selectedVehicleId);
       if (!traccarDevice) {
@@ -552,7 +655,7 @@ export default function Commands() {
     } finally {
       setDeviceLoading(false);
     }
-  }, [resolveDeviceFromVehicle, selectedVehicleId]);
+  }, [resolveDeviceFromVehicle, selectedVehicle, selectedVehicleId]);
 
   const fetchCommands = useCallback(async () => {
     if (!device?.protocol) {
@@ -573,12 +676,19 @@ export default function Commands() {
   }, [device?.protocol]);
 
   const fetchCustomCommands = useCallback(async () => {
+    if (!resolvedClientId) {
+      setCustomCommands([]);
+      setCustomCommandsError(new Error("Selecione um cliente no topo para listar comandos personalizados."));
+      setCustomCommandsLoading(false);
+      return [];
+    }
     setCustomCommandsLoading(true);
     setCustomCommandsError(null);
     const params = {
       ...(device?.traccarId ? { deviceId: device.traccarId } : {}),
       ...(device?.protocol ? { protocol: device.protocol } : {}),
-      ...(tenantId ? { clientId: tenantId } : {}),
+      clientId: resolvedClientId,
+      ...(canEditCreate ? { includeHidden: true } : {}),
     };
     try {
       const response = await api.get(API_ROUTES.commandsCustom, { params });
@@ -594,7 +704,7 @@ export default function Commands() {
       setCustomCommandsLoading(false);
     }
     return [];
-  }, [device?.protocol, device?.traccarId, tenantId]);
+  }, [canEditCreate, device?.protocol, device?.traccarId, resolvedClientId]);
 
   const fetchHistory = useCallback(
     async ({ useLoading, bustCache } = {}) => {
@@ -602,6 +712,21 @@ export default function Commands() {
         setHistory([]);
         setHistoryError(null);
         setHistoryWarning(null);
+        setHistoryTotal(0);
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
+        return;
+      }
+      if (deviceLoading) {
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
+        return;
+      }
+      if (!device?.traccarId) {
+        const message = deviceError || "Veículo sem equipamento vinculado no Traccar";
+        setHistory([]);
+        setHistoryError(null);
+        setHistoryWarning(message);
         setHistoryTotal(0);
         setHistoryLoading(false);
         setHistoryRefreshing(false);
@@ -668,7 +793,7 @@ export default function Commands() {
         setHistoryRefreshing(false);
       }
     },
-    [selectedVehicleId, historyPage, historyPerPage, tenantId],
+    [device?.traccarId, deviceError, deviceLoading, selectedVehicleId, historyPage, historyPerPage, tenantId],
   );
 
   const getPendingHistoryIds = useCallback(() => {
@@ -860,24 +985,29 @@ export default function Commands() {
     traccarCommandId: null,
   });
 
-  const handleSendCommand = async (command, { allowSend = canEditList } = {}) => {
+  const executeSendCommand = async (command, { allowSend = canEditList } = {}) => {
     if (!allowSend) {
-      return;
+      const message = "Você não tem permissão para enviar comandos.";
+      showToast(message, "error");
+      return { ok: false, message };
     }
     const commandKey = getCommandKey(command);
     if (!selectedVehicleId || !commandKey) {
-      showToast("Selecione um veículo válido", "error");
-      return;
+      const message = "Selecione um veículo válido";
+      showToast(message, "error");
+      return { ok: false, message };
     }
     const traccarId = Number(device?.traccarId);
     if (!Number.isFinite(traccarId)) {
-      showToast("Equipamento sem Traccar ID válido", "error");
-      return;
+      const message = "Equipamento sem Traccar ID válido";
+      showToast(message, "error");
+      return { ok: false, message };
     }
     const isManualCustom = command.manualCustom === true;
     if (command.kind !== "custom" && !device?.protocol) {
-      showToast("Veículo sem protocolo válido", "error");
-      return;
+      const message = "Veículo sem protocolo válido";
+      showToast(message, "error");
+      return { ok: false, message };
     }
     const manualParams = commandParams[commandKey] || {};
     const manualPayload = String(manualParams.data ?? manualParams.payload ?? "");
@@ -885,7 +1015,7 @@ export default function Commands() {
       const message = "Informe o payload para o comando personalizado.";
       setCommandErrors((current) => ({ ...current, [commandKey]: message }));
       showToast(message, "error");
-      return;
+      return { ok: false, message };
     }
 
     let pendingId = null;
@@ -919,12 +1049,23 @@ export default function Commands() {
           customCommandId: command.id,
         });
       } else {
+        const ensureParamObject = (value) => (value && typeof value === "object" ? value : {});
+        const defaultParams = ensureParamObject(command.defaultParams || command.params);
+        const fixedParams = ensureParamObject(command.fixedParams);
+        const explicitParams = ensureParamObject(commandParams[commandKey]);
+        const resolvedParams = { ...defaultParams, ...explicitParams, ...fixedParams };
+        const hasEditableParams = Array.isArray(command.parameters) && command.parameters.length > 0;
+        const hasAnyParams =
+          Object.keys(explicitParams).length > 0 ||
+          Object.keys(defaultParams).length > 0 ||
+          Object.keys(fixedParams).length > 0;
+        const shouldSendParams = hasEditableParams || hasAnyParams;
         response = await api.post(API_ROUTES.commandsSend, {
           ...sendPayloadBase,
           protocol: device.protocol,
           commandKey,
           commandName: command.name || commandKey,
-          params: commandParams[commandKey] || {},
+          params: shouldSendParams ? resolvedParams : {},
         });
       }
       const createdItem = response?.data?.data;
@@ -946,13 +1087,14 @@ export default function Commands() {
       }
       if (response?.data?.ok === false && response?.data?.warning) {
         showToast(response.data.warning, "warning");
-      } else {
-        showToast("Comando enviado com sucesso.");
+        return { ok: true, message: response.data.warning, warning: true };
       }
+      showToast("Comando enviado com sucesso.");
       setExpandedCommandId(null);
       if (response?.data?.ok !== false) {
         startHistoryPolling();
       }
+      return { ok: true, message: "Comando enviado com sucesso." };
     } catch (error) {
       const message = resolveCommandSendError(error, "Erro ao enviar comando");
       setCommandErrors((current) => ({ ...current, [commandKey]: message }));
@@ -962,14 +1104,63 @@ export default function Commands() {
         ),
       );
       showToast(message, "error");
+      return { ok: false, message };
     } finally {
       setSendingCommandId(null);
     }
   };
 
+  const openCommandModal = useCallback((command, options = {}) => {
+    const commandKey = command ? getCommandKey(command) : "";
+    if (commandModalTimeoutRef.current) {
+      clearTimeout(commandModalTimeoutRef.current);
+    }
+    setCommandModalOpen(true);
+    setCommandModalOptions(options);
+    setCommandModalSelectedKey(commandKey);
+    setCommandModalSearch("");
+    setCommandModalStatus("idle");
+    setCommandModalMessage("");
+  }, []);
+
+  const closeCommandModal = useCallback(() => {
+    if (commandModalTimeoutRef.current) {
+      clearTimeout(commandModalTimeoutRef.current);
+      commandModalTimeoutRef.current = null;
+    }
+    setCommandModalOpen(false);
+    setCommandModalOptions({});
+    setCommandModalSelectedKey("");
+    setCommandModalSearch("");
+    setCommandModalStatus("idle");
+    setCommandModalMessage("");
+  }, []);
+
+  const handleModalSendCommand = useCallback(async () => {
+    if (!selectedModalCommand) return;
+    setCommandModalStatus("sending");
+    setCommandModalMessage("");
+    const result = await executeSendCommand(selectedModalCommand, commandModalOptions);
+    if (result?.ok) {
+      const hasWarning = Boolean(result.warning);
+      setCommandModalStatus(hasWarning ? "warning" : "success");
+      setCommandModalMessage(hasWarning ? result.message || "Comando enviado com aviso." : "");
+      commandModalTimeoutRef.current = setTimeout(() => {
+        closeCommandModal();
+      }, 3000);
+      return;
+    }
+    setCommandModalStatus("error");
+    setCommandModalMessage(result?.message || "Erro ao enviar comando.");
+  }, [closeCommandModal, commandModalOptions, executeSendCommand, selectedModalCommand]);
+
   const handleDeleteCustomCommand = useCallback(
     async (command) => {
-      if (!canEditList) return;
+      if (!canEditCreate) return;
+      if (!resolvedClientId) {
+        showToast("Selecione um cliente no topo para excluir comandos personalizados.", "warning");
+        return;
+      }
       const commandId = command?.id;
       if (!commandId) return;
       const uiKey = getCommandKey(command);
@@ -980,7 +1171,9 @@ export default function Commands() {
         onConfirm: async () => {
           setDeletingCommandId(commandId);
           try {
-            await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
+            await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`, {
+              params: { clientId: resolvedClientId },
+            });
             setCustomCommands((current) => current.filter((item) => item.id !== commandId));
             if (expandedCommandId === uiKey) {
               setExpandedCommandId(null);
@@ -995,7 +1188,7 @@ export default function Commands() {
         },
       });
     },
-    [canEditList, confirmDelete, expandedCommandId, setCustomCommands, showToast],
+    [canEditCreate, confirmDelete, expandedCommandId, resolvedClientId, setCustomCommands, showToast],
   );
 
   const handleUpdateParam = (commandId, key, value) => {
@@ -1007,6 +1200,14 @@ export default function Commands() {
       },
     }));
   };
+
+  const handleModalParamChange = useCallback(
+    (key, value) => {
+      if (!commandModalSelectedKey) return;
+      handleUpdateParam(commandModalSelectedKey, key, value);
+    },
+    [commandModalSelectedKey, handleUpdateParam],
+  );
 
   const selectedAdvancedCommand = useMemo(
     () => advancedCommands.find((command) => resolveUiCommandKey(command) === advancedCommandKey),
@@ -1198,17 +1399,17 @@ export default function Commands() {
     const commandKey = getCommandKey(command);
     const uiKey = resolveUiCommandKey(command);
     const hasParams = Array.isArray(command.parameters) && command.parameters.length > 0;
-    const isExpanded = expandedCommandId === commandKey;
+    const isExpanded = canConfigureCommands && expandedCommandId === commandKey;
     const paramValues = commandParams[commandKey] || {};
     const commandError = commandErrors[commandKey];
-    const shouldShowConfigure = hasParams;
+    const shouldShowConfigure = hasParams && canConfigureCommands;
     const sendDisabled = sendingCommandId === commandKey || !canEditList;
     const isCustomCommand = command.kind === "custom";
-    const canDeleteCustom = isCustomCommand && command.readonly !== true && canEditList;
+    const canDeleteCustom = isCustomCommand && command.readonly !== true && canEditCreate && resolvedClientId;
 
     return (
       <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <div>
             <p className="text-sm font-semibold text-white/90">{command.name || commandKey}</p>
             {command.description && <p className="mt-1 text-xs text-white/60">{command.description}</p>}
@@ -1220,7 +1421,7 @@ export default function Commands() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             {canDeleteCustom && (
               <button
                 type="button"
@@ -1241,13 +1442,13 @@ export default function Commands() {
                 {isExpanded ? "Fechar" : "Configurar"}
               </Button>
             ) : null}
-            <Button type="button" onClick={() => handleSendCommand(command)} disabled={sendDisabled}>
+            <Button type="button" onClick={() => openCommandModal(command)} disabled={sendDisabled}>
               {sendingCommandId === commandKey ? "Enviando…" : "Enviar"}
             </Button>
           </div>
         </div>
         {commandError && <p className="mt-2 text-xs text-red-300">Erro: {commandError}</p>}
-        {hasParams && isExpanded && (
+        {hasParams && isExpanded && canConfigureCommands && (
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {command.parameters.map((param, index) => {
               const inputId = `${uiKey}-${param.key}`;
@@ -1333,12 +1534,9 @@ export default function Commands() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
-      <section className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex w-full flex-col gap-6 pb-6">
+      <section className="flex flex-col gap-4">
         <PageHeader
-          overline="Central de comandos"
-          title="Comandos"
-          subtitle="Envie comandos aos veículos, personalize preferências e acompanhe o histórico."
           actions={(
             <>
               <Button type="button" onClick={handleShow}>
@@ -1383,7 +1581,7 @@ export default function Commands() {
             Sem acesso aos módulos de comandos.
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="flex flex-col gap-4">
           {activeTab === "list" && (
             <>
               <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
@@ -1605,7 +1803,7 @@ export default function Commands() {
                             showToast("Selecione um comando para enviar.", "error");
                             return;
                           }
-                          handleSendCommand(selectedAdvancedCommand, { allowSend: canEditAdvanced });
+                          openCommandModal(selectedAdvancedCommand, { allowSend: canEditAdvanced });
                         }}
                         disabled={!canEditAdvanced || !selectedAdvancedCommand || !selectedVehicleId}
                       >
@@ -1683,14 +1881,14 @@ export default function Commands() {
 
           {activeTab === "create" && (
             <div className="mb-6">
-              <CreateCommands readOnly={!canEditCreate} />
+              <CreateCommands readOnly={!canEditCreate} onCommandsUpdated={fetchCustomCommands} />
             </div>
           )}
           </div>
         )}
       </section>
 
-      <section className="flex min-h-0 flex-col gap-4">
+      <section className="flex flex-col gap-4">
         <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1703,7 +1901,7 @@ export default function Commands() {
               onClick={handleRefreshHistory}
               disabled={historyRefreshing || historyLoading}
             >
-              <RefreshCw className={`h-4 w-4 ${historyRefreshing || historyLoading ? "animate-spin" : ""}`} />
+              <RefreshCw className="h-4 w-4" />
               <span>{historyRefreshing || historyLoading ? "Atualizando…" : "Atualizar"}</span>
             </Button>
           </div>
@@ -1719,7 +1917,7 @@ export default function Commands() {
           )}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+        <div className="max-h-[520px] overflow-auto rounded-xl border border-white/10 bg-[#0b0f17] md:max-h-[560px] lg:max-h-[600px]">
           <table className="w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               {historyColumns.map((column) => (
@@ -2007,6 +2205,25 @@ export default function Commands() {
           </div>
         </div>
       )}
+      <CommandSendModal
+        isOpen={commandModalOpen}
+        onClose={closeCommandModal}
+        commands={modalCommands}
+        loading={modalLoading}
+        error={modalError}
+        search={commandModalSearch}
+        onSearchChange={setCommandModalSearch}
+        selectedKey={commandModalSelectedKey}
+        onSelectCommand={setCommandModalSelectedKey}
+        selectedCommand={selectedModalCommand}
+        params={commandParams[commandModalSelectedKey] || {}}
+        onParamChange={handleModalParamChange}
+        onSubmit={handleModalSendCommand}
+        sending={commandModalStatus === "sending"}
+        sendError={commandErrors[commandModalSelectedKey]}
+        status={commandModalStatus}
+        message={commandModalMessage}
+      />
     </div>
   );
 }

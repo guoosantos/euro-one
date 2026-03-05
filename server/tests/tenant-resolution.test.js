@@ -15,6 +15,7 @@ import contextRoutes from "../routes/context.js";
 import permissionsRoutes from "../routes/permissions.js";
 import userRoutes from "../routes/users.js";
 import coreRoutes, { __resetCoreRouteMocks, __setCoreRouteMocks } from "../routes/core.js";
+import { requestApp } from "./app-request.js";
 
 const createdVehicles = [];
 const createdDevices = [];
@@ -59,9 +60,8 @@ function setupAppWithUsersAndPermissions() {
 }
 
 async function callEndpoint(app, { path, token }) {
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await requestApp(app, {
+    url: path,
     headers: { Authorization: `Bearer ${token}` },
   });
   let payload = null;
@@ -70,7 +70,6 @@ async function callEndpoint(app, { path, token }) {
   } catch (_error) {
     payload = null;
   }
-  server.close();
   return { status: response.status, payload };
 }
 
@@ -159,7 +158,7 @@ describe("tenant resolution", () => {
     assert.equal(blockedResponse.status, 403);
   });
 
-  it("não trata tenant_admin como admin global ao resolver tenant", () => {
+  it("não trata tenant_admin como admin global ao resolver tenant", async () => {
     const userClientId = "tenant-admin-client";
     const otherClientId = "tenant-admin-other";
     const req = {
@@ -214,7 +213,12 @@ describe("tenant resolution", () => {
     });
 
     const app = setupApp();
-    const token = signSession({ id: "user-mirror", role: "user", clientId: receiverClientId });
+    const token = signSession({
+      id: "user-mirror",
+      role: "user",
+      clientId: receiverClientId,
+      attributes: { userAccess: { vehicleAccess: { mode: "selected", vehicleIds: [allowedVehicle.id] } } },
+    });
 
     const response = await callEndpoint(app, {
       path: `/api/core/vehicles?clientId=${ownerClientId}`,
@@ -271,7 +275,7 @@ describe("tenant resolution", () => {
     assert.ok([403, 404].includes(response.status));
   });
 
-  it("prioriza header X-Owner-Client-Id quando mirrorMode está ativo", () => {
+  it("prioriza header X-Owner-Client-Id quando mirrorMode está ativo", async () => {
     config.features.mirrorMode = true;
     const ownerClientId = "owner-header";
     const receiverClientId = "receiver-header";
@@ -303,7 +307,7 @@ describe("tenant resolution", () => {
       },
     };
 
-    const tenant = resolveTenant(req, { requestedClientId: req.query.clientId, required: false });
+    const tenant = await resolveTenant(req, { requestedClientId: req.query.clientId, required: false });
 
     assert.equal(tenant.accessType, "mirror");
     assert.equal(tenant.clientIdResolved, ownerClientId);
@@ -312,7 +316,7 @@ describe("tenant resolution", () => {
     assert.ok(tenant.mirrorContext);
   });
 
-  it("faz fallback para o próprio tenant quando explicitClientIds só contém o cliente atual", () => {
+  it("faz fallback para o próprio tenant quando explicitClientIds só contém o cliente atual", async () => {
     config.features.tenantFallbackToSelf = true;
     const userClientId = "client-self";
     const req = {
@@ -326,7 +330,7 @@ describe("tenant resolution", () => {
       headers: {},
     };
 
-    const tenant = resolveTenant(req, { requestedClientId: req.query.clientId, required: false });
+    const tenant = await resolveTenant(req, { requestedClientId: req.query.clientId, required: false });
 
     assert.equal(tenant.clientIdResolved, userClientId);
     assert.equal(tenant.accessType, "self-fallback");
@@ -361,7 +365,7 @@ describe("tenant resolution", () => {
     assert.ok(Object.prototype.hasOwnProperty.call(response.payload || {}, "isFull"));
   });
 
-  it("mantém 403 para clientId inválido quando fallback está desligado", () => {
+  it("mantém 403 para clientId inválido quando fallback está desligado", async () => {
     config.features.tenantFallbackToSelf = false;
     const userClientId = "client-self-off";
     const req = {

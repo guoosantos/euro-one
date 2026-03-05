@@ -1,7 +1,8 @@
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 
 import { createGeofence, deleteGeofence, getGeofenceById, listGeofences, updateGeofence } from "../models/geofence.js";
 import { listGeofenceGroups } from "../models/geofence-group.js";
@@ -65,7 +66,29 @@ function ensureSameTenant(user, clientId) {
   }
 }
 
-router.get("/geofences/export/kml", async (req, res, next) => {
+function canMirrorRead(req, clientId) {
+  const mirrorContext = req?.mirrorContext;
+  if (!mirrorContext || mirrorContext.mode !== "target") return false;
+  if (String(mirrorContext.ownerClientId || "") === "all") {
+    const allowed = Array.isArray(mirrorContext.ownerClientIds)
+      ? mirrorContext.ownerClientIds.map((value) => String(value))
+      : [];
+    return allowed.includes(String(clientId));
+  }
+  return String(mirrorContext.ownerClientId || "") === String(clientId);
+}
+
+function ensureSameTenantOrMirror(req, clientId) {
+  if (req.user?.role === "admin") return;
+  if (req.user?.clientId && String(req.user.clientId) === String(clientId)) return;
+  if (canMirrorRead(req, clientId)) return;
+  throw createError(403, "Operação não permitida para este cliente");
+}
+
+router.get(
+  "/geofences/export/kml",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences" }),
+  async (req, res, next) => {
   try {
     const targetClientId = resolveClientId(req, req.query?.clientId);
     if (!targetClientId) {
@@ -78,9 +101,13 @@ router.get("/geofences/export/kml", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/geofences/import/kml", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/geofences/import/kml",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  async (req, res, next) => {
   try {
     const { kml, clientId: providedClientId, groupId = null, color = null } = req.body || {};
     const targetClientId = resolveClientId(req, providedClientId);
@@ -120,41 +147,65 @@ router.post("/geofences/import/kml", requireRole("manager", "admin"), async (req
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/geofences", async (req, res, next) => {
+router.get(
+  "/geofences",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences" }),
+  async (req, res, next) => {
   try {
     const userRole = req.user?.role || "user";
-    const targetClientId = resolveClientId(req, req.query?.clientId);
-    if (!targetClientId && userRole !== "admin") {
+    const { groupId, isTarget, lite } = req.query || {};
+    const mirrorOwnerIds = Array.isArray(req.mirrorContext?.ownerClientIds)
+      ? req.mirrorContext.ownerClientIds.map((value) => String(value)).filter(Boolean)
+      : [];
+    const isMirrorAll = String(req.mirrorContext?.ownerClientId || "") === "all";
+    const targetClientId = !isMirrorAll ? resolveClientId(req, req.query?.clientId) : null;
+    if (!targetClientId && mirrorOwnerIds.length === 0 && userRole !== "admin") {
       return res.json({ geofences: [] });
     }
-    const { groupId } = req.query || {};
+    const hasTargetFilter = isTarget !== undefined && isTarget !== null && String(isTarget).length > 0;
+    const normalized = hasTargetFilter ? String(isTarget).toLowerCase() : null;
+    const targetFlag = hasTargetFilter ? ["true", "1", "yes", "y", "sim"].includes(normalized) : null;
     const geofences = await listGeofences({
+      ...(mirrorOwnerIds.length > 0 ? { clientIds: mirrorOwnerIds } : {}),
       ...(targetClientId ? { clientId: targetClientId } : {}),
       ...(groupId ? { groupId } : {}),
+      ...(targetFlag === null ? {} : { isTarget: targetFlag }),
+      ...(lite !== undefined && lite !== null && String(lite).length > 0
+        ? { lite: ["true", "1", "yes", "y", "sim"].includes(String(lite).toLowerCase()) }
+        : {}),
     });
     return res.json({ geofences });
   } catch (error) {
     return handlePrismaFailure(error, req, res, next);
   }
-});
+  },
+);
 
-router.get("/geofences/:id", async (req, res, next) => {
+router.get(
+  "/geofences/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences" }),
+  async (req, res, next) => {
   try {
     const geofence = await getGeofenceById(req.params.id);
     if (!geofence) {
       throw createError(404, "Geofence não encontrada");
     }
-    ensureSameTenant(req.user, geofence.clientId);
+    ensureSameTenantOrMirror(req, geofence.clientId);
     return res.json({ geofence });
 
   } catch (error) {
     return handlePrismaFailure(error, req, res, next);
   }
-});
+  },
+);
 
-router.post("/geofences", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/geofences",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId);
     if (!clientId) {
@@ -171,9 +222,13 @@ router.post("/geofences", requireRole("manager", "admin"), async (req, res, next
   } catch (error) {
     return handlePrismaFailure(error, req, res, next);
   }
-});
+  },
+);
 
-router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/geofences/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  async (req, res, next) => {
   try {
 
     const existing = await getGeofenceById(req.params.id);
@@ -194,9 +249,13 @@ router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, n
   } catch (error) {
     return handlePrismaFailure(error, req, res, next);
   }
-});
+  },
+);
 
-router.delete("/geofences/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.delete(
+  "/geofences/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  async (req, res, next) => {
   try {
 
     const existing = await getGeofenceById(req.params.id);
@@ -210,6 +269,7 @@ router.delete("/geofences/:id", requireRole("manager", "admin"), async (req, res
   } catch (error) {
     return handlePrismaFailure(error, req, res, next);
   }
-});
+  },
+);
 
 export default router;

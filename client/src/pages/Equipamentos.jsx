@@ -38,13 +38,13 @@ const ICON_TYPES = [
 ];
 
 export default function Equipamentos(){
-  const { tenantId, user } = useTenant();
+  const { tenantId, tenantScope, user } = useTenant();
   const [tab, setTab] = useState(()=> new URLSearchParams(location.search).get("tab") || "lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [form, setForm] = useState({ name:"", uniqueId:"", modelId:"", iconType:"" });
   const [busy, setBusy] = useState(false);
-  const clientId = tenantId || user?.clientId || null;
+  const clientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
 
   useEffect(() => {
     (async () => {
@@ -88,11 +88,7 @@ export default function Equipamentos(){
 
   return (
     <div className="max-w-6xl mx-auto space-y-5 p-4 text-white">
-      <PageHeader
-        overline="Central de equipamentos"
-        title="Equipamentos"
-        subtitle="Cadastre equipamentos, organize modelos e configure portas."
-      />
+      <PageHeader />
 
       <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-4">
         <button onClick={()=>setTab("lista")} className={"px-3 py-2 rounded-lg "+(tab==="lista"?"bg-white/10":"bg-white/5")}>Lista</button>

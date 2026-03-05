@@ -1,7 +1,8 @@
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 
 import { getClientById } from "../models/client.js";
 
@@ -30,7 +31,10 @@ function ensureClientAccess(sessionUser, targetClientId) {
 }
 
 
-router.get("/geofence-groups", (req, res, next) => {
+router.get(
+  "/geofence-groups",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences" }),
+  (req, res, next) => {
   try {
     const includeGeofences = String(req.query.includeGeofences || "") === "true";
     if (req.user.role === "admin") {
@@ -49,10 +53,14 @@ router.get("/geofence-groups", (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 
-router.get("/geofence-groups/:id", (req, res, next) => {
+router.get(
+  "/geofence-groups/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences" }),
+  (req, res, next) => {
   try {
     const includeGeofences = String(req.query.includeGeofences || "") === "true";
     const existing = getGeofenceGroupById(req.params.id, { includeGeofences });
@@ -64,9 +72,13 @@ router.get("/geofence-groups/:id", (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/geofence-groups", requireRole("manager", "admin"), (req, res, next) => {
+router.post(
+  "/geofence-groups",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  (req, res, next) => {
   try {
     const { name, description = null, color = null, geofenceIds = [], clientId } = req.body || {};
     if (!name) {
@@ -101,9 +113,13 @@ router.post("/geofence-groups", requireRole("manager", "admin"), (req, res, next
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.put("/geofence-groups/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.put(
+  "/geofence-groups/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = getGeofenceGroupById(id);
@@ -140,10 +156,14 @@ router.put("/geofence-groups/:id", requireRole("manager", "admin"), (req, res, n
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 
-router.put("/geofence-groups/:id/geofences", requireRole("manager", "admin"), (req, res, next) => {
+router.put(
+  "/geofence-groups/:id/geofences",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = getGeofenceGroupById(id);
@@ -160,10 +180,14 @@ router.put("/geofence-groups/:id/geofences", requireRole("manager", "admin"), (r
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 
-router.delete("/geofence-groups/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.delete(
+  "/geofence-groups/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "geofences", requireFull: true }),
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = getGeofenceGroupById(id);
@@ -177,6 +201,7 @@ router.delete("/geofence-groups/:id", requireRole("manager", "admin"), (req, res
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 export default router;

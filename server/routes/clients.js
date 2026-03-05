@@ -3,7 +3,8 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { requireAdminGeneral } from "../middleware/admin-general.js";
-import { authorizePermission } from "../middleware/permissions.js";
+import { authorizePermission, invalidatePresentationCache } from "../middleware/permissions.js";
+import { invalidateContextCache } from "./context.js";
 import { createClient, deleteClient, getClientById, listClients, updateClient } from "../models/client.js";
 import { listDevices } from "../models/device.js";
 import { listModels } from "../models/model.js";
@@ -81,6 +82,40 @@ router.get(
     }
     const filtered = clientsWithCounts.filter((client) => scope.clientIds.has(String(client.id)));
     return res.json({ clients: filtered });
+  } catch (error) {
+    return next(error);
+  }
+  },
+);
+
+router.get(
+  "/clients/search",
+  authorizePermission({ menuKey: "admin", pageKey: "clients" }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
+  try {
+    const query = String(req.query?.q || "").trim().toLowerCase();
+    const limit = Number(req.query?.limit) || 200;
+    const list = await listClients();
+    const matches = query
+      ? list.filter((client) => {
+        const name = String(client?.name || "").toLowerCase();
+        const email = String(client?.email || client?.attributes?.contactEmail || "").toLowerCase();
+        const documentNumber = String(
+          client?.attributes?.clientProfile?.documentNumber
+          || client?.attributes?.documentNumber
+          || client?.documentNumber
+          || "",
+        ).toLowerCase();
+        return name.includes(query) || email.includes(query) || documentNumber.includes(query);
+      })
+      : list;
+    const limited = limit && matches.length > limit ? matches.slice(0, limit) : matches;
+    res.json({
+      clients: limited,
+      hasMore: Boolean(limit && matches.length > limit),
+      total: matches.length,
+    });
   } catch (error) {
     return next(error);
   }
@@ -236,6 +271,8 @@ router.put(
       await ensureClientInScope(req.user, id);
     }
     const client = await updateClient(id, req.body || {});
+    invalidatePresentationCache(id);
+    invalidateContextCache();
     return res.json({ client });
   } catch (error) {
     return next(error);
@@ -252,6 +289,7 @@ router.delete(
   try {
     const { id } = req.params;
     deleteClient(id);
+    invalidatePresentationCache(id);
     deleteUsersByClientId(id);
     deleteGroupsByClientId(id);
     return res.status(204).send();

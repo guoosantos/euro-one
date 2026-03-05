@@ -2,6 +2,8 @@ import createError from "http-errors";
 
 import prisma from "../services/prisma.js";
 
+let testOverrides = null;
+
 function validationError(message) {
   const error = createError(422, message);
   error.code = "GEOFENCE_VALIDATION";
@@ -156,17 +158,51 @@ function resolveCircleGeometry(payload, fallback = {}) {
   return { radius, centerLat: latitude, centerLng: longitude };
 }
 
-export async function listGeofences({ clientId, groupId } = {}) {
+export async function listGeofences({ clientId, clientIds, groupId, isTarget, lite = false } = {}) {
+  if (typeof testOverrides?.listGeofences === "function") {
+    return testOverrides.listGeofences({ clientId, clientIds, groupId, isTarget, lite });
+  }
   ensurePrisma();
+  const resolvedClientIds = Array.isArray(clientIds)
+    ? clientIds.map((value) => String(value)).filter(Boolean)
+    : [];
+  const hasClientIds = resolvedClientIds.length > 0;
   const where = {
-    ...(clientId ? { clientId: String(clientId) } : {}),
+    ...(hasClientIds ? { clientId: { in: resolvedClientIds } } : {}),
+    ...(!hasClientIds && clientId ? { clientId: String(clientId) } : {}),
     ...(groupId ? { groupId: String(groupId) } : {}),
+    ...(typeof isTarget === "boolean" ? { isTarget } : {}),
   };
-  const geofences = await prisma.geofence.findMany({ where, orderBy: { createdAt: "desc" } });
+  const select = lite
+    ? {
+        id: true,
+        clientId: true,
+        groupId: true,
+        name: true,
+        description: true,
+        type: true,
+        color: true,
+        isTarget: true,
+        radius: true,
+        centerLat: true,
+        centerLng: true,
+        createdByUserId: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    : undefined;
+  const geofences = await prisma.geofence.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    ...(select ? { select } : {}),
+  });
   return geofences.map(mapGeofence);
 }
 
 export async function getGeofenceById(id) {
+  if (typeof testOverrides?.getGeofenceById === "function") {
+    return testOverrides.getGeofenceById(id);
+  }
   ensurePrisma();
   const geofence = await prisma.geofence.findUnique({ where: { id: String(id) } });
   return mapGeofence(geofence);
@@ -246,6 +282,10 @@ export async function createGeofence({
 
   const geofence = await prisma.geofence.create({ data: payload });
   return mapGeofence(geofence);
+}
+
+export function __setGeofenceTestOverrides(overrides = null) {
+  testOverrides = overrides;
 }
 
 export async function updateGeofence(id, updates = {}) {

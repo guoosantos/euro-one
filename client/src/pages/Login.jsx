@@ -1,17 +1,22 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useTenant } from "../lib/tenant-context";
 import { useTranslation } from "../lib/i18n";
-import PageHeader from "../components/ui/PageHeader.jsx";
+import EagleSprite from "../components/eagle/EagleSprite";
+import useEagleLoader from "../lib/hooks/useEagleLoader";
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login, loading, error } = useTenant();
   const { t } = useTranslation();
+  const { register } = useEagleLoader();
+  const loaderRef = useRef(null);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [formError, setFormError] = useState(null);
 
@@ -47,74 +52,106 @@ export default function Login() {
     }
   }
 
+  useEffect(() => {
+    if (loading && !loaderRef.current) {
+      loaderRef.current = register("Validando acesso...");
+    }
+
+    if (!loading && loaderRef.current) {
+      loaderRef.current();
+      loaderRef.current = null;
+    }
+
+    return () => {
+      if (loaderRef.current) {
+        loaderRef.current();
+        loaderRef.current = null;
+      }
+    };
+  }, [loading, register]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface text-text">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-layer/80 p-8 shadow-2xl backdrop-blur">
-        <div className="mb-6 text-center">
-          <PageHeader
-            className="items-center text-center"
-            title={t("loginTitle")}
-            subtitle="Utilize suas credenciais do Traccar para acessar monitoramento, telemetria e dashboards."
-          />
-        </div>
+    <div className="eagle-login">
+      <div className="eagle-bg" />
+      <div className="eagle-grid" />
+      <div className="eagle-noise" />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <label className="block text-left">
-            <span className="text-sm font-medium">{t("username")} (e-mail)</span>
-            <input
-              type="text"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              required
-              autoComplete="username"
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-4 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="usuario@empresa.com"
-            />
-          </label>
-
-          <label className="block text-left">
-            <span className="text-sm font-medium">{t("password")}</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              autoComplete="current-password"
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-4 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="••••••••"
-            />
-          </label>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(event) => setRemember(event.target.checked)}
-              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-            />
-            {t("rememberMe")}
-          </label>
-
-          {(formError || error) && (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {formError || error?.message}
+      <div className="eagle-card">
+        <div className="eagle-inner">
+          <div className="eagle-brand-row">
+            <EagleSprite className="eagle-sprite eagle-sprite--mark" />
+            <div className="eagle-titles">
+              <h1>{t("loginTitle")}</h1>
+              <p>Acesse sua conta para acompanhar a operação em tempo real.</p>
             </div>
-          )}
+          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex w-full items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Entrando…" : "Entrar"}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="eagle-form">
+            <label className="eagle-field">
+              <span className="eagle-label">{t("username")} (e-mail)</span>
+              <div className="eagle-input">
+                <Mail />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  required
+                  autoComplete="username"
+                  placeholder="usuario@empresa.com"
+                />
+              </div>
+            </label>
 
-        <div className="mt-6 text-center text-xs opacity-70">
-          <p>
-            Servidor Traccar configurado via variáveis de ambiente. Consulte o README para detalhes de configuração
-            da API e criação de usuários.
-          </p>
+            <label className="eagle-field">
+              <span className="eagle-label">{t("password")}</span>
+              <div className="eagle-input">
+                <Lock />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  className="eagle-toggle"
+                  onClick={() => setShowPassword((current) => !current)}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </label>
+
+            <div className="eagle-row">
+              <label className="eagle-check">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                />
+                {t("rememberMe")}
+              </label>
+              <a className="eagle-link" href="#">
+                Precisa de ajuda?
+              </a>
+            </div>
+
+            {(formError || error) && <div className="eagle-error">{formError || error?.message}</div>}
+
+            <button type="submit" disabled={loading} className="eagle-btn">
+              {loading ? "Entrando..." : "Entrar"}
+            </button>
+          </form>
+
+          <div className="eagle-meta">
+            <span className="eagle-chip">
+              <span className="eagle-dot" />
+              Ambiente seguro
+            </span>
+            <span>Suas credenciais permanecem protegidas.</span>
+          </div>
         </div>
       </div>
     </div>

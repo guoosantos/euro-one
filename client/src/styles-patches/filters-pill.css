@@ -1,10 +1,18 @@
 /* ====== PILL STYLE para filtros (sem alterar JSX) ====== */
 :root{
-  --pill-bg: #141821;
-  --pill-bd: #2a3140;
-  --pill-tx: #c9d1db;
-  --pill-ph: #9aa4b2;
-  --pill-focus: rgba(57,189,248,.35);
+  --pill-bg: var(--field-bg);
+  --pill-bd: var(--border);
+  --pill-tx: var(--text);
+  --pill-ph: var(--placeholder);
+  --pill-focus: var(--focus-ring);
+}
+
+:root[data-theme='light']{
+  --pill-bg: var(--surface-2);
+  --pill-bd: var(--border);
+  --pill-tx: var(--text);
+  --pill-ph: var(--placeholder);
+  --pill-focus: var(--focus-ring);
 }
 
 /* Escopo: apenas blocos "Filtros" (título que já existe nas páginas) */
@@ -28,8 +36,8 @@
 /* Foco com anel sutil */
 .filters input:focus, .filters select:focus {
   outline:none !important;
-  box-shadow:0 0 0 2px var(--pill-focus) !important;
-  border-color:#39bdf8 !important;
+  box-shadow:0 0 0 4px var(--pill-focus) !important;
+  border-color: var(--accent-border) !important;
 }
 
 /* Ícone de busca (se usar input com padding-left já funciona) – opcional */

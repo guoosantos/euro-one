@@ -13,6 +13,10 @@ const GOOGLE_HYBRID_TILE_URL = import.meta.env.VITE_GOOGLE_HYBRID_TILE_URL || bu
 export const MAP_LAYER_STORAGE_KEYS = {
   monitoring: "monitoring.map.layer",
   trips: "trips.map.layer",
+  routes: "routes.map.layer",
+  geofences: "geofences.map.layer",
+  targets: "targets.map.layer",
+  itineraries: "itineraries.map.layer",
 };
 
 export const BASE_MAP_LAYERS = [
@@ -121,8 +125,13 @@ export const ENABLED_MAP_LAYERS = MAP_LAYER_SECTIONS.flatMap((section) =>
     .map((layer) => ({ ...layer, section: section.key })),
 );
 
+const PREFERRED_DEFAULT_LAYER_KEY = "satellite";
+const preferredDefaultLayer = ENABLED_MAP_LAYERS.find((layer) => layer.key === PREFERRED_DEFAULT_LAYER_KEY) || null;
+
 export const MAP_LAYER_FALLBACK = ENABLED_MAP_LAYERS[0] || BASE_MAP_LAYERS[0];
-export const DEFAULT_MAP_LAYER_KEY = MAP_LAYER_FALLBACK?.key || BASE_MAP_LAYERS[0]?.key || "openstreetmap";
+export const DEFAULT_MAP_LAYER_KEY =
+  preferredDefaultLayer?.key || MAP_LAYER_FALLBACK?.key || BASE_MAP_LAYERS[0]?.key || "openstreetmap";
+export const DEFAULT_MAP_LAYER = preferredDefaultLayer || MAP_LAYER_FALLBACK || BASE_MAP_LAYERS[0];
 
 export function getValidMapLayer(key) {
   if (key && ENABLED_MAP_LAYERS.some((layer) => layer.key === key)) {

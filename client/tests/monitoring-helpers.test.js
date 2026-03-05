@@ -8,9 +8,12 @@ import {
   getLastUpdate,
   isLinkedToVehicle,
   isOnline,
+  matchesAnyTenant,
   minutesSince,
   pickCoordinate,
   pickSpeed,
+  resolveVehicleDisplayName,
+  resolveVehicleInfo,
 } from "../src/lib/monitoring-helpers.js";
 
 test("getDeviceKey normaliza vários identificadores", () => {
@@ -72,4 +75,30 @@ test("isLinkedToVehicle ignora veículo sintético criado apenas por id", () => 
 test("isLinkedToVehicle considera vínculo real via device.vehicleId", () => {
   const entry = { device: { id: "d1", vehicleId: "v1" }, source: {}, vehicle: null };
   assert.equal(isLinkedToVehicle(entry), true);
+});
+
+test("matchesAnyTenant aceita tenants alternativos do espelhamento", () => {
+  const entry = { device: { clientId: "owner-1" }, source: {}, vehicle: null };
+  assert.equal(matchesAnyTenant(entry, ["target-1"]), false);
+  assert.equal(matchesAnyTenant(entry, ["owner-1"]), true);
+  assert.equal(matchesAnyTenant(entry, ["target-1", "owner-1"]), true);
+  assert.equal(matchesAnyTenant(entry, []), true);
+});
+
+test("resolveVehicleDisplayName prioriza marca+modelo e evita duplicar marca", () => {
+  const info = resolveVehicleInfo({ vehicle: { brand: "Scania", model: "R450" } });
+  assert.equal(resolveVehicleDisplayName(info), "Scania R450");
+
+  const duplicated = resolveVehicleInfo({ vehicle: { brand: "Scania", model: "Scania R450" } });
+  assert.equal(resolveVehicleDisplayName(duplicated), "Scania R450");
+});
+
+test("resolveVehicleDisplayName usa descrição quando modelo é código interno", () => {
+  const info = resolveVehicleInfo({ vehicle: { model: "A6C2", description: "Scania R450" } });
+  assert.equal(resolveVehicleDisplayName(info), "Scania R450");
+});
+
+test("resolveVehicleDisplayName ignora código interno sem fallback", () => {
+  const info = resolveVehicleInfo({ vehicle: { model: "A6C2" } });
+  assert.equal(resolveVehicleDisplayName(info), "—");
 });

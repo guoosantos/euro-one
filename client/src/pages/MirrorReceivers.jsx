@@ -12,8 +12,8 @@ import DataTable from "../components/ui/DataTable";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect";
 import MultiSelectChips from "../components/ui/MultiSelectChips";
 import { usePermissions } from "../lib/permissions/permission-gate";
+import { resolvePermissionAccess } from "../lib/permissions";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
-import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import usePageToast from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
 import { confirmDeleteAction } from "../lib/confirm-delete.js";
@@ -76,9 +76,18 @@ function formatPeriod(startAt, endAt) {
 }
 
 export default function MirrorReceivers() {
-  const { user, tenantId } = useTenant();
+  const { user, tenantId, tenantScope, permissionContext, isGlobalAdmin } = useTenant();
   const { getPermission } = usePermissions();
   const mirrorsPermission = getPermission({ menuKey: "admin", pageKey: "mirrors" });
+  const mirrorsAccess = useMemo(
+    () =>
+      resolvePermissionAccess(
+        { menuKey: "admin", pageKey: "mirrors" },
+        { user, permissionContext, isGlobalAdmin },
+      ),
+    [isGlobalAdmin, permissionContext, user],
+  );
+  const canManageMirrors = mirrorsAccess.isFull;
   const [context, setContext] = useState(null);
   const [mirrors, setMirrors] = useState(EMPTY_LIST);
   const [loading, setLoading] = useState(false);
@@ -93,7 +102,6 @@ export default function MirrorReceivers() {
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [vehiclePickId, setVehiclePickId] = useState("");
   const { confirmDelete } = useConfirmDialog();
-  const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -108,8 +116,8 @@ export default function MirrorReceivers() {
     endAt: "",
   });
 
-  const resolvedClientId = tenantId || user?.clientId || null;
-  const { vehicles } = useVehicles();
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
+  const { vehicles } = useVehicles({ includeTelemetry: false });
   const { groups } = useGroups({ params: resolvedClientId ? { clientId: resolvedClientId } : {} });
 
   const vehicleGroups = useMemo(
@@ -239,6 +247,7 @@ export default function MirrorReceivers() {
   const isOwnerMode = !isReceiverMode;
   const isReceiverEditing = isReceiverMode && Boolean(activeMirror);
   const showOwnerFilter = context?.mode === "target";
+  const ownersEmpty = isReceiverMode && Array.isArray(context?.owners) && context.owners.length === 0;
 
   const filteredMirrors = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -421,7 +430,7 @@ export default function MirrorReceivers() {
   };
 
   const handleRemove = async (mirror) => {
-    if (!isAdminGeneral) return;
+    if (!canManageMirrors) return;
     await confirmDeleteAction({
       confirmDelete,
       title: "Excluir espelhamento",
@@ -447,8 +456,6 @@ export default function MirrorReceivers() {
   return (
     <div className="space-y-6 text-white">
       <PageHeader
-        title="Espelhamento"
-        subtitle="Gerencie os espelhamentos ativos entre clientes."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -460,7 +467,7 @@ export default function MirrorReceivers() {
                 <RefreshCw className="h-4 w-4" /> Atualizar
               </span>
             </button>
-            {isOwnerMode && mirrorsPermission.isFull && (
+            {isOwnerMode && canManageMirrors && (
               <button
                 type="button"
                 onClick={openNewDrawer}
@@ -478,6 +485,11 @@ export default function MirrorReceivers() {
       {error && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error?.response?.data?.message || error.message}
+        </div>
+      )}
+      {ownersEmpty && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Usuário sem cliente de origem vinculado para espelhamento. Contate o administrador para associar um owner.
         </div>
       )}
 
@@ -573,7 +585,7 @@ export default function MirrorReceivers() {
                     )}
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        {(isOwnerMode || isReceiverMode) && mirrorsPermission.isFull && (
+                        {(isOwnerMode || isReceiverMode) && canManageMirrors && (
                           <button
                             type="button"
                             onClick={() => openEditDrawer(mirror)}
@@ -589,7 +601,7 @@ export default function MirrorReceivers() {
                         >
                           Detalhes
                         </button>
-                        {isOwnerMode && mirrorsPermission.isFull && isAdminGeneral && (
+                        {canManageMirrors && (isOwnerMode || isReceiverMode) && (
                           <button
                             type="button"
                             onClick={() => handleRemove(mirror)}
@@ -871,7 +883,7 @@ export default function MirrorReceivers() {
             ))}
           </div>
 
-          {isAdminGeneral && mirrorsPermission.isFull && activeMirror && (
+          {canManageMirrors && (isOwnerMode || isReceiverMode) && activeMirror && (
             <button
               type="button"
               onClick={() => handleRemove(activeMirror)}

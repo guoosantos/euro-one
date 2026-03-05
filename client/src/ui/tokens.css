@@ -1,6 +1,22 @@
 :root{
-  --bg-card:#0f1115; --bd-soft:#1f2430; --bd:#2a3140;
-  --txt:#eaeef0; --txt-muted:#aab1c2; --focus:rgba(57,189,248,.35);
-  --pill-bg:#141821; --pill-h:42px; --radius:16px;
+  --bg-card: var(--surface-card);
+  --bd-soft: var(--stroke);
+  --bd: var(--border);
+  --txt: var(--text);
+  --txt-muted: var(--muted);
+  --focus: var(--focus-ring);
+  --pill-bg: var(--field-bg);
+  --pill-h: 42px;
+  --radius: 16px;
+}
+
+:root[data-theme='light']{
+  --bg-card: var(--surface);
+  --bd-soft: var(--stroke);
+  --bd: var(--border);
+  --txt: var(--text);
+  --txt-muted: var(--muted);
+  --focus: var(--focus-ring);
+  --pill-bg: var(--surface-2);
 }
 .card{background:var(--bg-card);border:1px solid var(--bd);border-radius:12px;padding:12px}

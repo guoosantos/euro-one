@@ -13,6 +13,8 @@ import { resolveVehicleIconType, VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehic
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 import VehicleForm from "../components/vehicles/VehicleForm.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
@@ -166,8 +168,14 @@ function VehicleRow({
 export default function Vehicles() {
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
-  const { tenantId, user, tenants, hasAdminAccess } = useTenant();
+  const { tenantId, tenantScope, user, tenants, hasAdminAccess } = useTenant();
   const vehiclesPermission = usePermissionGate({ menuKey: "fleet", pageKey: "vehicles" });
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const navigate = useNavigate();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -197,7 +205,7 @@ export default function Vehicles() {
     status: "ativo",
     notes: "",
     deviceId: "",
-    clientId: tenantId || user?.clientId || "",
+    clientId: tenantScope === "ALL" ? "" : tenantId || user?.clientId || "",
     item: "",
     identifier: "",
     model: "",
@@ -213,7 +221,7 @@ export default function Vehicles() {
     vehicleAttributes: [],
   });
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const columnStorageKey = useMemo(
     () => `vehicles.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
     [resolvedClientId, user?.id],
@@ -237,6 +245,7 @@ export default function Vehicles() {
     try {
       const clientParams = resolvedClientId ? { clientId: resolvedClientId } : {};
       clientParams.accessible = true;
+      clientParams.skipPositions = true;
       if (user?.role === "admin" || user?.role === "manager") {
         clientParams.includeUnlinked = true;
       } else {
@@ -604,7 +613,9 @@ export default function Vehicles() {
       alert("Informe o tipo do veículo");
       return;
     }
-    const clientId = hasAdminAccess ? form.clientId || tenantId || "" : tenantId || user?.clientId;
+    const clientId = hasAdminAccess
+      ? form.clientId || (tenantScope === "ALL" ? "" : tenantId || "")
+      : (tenantScope === "ALL" ? "" : tenantId || user?.clientId);
     if (!clientId) {
       alert("Selecione o cliente para salvar o veículo");
       return;
@@ -647,8 +658,6 @@ export default function Vehicles() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
-        title="Veículos"
-        subtitle="Frota e dados principais."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -992,12 +1001,13 @@ export default function Vehicles() {
               style={{ height: "100%", width: "100%" }}
               whenReady={onMapReady}
             >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+              <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
               <Marker
                 position={[
                   Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
                   Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
                 ]}
+                icon={leafletDefaultIcon}
               >
                 <Popup>
                   <div className="space-y-1 text-sm">

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useRef } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTranslation } from "../lib/i18n.js";
@@ -7,7 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 import useAutoRefresh from "../lib/hooks/useAutoRefresh.js";
 import { useVehicleAccess } from "./VehicleAccessContext.jsx";
 import { usePermissionGate } from "../lib/permissions/permission-gate.js";
-import { resolveMirrorClientParams, resolveMirrorHeaders } from "../lib/mirror-params.js";
+import { resolveMirrorClientParams } from "../lib/mirror-params.js";
 
 function normaliseDeviceList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -20,25 +20,39 @@ const DevicesContext = createContext({ data: [], devices: [], loading: false, er
 
 export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
-  const { tenantId, isAuthenticated, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const {
+    tenantId,
+    isAuthenticated,
+    initialising,
+    loading: tenantLoading,
+    mirrorContextMode,
+    activeMirror,
+    activeMirrorOwnerClientId,
+    contextSwitching,
+    contextSwitchKey,
+    contextAbortSignal,
+  } = useTenant();
   const { accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
-  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const autoRefresh = useAutoRefresh({
+    enabled: isAuthenticated && !initialising && !tenantLoading && !contextSwitching,
+    intervalMs: interval,
+    pauseWhenOverlayOpen: true,
+  });
   const canAccessDevices = devicesPermission.hasAccess;
+  const lastDevicesRef = useRef([]);
   const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
-  const mirrorHeaders = useMemo(
-    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
-    [mirrorModeEnabled, mirrorOwnerClientId],
-  );
-
   const fetchDevices = useCallback(async () => {
     if (!canAccessDevices) return [];
     const params = resolveMirrorClientParams({ tenantId, mirrorContextMode, mirrorOwnerClientId });
     const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, {
       params,
-      headers: mirrorHeaders,
+      signal: contextAbortSignal,
     });
     if (apiError) {
+      if (apiError?.name === "AbortError" || apiError?.code === "ERR_CANCELED") {
+        return lastDevicesRef.current;
+      }
       const status = Number(apiError?.response?.status ?? apiError?.status);
       const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadDevices");
       const normalised = new Error(friendly);
@@ -50,20 +64,37 @@ export function DevicesProvider({ children, interval = 60_000 }) {
       throw normalised;
     }
     const list = normaliseDeviceList(payload);
-    return Array.isArray(list)
+    const normalised = Array.isArray(list)
       ? list.map((device) => ({
           ...device,
           deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
         }))
       : [];
-  }, [canAccessDevices, mirrorContextMode, mirrorHeaders, mirrorOwnerClientId, t, tenantId]);
+    lastDevicesRef.current = normalised;
+    return normalised;
+  }, [canAccessDevices, mirrorContextMode, mirrorOwnerClientId, t, tenantId]);
 
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchDevices,
     intervalMs: autoRefresh.intervalMs,
-    enabled: isAuthenticated && canAccessDevices,
+    enabled:
+      isAuthenticated &&
+      canAccessDevices &&
+      !initialising &&
+      !tenantLoading &&
+      !accessLoading &&
+      !contextSwitching,
     paused: autoRefresh.paused,
-    dependencies: [canAccessDevices, mirrorContextMode, mirrorHeaders, tenantId, isAuthenticated],
+    dependencies: [
+      canAccessDevices,
+      mirrorContextMode,
+      tenantId,
+      isAuthenticated,
+      initialising,
+      tenantLoading,
+      accessLoading,
+      contextSwitchKey,
+    ],
     resetOnChange: true,
   });
 

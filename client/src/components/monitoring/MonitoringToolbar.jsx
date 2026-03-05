@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "../../lib/i18n.js";
-import AddressSearchInput from "../shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../AddressAutocomplete.jsx";
 import MonitoringSearchBox from "./MonitoringSearchBox.jsx";
 
 // --- ÍCONES SVG (Para não depender de bibliotecas externas) ---
@@ -40,8 +40,10 @@ export default function MonitoringToolbar({
   onVehicleSearchChange,
   vehicleSuggestions,
   onSelectVehicleSuggestion,
-  addressSearchState,
+  addressValue,
+  onAddressChange,
   onSelectAddress,
+  mapPreferences,
   filterMode,
   onFilterChange,
   summary,
@@ -53,6 +55,8 @@ export default function MonitoringToolbar({
   onClearAddress,
   hasSelection,
   onClearSelection,
+  onClearFilters,
+  filtersActive,
 }) {
   const { t } = useTranslation();
 
@@ -82,13 +86,16 @@ export default function MonitoringToolbar({
             onSelectSuggestion={onSelectVehicleSuggestion}
           />
 
-          <AddressSearchInput
-            state={addressSearchState}
+          <AddressAutocomplete
+            label={null}
+            value={addressValue}
+            onChange={onAddressChange}
             onSelect={onSelectAddress}
             onClear={onClearAddress}
             placeholder={t("monitoring.searchRegionPlaceholder")}
             containerClassName="w-full"
             variant="toolbar"
+            mapPreferences={mapPreferences}
           />
         </div>
 
@@ -106,6 +113,17 @@ export default function MonitoringToolbar({
             onClick={handleToggleLayout}
             title="Layout"
           />
+          {onClearFilters ? (
+            <button
+              type="button"
+              onClick={onClearFilters}
+              disabled={!filtersActive}
+              className="ml-1 flex h-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white disabled:opacity-40"
+              title="Limpar filtros"
+            >
+              Limpar filtros
+            </button>
+          ) : null}
           {hasSelection ? (
             <button
               type="button"

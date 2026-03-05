@@ -4,6 +4,7 @@ import { afterEach, describe, it } from "node:test";
 
 import { errorHandler } from "../middleware/error-handler.js";
 import tasksRoutes, { __resetTasksRouteMocks, __setTasksRouteMocks } from "../routes/tasks.js";
+import { requestApp } from "./app-request.js";
 
 const user = { id: "user-1", role: "admin", clientId: "0e4779cf-1234-4c12-9cb2-2bbbf12e2fb9" };
 
@@ -40,14 +41,13 @@ function buildApp({ listTasks } = {}) {
 }
 
 async function callApp(app, path, options = {}) {
-  const server = app.listen(0);
-  const url = new URL(path, `http://127.0.0.1:${server.address().port}`);
-  const response = await fetch(url, {
-    ...options,
+  const response = await requestApp(app, {
+    url: path,
+    method: options.method,
     headers: { "content-type": "application/json", ...(options.headers || {}) },
+    body: options.body,
   });
   const data = await response.json().catch(() => ({}));
-  server.close();
   return { status: response.status, data };
 }
 

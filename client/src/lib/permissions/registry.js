@@ -63,6 +63,7 @@ export const PERMISSION_REGISTRY = [
           { subKey: "list", label: "Comandos" },
           { subKey: "advanced", label: "Avançado" },
           { subKey: "create", label: "Criar comandos" },
+          { subKey: "history-response", label: "Histórico: resposta do comando" },
         ],
       },
       {
@@ -71,6 +72,7 @@ export const PERMISSION_REGISTRY = [
         subpages: [
           { subKey: "report", label: "Relatório" },
           { subKey: "severity", label: "Severidade" },
+          { subKey: "report-active-filter", label: "Filtro Todos/Somente ativos" },
         ],
       },
     ],
@@ -100,7 +102,9 @@ export const PERMISSION_REGISTRY = [
           { subKey: "service-orders-socorro", label: "Socorro" },
           { subKey: "service-orders-remanejamento", label: "Remanejamento" },
           { subKey: "service-orders-reinstall", label: "Reinstalação" },
+          { subKey: "service-requests", label: "Solicitações" },
           { subKey: "appointments", label: "Agendamentos" },
+          { subKey: "var-live", label: "Auditoria do Serviço" },
           { subKey: "technicians", label: "Técnico" },
         ],
       },
@@ -122,6 +126,7 @@ export const PERMISSION_REGISTRY = [
           { subKey: "videos", label: "Vídeos" },
           { subKey: "face", label: "Reconhecimento Facial" },
           { subKey: "live", label: "Live" },
+          { subKey: "fatigue", label: "Sensor de Fadiga" },
         ],
       },
       {
@@ -183,6 +188,9 @@ export const PERMISSION_REGISTRY = [
         label: "Usuários",
         subpages: [
           { subKey: "users-list", label: "Usuários" },
+          { subKey: "users-create", label: "Criar usuários" },
+          { subKey: "users-edit", label: "Editar usuários" },
+          { subKey: "users-delete", label: "Excluir usuários" },
           { subKey: "users-vehicle-groups", label: "Grupos de veículos" },
           { subKey: "users-permission-groups", label: "Grupos de permissões" },
         ],
@@ -222,6 +230,12 @@ export const MENU_REGISTRY = [
         ],
       },
       { to: "/events", label: "Eventos", icon: Video, permission: { menuKey: "primary", pageKey: "events" } },
+      {
+        to: "/conditional-actions",
+        label: "Ação Condicional",
+        icon: ShieldCheck,
+        permission: { menuKey: "primary", pageKey: "events" },
+      },
     ],
   },
   {
@@ -244,7 +258,9 @@ export const MENU_REGISTRY = [
         icon: Wrench,
         children: [
           { to: "/services", label: "Ordem de Serviço", icon: Wrench, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
+          { to: "/service-requests", label: "Solicitações", icon: FileText, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
           { to: "/appointments", label: "Agendamentos", icon: CalendarClock, permission: { menuKey: "fleet", pageKey: "services", subKey: "appointments" } },
+          { to: "/var", label: "Auditoria do Serviço", icon: Video, permission: { menuKey: "fleet", pageKey: "services", subKey: "var-live" } },
           { to: "/technicians", label: "Técnico", icon: UserCog, permission: { menuKey: "fleet", pageKey: "services", subKey: "technicians" } },
         ],
       },
@@ -267,6 +283,7 @@ export const MENU_REGISTRY = [
           { to: "/videos", label: "Vídeos", icon: Camera, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
           { to: "/face", label: "Reconhecimento Facial", icon: Camera, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },
           { to: "/live", label: "Live", icon: Radio, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },
+          { to: "/fatigue", label: "Sensor de Fadiga", icon: GaugeCircle, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "fatigue" } },
         ],
       },
       {
@@ -311,7 +328,7 @@ export const MENU_REGISTRY = [
         label: "Clientes",
         icon: Users,
         permission: { menuKey: "admin", pageKey: "clients" },
-        isVisible: ({ canManageUsers }) => canManageUsers,
+        isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
       },
       {
         to: "/users",
@@ -325,14 +342,14 @@ export const MENU_REGISTRY = [
         label: "Espelhamento",
         icon: Users,
         permission: { menuKey: "admin", pageKey: "mirrors" },
-        isVisible: ({ canManageUsers }) => canManageUsers,
+        isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
       },
       {
         to: "/admin/import-euro-xlsx",
         label: "Importar Base (XLSX)",
         icon: UploadCloud,
         permission: { menuKey: "admin", pageKey: "import" },
-        isVisible: ({ isEuroImportEnabled, role }) => role === "admin" && isEuroImportEnabled,
+        isVisible: ({ isEuroImportEnabled }) => isEuroImportEnabled,
       },
     ],
   },

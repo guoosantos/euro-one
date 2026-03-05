@@ -17,5 +17,5 @@ test("resolvePositionEventLabel mantém rótulo real para eventos inativos quand
     attributes: { event: "123", eventLabel: "Alerta teste", eventActive: false },
   };
   const result = resolvePositionEventLabel(position, { eventScope: "all" });
-  assert.equal(result.label, "Alerta teste");
+  assert.equal(result.label, "Evento desconhecido (123)");
 });

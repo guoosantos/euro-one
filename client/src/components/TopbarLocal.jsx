@@ -6,7 +6,7 @@ export default function TopbarLocal() {
   const _props=(typeof arguments!=="undefined"&&arguments[0])||{}; const hideTitle=_props.hideTitle ?? (typeof hideTitle!=="undefined"?hideTitle:false);
 
   return (
-    <div className="sticky top-0 z-40 bg-[#0b0f17] border-b border-white/5">
+    <div className="sticky top-0 z-60 bg-[#0b0f17] border-b border-white/5">
       <div className="flex items-center justify-between px-4 md:px-6 h-14">
         <div className="text-lg font-semibold">Euro One</div>
         <div className="flex items-center gap-3">

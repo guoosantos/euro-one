@@ -167,6 +167,11 @@ export default function Dashboard() {
   );
   const [quickFeedback, setQuickFeedback] = useState(null);
   const [layouts, setLayouts] = useState(() => cloneLayouts(loadLayouts(layoutKey) || defaultLayouts));
+  const chartTooltipStyle = {
+    background: "var(--chart-tooltip-bg)",
+    border: "1px solid var(--chart-tooltip-border)",
+    color: "var(--chart-tooltip-text)",
+  };
 
   const positions = useMemo(() => positionsByDeviceId ?? {}, [positionsByDeviceId]);
 
@@ -319,10 +324,10 @@ export default function Dashboard() {
           >
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={summary.speedDistribution} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-                <XAxis dataKey="name" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
-                <YAxis stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
-                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="name" stroke="var(--chart-axis)" tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+                <YAxis stroke="var(--chart-axis)" tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+                <Tooltip contentStyle={chartTooltipStyle} />
                 <Legend />
                 <Line type="monotone" dataKey="velocidade" stroke="#38bdf8" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="distancia" stroke="#22c55e" strokeWidth={2} dot={false} />
@@ -344,7 +349,7 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={eventChartData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} fill="#6366f1" label />
-                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <Tooltip contentStyle={chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
           </Card>
@@ -356,10 +361,10 @@ export default function Dashboard() {
           <Card title="Ranking de motoristas" subtitle="Pontuação baseada em eventos de condução" contentClassName="h-full" headerClassName="drag-handle">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={summary.drivers} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-                <XAxis dataKey="driver" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
-                <YAxis stroke="rgba(148,163,184,0.7)" />
-                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="driver" stroke="var(--chart-axis)" tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+                <YAxis stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)" }} />
+                <Tooltip contentStyle={chartTooltipStyle} />
                 <Legend />
                 <Bar dataKey="score" fill="#10b981" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="infractions" fill="#ef4444" radius={[6, 6, 0, 0]} />
@@ -380,10 +385,10 @@ export default function Dashboard() {
                     <stop offset="95%" stopColor="#facc15" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-                <XAxis dataKey="name" stroke="rgba(148,163,184,0.7)" />
-                <YAxis stroke="rgba(148,163,184,0.7)" />
-                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="name" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)" }} />
+                <YAxis stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)" }} />
+                <Tooltip contentStyle={chartTooltipStyle} />
                 <Legend />
                 <Area type="monotone" dataKey="consumo" stroke="#facc15" fillOpacity={1} fill="url(#colorFuel)" />
                 <Line type="monotone" dataKey="rpm" stroke="#60a5fa" strokeWidth={2} dot={false} />
@@ -414,7 +419,7 @@ export default function Dashboard() {
                 <Button variant="ghost" size="sm" onClick={resetLayout} className="border border-white/10">
                   Redefinir layout
                 </Button>
-                <Button onClick={handleQuickReport} disabled={generatingReport}>
+                <Button onClick={handleQuickReport} disabled={generatingReport} variant={generatingReport ? "danger" : "primary"}>
                   {generatingReport ? "Gerando…" : "Gerar últimas 24h"}
                 </Button>
               </div>
@@ -453,9 +458,6 @@ export default function Dashboard() {
       <div className="dashboard-hero">
         <div className="dashboard-hero-content">
           <PageHeader
-            overline="Dashboard dinâmico"
-            title="Operação ao vivo"
-            subtitle="Arraste, redimensione e salve sua visão. Preferências ficam atreladas ao seu perfil e tenant."
             rightSlot={
               <>
                 <Badge variant="muted" className="glass-badge">

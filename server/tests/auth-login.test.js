@@ -1,36 +1,21 @@
 import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import createError from "http-errors";
 
 import app from "../app.js";
 import { __resetAuthRouteDeps, __setAuthRouteDeps } from "../routes/auth.js";
-
-let server;
-let baseUrl;
-
-before(async () => {
-  server = app.listen(0);
-  await once(server, "listening");
-  const { port } = server.address();
-  baseUrl = `http://127.0.0.1:${port}`;
-});
-
-after(() => {
-  if (server) {
-    server.close();
-  }
-});
+import { requestApp } from "./app-request.js";
 
 afterEach(() => {
   __resetAuthRouteDeps();
 });
 
 async function postLogin(payload) {
-  const response = await fetch(`${baseUrl}/api/login`, {
+  const response = await requestApp(app, {
+    url: "/api/login",
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: payload,
   });
   const data = await response.json();
   return { status: response.status, body: data };
@@ -111,7 +96,7 @@ describe("POST /api/login", () => {
     assert.equal(response.body.errorCode, "DATABASE_UNAVAILABLE");
   });
 
-  it("returns 400 when user has no tenant", async () => {
+  it("returns 403 when user has no tenant", async () => {
     const user = {
       id: "user-2",
       name: "Tenantless User",
@@ -132,7 +117,7 @@ describe("POST /api/login", () => {
 
     const response = await postLogin({ email: "tenantless@euro.one", password: "secret" });
 
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 403);
     assert.equal(response.body.error, "Usuário sem tenant associado");
     assert.equal(response.body.errorCode, "MISSING_TENANT");
   });

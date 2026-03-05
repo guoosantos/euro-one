@@ -12,6 +12,7 @@ import {
 } from "../lib/kml";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import MapZoomControls from "../components/map/MapZoomControls.jsx";
 import AppMap from "../components/map/AppMap.jsx";
 import Button from "../ui/Button";
@@ -71,6 +72,12 @@ export default function Fences() {
   const { onMapReady } = useMapLifecycle({ mapRef });
   const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Fences" });
   const userActionRef = useRef(false);
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const handleMapReady = useCallback(
     (event) => {
       onMapReady(event);
@@ -432,8 +439,10 @@ export default function Fences() {
         whenReady={handleMapReady}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution={tileAttribution}
+          url={tileUrl}
+          subdomains={tileSubdomains}
+          maxZoom={tileMaxZoom}
         />
         <MapZoomControls variant="classic" />
         <MapClickCapture onAddPoint={handleAddPoint} />

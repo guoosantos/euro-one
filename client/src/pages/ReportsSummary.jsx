@@ -15,7 +15,7 @@ export default function ReportsSummary() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles();
+  } = useVehicles({ includeTelemetry: false });
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,
@@ -85,11 +85,7 @@ export default function ReportsSummary() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Resumo de utilização"
-        subtitle="Métricas agregadas de velocidade, distância e tempo em movimento."
-      />
+      <PageHeader />
       <section className="card space-y-4">
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
           <VehicleSelector className="text-sm md:col-span-2" />
@@ -117,7 +113,9 @@ export default function ReportsSummary() {
           <div className="md:col-span-4 flex items-center gap-3">
             <button
               type="submit"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+                fetching ? "bg-red-500 hover:bg-red-600" : "bg-primary hover:bg-primary/90"
+              }`}
               disabled={fetching || loading || !deviceId}
             >
               {fetching ? "Gerando…" : "Gerar"}

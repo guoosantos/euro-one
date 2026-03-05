@@ -158,6 +158,8 @@ export function formatAddress(rawAddress) {
     return formatted || "—";
   }
   if (typeof rawAddress === "object") {
+    const formattedParts = formatFromParts(rawAddress);
+    if (formattedParts) return formattedParts;
     const composed = [
       rawAddress.road,
       rawAddress.suburb,
@@ -191,6 +193,46 @@ export function formatFullAddress(rawAddress) {
     null;
   const formatted = collapseWhitespace(full || formatAddressString(normalized.address || ""));
   return formatted || "—";
+}
+
+export function formatSearchAddress(rawAddress) {
+  if (!rawAddress) return "—";
+  if (typeof rawAddress === "string" || typeof rawAddress === "number") {
+    const formatted = formatAddressString(rawAddress);
+    if (!formatted) return "—";
+    return formatted.replace(/\s+-\s+(\d{5}-?\d{3})$/, ", $1");
+  }
+
+  const normalized = normalizeInput(rawAddress);
+  const parts =
+    normalized?.parts ||
+    (rawAddress?.address && typeof rawAddress.address === "object" ? rawAddress.address : null) ||
+    (rawAddress && typeof rawAddress === "object" ? rawAddress : null);
+  if (parts && typeof parts === "object") {
+    const street = abbreviateStreet(
+      parts.street || coalesce(parts.road, parts.streetName, parts.route, parts.logradouro, parts.endereco),
+    );
+    const houseNumber =
+      coalesce(parts.houseNumber, parts.house_number, parts.number, parts.numero, parts.house) || (street ? "s/n" : "");
+    const neighbourhood = coalesce(parts.neighbourhood, parts.suburb, parts.quarter, parts.bairro, parts.district);
+    const city = coalesce(parts.city, parts.town, parts.village, parts.municipality, parts.cidade);
+    const state = coalesce(parts.state, parts.region, parts.state_district, parts.stateCode, parts.uf, parts.estado);
+    const postalCode = normalizeCep(coalesce(parts.postalCode, parts.postcode, parts.zipcode, parts.cep));
+
+    const head = [street, houseNumber].filter(Boolean).join(", ");
+    const tail = [neighbourhood, city, state].filter(Boolean).join(" - ");
+    const base = [head, tail].filter(Boolean).join(" - ");
+    const formatted = [base, postalCode].filter(Boolean).join(", ");
+    if (formatted) return formatted;
+  }
+
+  const fallback =
+    (typeof normalized?.shortAddress === "string" && normalized.shortAddress) ||
+    (typeof normalized?.formattedAddress === "string" && normalized.formattedAddress) ||
+    (typeof normalized?.address === "string" && normalized.address) ||
+    "";
+  const formattedFallback = formatAddressString(fallback);
+  return formattedFallback || "—";
 }
 
 export default formatAddress;

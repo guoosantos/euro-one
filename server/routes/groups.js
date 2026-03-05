@@ -2,9 +2,15 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
-import { authorizePermission, authorizePermissionOrEmpty } from "../middleware/permissions.js";
+import {
+  authorizePermission,
+  authorizePermissionOrEmpty,
+  invalidatePresentationCache,
+  resolvePermissionContext,
+} from "../middleware/permissions.js";
 import { getClientById } from "../models/client.js";
 import { createGroup, deleteGroup, getGroupById, listGroups, updateGroup } from "../models/group.js";
+import { findPermissionExpansion } from "../utils/permission-scope.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { isAdminGeneralClient } from "../utils/admin-general.js";
 import { getEffectiveVehicleIds } from "../utils/mirror-scope.js";
@@ -57,6 +63,18 @@ async function isAdminGeneralUser(sessionUser) {
   return isAdminGeneralClient(client);
 }
 
+async function ensurePermissionScope(req, permissions) {
+  if (!permissions || typeof permissions !== "object") return;
+  if (await isAdminGeneralUser(req.user)) return;
+  const context = await resolvePermissionContext(req);
+  if (context?.isFull) return;
+  const allowedPermissions = context?.permissions || {};
+  const violation = findPermissionExpansion(permissions, allowedPermissions);
+  if (violation) {
+    throw createError(403, "Permissão insuficiente para conceder acesso fora do seu escopo");
+  }
+}
+
 function mergeGroups(primary = [], secondary = []) {
   const map = new Map(primary.map((group) => [group.id, group]));
   secondary.forEach((group) => {
@@ -81,11 +99,8 @@ function ensureGroupWriteRole(req) {
   if (req.mirrorContext) {
     return;
   }
-  const role = req.user.role;
-  if (role === "admin" || role === "manager" || role === "tenant_admin") {
-    return;
-  }
-  throw createError(403, "Permissão insuficiente");
+  // A permissão (users-vehicle-groups) já foi validada pelo authorizePermission.
+  // Não restringir por role para evitar 403 indevido quando a permissão é full.
 }
 
 function normaliseVehicleIds(value) {
@@ -235,6 +250,9 @@ router.post(
       );
       nextAttributes.vehicleIds = scopedVehicleIds;
     }
+    if (nextAttributes.kind === "PERMISSION_GROUP") {
+      await ensurePermissionScope(req, nextAttributes.permissions);
+    }
 
     const group = createGroup({
       name,
@@ -244,6 +262,7 @@ router.post(
     });
 
     invalidateGroupCache();
+    invalidatePresentationCache();
     return res.status(201).json({ group });
   } catch (error) {
     return next(error);
@@ -315,9 +334,19 @@ router.put(
         );
       }
     }
+    if (updates.attributes) {
+      const nextKind = updates.attributes.kind || existing.attributes?.kind;
+      if (
+        nextKind === "PERMISSION_GROUP"
+        && Object.prototype.hasOwnProperty.call(updates.attributes, "permissions")
+      ) {
+        await ensurePermissionScope(req, updates.attributes.permissions);
+      }
+    }
 
     const group = updateGroup(id, updates);
     invalidateGroupCache();
+    invalidatePresentationCache();
     return res.json({ group });
   } catch (error) {
     return next(error);
@@ -351,6 +380,7 @@ router.delete(
     }
     deleteGroup(id);
     invalidateGroupCache();
+    invalidatePresentationCache();
     return res.status(204).send();
   } catch (error) {
     return next(error);

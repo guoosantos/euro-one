@@ -1,6 +1,7 @@
 import express from "express";
 
 import { authenticate } from "../middleware/auth.js";
+import mirrorContextMiddleware from "../middleware/mirror-context.js";
 import { authorizePermission } from "../middleware/permissions.js";
 import {
   getProtocolCommandAllowlist,
@@ -17,6 +18,7 @@ import { resolveClientId } from "../middleware/client.js";
 const router = express.Router();
 
 router.use(authenticate);
+router.use(mirrorContextMiddleware);
 
 router.get("/protocols", (_req, res) => {
   res.json({ protocols: getProtocolList() });

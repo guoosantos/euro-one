@@ -5,6 +5,7 @@ import { getItineraryById, listItineraries, updateItinerary } from "../../models
 import { getGeofenceById } from "../../models/geofence.js";
 import { getRouteById } from "../../models/route.js";
 import { getGeofenceMapping } from "../../models/xdm-geofence.js";
+import { getRouteGeozoneMapping } from "../../models/xdm-route-geozone.js";
 import {
   getGeozoneGroupMapping,
   getGeozoneGroupMappingByScope,
@@ -673,14 +674,17 @@ export async function syncGeozoneGroup(
   for (const item of selectedItems) {
     if (item.type === "route") {
       const routeRecord = await getRouteById(item.id);
-      if (routeRecord) {
-        buckets[ITINERARY_GEOZONE_GROUPS.itinerary.key].routeRecords.push(routeRecord);
-      }
       const routeResult = await syncRouteGeozone(item.id, {
         clientId: itinerary.clientId,
         correlationId,
         clientDisplayName,
       });
+      const routeMapping = getRouteGeozoneMapping({ routeId: item.id, clientId: itinerary.clientId });
+      if (routeRecord) {
+        buckets[ITINERARY_GEOZONE_GROUPS.itinerary.key].routeRecords.push(
+          routeMapping?.name ? { ...routeRecord, name: routeMapping.name } : routeRecord,
+        );
+      }
       const routeGeozoneIds = routeResult.xdmGeozoneIds?.length
         ? routeResult.xdmGeozoneIds
         : routeResult.xdmGeozoneId
@@ -709,12 +713,11 @@ export async function syncGeozoneGroup(
     const geofenceOverride = geofencesById ? geofencesById.get(String(geofenceId)) : null;
     const geofenceRecord = geofenceOverride || (await getGeofenceById(geofenceId));
     if (!geofenceRecord) {
-      throw new Error("Geofence não encontrada para o itinerário");
+      throw new Error(`Geofence não encontrada para o itinerário (${geofenceId})`);
     }
 
     const groupKey = resolveItemGroupKey({ item, geofenceRecord });
     const bucket = buckets[groupKey];
-    bucket.geofenceRecords.push(geofenceRecord);
 
     const xdmGeofenceId = await syncGeofence(geofenceId, {
       clientId: itinerary.clientId,
@@ -725,9 +728,9 @@ export async function syncGeozoneGroup(
       itineraryName: itinerary.name,
       roleKey: groupKey,
     });
-    bucket.xdmGeozoneIds.push(xdmGeofenceId);
-
     const mapping = getGeofenceMapping({ geofenceId, clientId: itinerary.clientId });
+    bucket.geofenceRecords.push(mapping?.name ? { ...geofenceRecord, name: mapping.name } : geofenceRecord);
+    bucket.xdmGeozoneIds.push(xdmGeofenceId);
     const geometryHash =
       mapping?.geometryHash ||
       buildGeometryHash(
@@ -836,8 +839,6 @@ export async function syncGeozoneGroupForGeofences({
       throw new Error("Geofence não pertence ao cliente");
     }
 
-    geofenceRecords.push(geofenceRecord);
-
     const xdmGeofenceId = await syncGeofence(geofenceId, {
       clientId,
       clientDisplayName,
@@ -845,9 +846,10 @@ export async function syncGeozoneGroupForGeofences({
       geofence: geofenceRecord,
       roleKey: ITINERARY_GEOZONE_GROUPS.itinerary.key,
     });
+    const mapping = getGeofenceMapping({ geofenceId, clientId });
+    geofenceRecords.push(mapping?.name ? { ...geofenceRecord, name: mapping.name } : geofenceRecord);
     xdmGeozoneIds.push(xdmGeofenceId);
 
-    const mapping = getGeofenceMapping({ geofenceId, clientId });
     const geometryHash =
       mapping?.geometryHash ||
       buildGeometryHash(

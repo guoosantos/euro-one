@@ -1,4 +1,4 @@
-import { AlertCircle, Inbox, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Inbox, Sparkles } from "lucide-react";
 
 function toneStyles(tone) {
   switch (tone) {
@@ -14,7 +14,7 @@ function toneStyles(tone) {
 }
 
 const defaultIcons = {
-  loading: Loader2,
+  loading: Sparkles,
   empty: Inbox,
   error: AlertCircle,
   partial: Sparkles,
@@ -40,7 +40,7 @@ export default function DataState({
       } ${className}`}
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/10">
-        <Icon className={`h-5 w-5 ${state === "loading" ? "animate-spin" : ""}`} />
+        <Icon className="h-5 w-5" />
       </div>
       <div className="flex-1">
         <div className="font-medium text-white">{title}</div>

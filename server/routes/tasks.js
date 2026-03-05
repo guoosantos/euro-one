@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 
 import { resolveClientId, resolveClientIdMiddleware } from "../middleware/client.js";
 import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { createTask, listTasks, getTaskById, updateTask } from "../models/task.js";
 import { traccarRequest } from "../services/traccar.js";
 
@@ -31,6 +32,7 @@ export function __resetTasksRouteMocks() {
 }
 
 router.use((req, res, next) => routeDeps.authenticate(req, res, next));
+router.use(authorizePermission({ menuKey: "primary", pageKey: "monitoring" }));
 
 async function createGeofenceForTask(task) {
   if (!task?.latitude || !task?.longitude) return null;
@@ -145,13 +147,23 @@ router.get("/tasks", (req, res, next) => routeDeps.resolveClientIdMiddleware(req
     const correlationId = resolveCorrelationId(req, res);
     const clientId = routeDeps.resolveClientId(req, req.query?.clientId, { required: false });
     assertValidClientId(clientId);
-    const { from: fromRaw, to: toRaw, status: statusRaw, vehicleId: vehicleIdRaw, driverId: driverIdRaw, type: typeRaw, ...restQuery } = req.query || {};
+    const {
+      from: fromRaw,
+      to: toRaw,
+      status: statusRaw,
+      vehicleId: vehicleIdRaw,
+      driverId: driverIdRaw,
+      type: typeRaw,
+      category: categoryRaw,
+      ...restQuery
+    } = req.query || {};
     const from = parseDateParam(fromRaw, "from");
     const to = parseDateParam(toRaw, "to");
     const status = normalizeStatusParam(statusRaw);
     const vehicleId = normalizeStringParam(vehicleIdRaw, "vehicleId");
     const driverId = normalizeStringParam(driverIdRaw, "driverId");
     const type = normalizeStringParam(typeRaw, "type");
+    const category = normalizeStringParam(categoryRaw, "category");
     if (from && to && from > to) {
       throw createError(400, "Intervalo de datas inválido", { details: { param: "from,to", value: { from, to } } });
     }
@@ -164,9 +176,10 @@ router.get("/tasks", (req, res, next) => routeDeps.resolveClientIdMiddleware(req
       vehicleId,
       driverId,
       type,
+      category,
     };
     console.info("[tasks] list", { correlationId, params: sanitizedQuery });
-    const tasks = await routeDeps.listTasks({ ...restQuery, clientId, from, to, status, vehicleId, driverId, type });
+    const tasks = await routeDeps.listTasks({ ...restQuery, clientId, from, to, status, vehicleId, driverId, type, category });
     res.json({ tasks: Array.isArray(tasks) ? tasks : [] });
   } catch (error) {
     const correlationId = res.get?.("X-Correlation-Id") || req.get?.("x-correlation-id");

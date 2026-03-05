@@ -1,206 +1,264 @@
 import React, { useEffect, useMemo, useState } from "react";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { getApiBaseUrl } from "../lib/api.js";
 import useDevices from "../lib/hooks/useDevices";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
-import PageHeader from "../components/ui/PageHeader.jsx";
 
-const ALERT_TYPES = [
-  { key: "noSeatbelt", label: "Sem cinto" },
-  { key: "fatigue", label: "Fadiga" },
-  { key: "distraction", label: "Distração" },
-  { key: "phone", label: "Uso de celular" },
-];
+const DEFAULT_HOURS = 24;
 
-const FACE_ALERTS_ENABLED = import.meta.env.VITE_ENABLE_FACE_ALERTS === "true";
+function toLocalInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function fromLocalInput(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function resolveMediaUrl(path) {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = getApiBaseUrl().replace(/\/$/, "");
+  if (path.startsWith("/api/")) {
+    return `${base.replace(/\/api$/, "")}${path}`;
+  }
+  return `${base}/${path.replace(/^\//, "")}`;
+}
+
+function resolveFaceVideoUrl(item) {
+  const mediaId = item?.metadata?.mediaId || item?.mediaId || null;
+  if (!mediaId) return null;
+  return resolveMediaUrl(`/${API_ROUTES.nt407.mediaDownload(mediaId)}`);
+}
 
 export default function Face() {
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
-  const [alerts, setAlerts] = useState([]);
-  const [infoMessage, setInfoMessage] = useState("");
-  const [filter, setFilter] = useState("all");
+  const { devices: allDevices } = useDevices();
+  const devices = useMemo(() => (Array.isArray(allDevices) ? allDevices : []), [allDevices]);
+  const [items, setItems] = useState([]);
+  const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [filters, setFilters] = useState(() => {
+    const now = Date.now();
+    return {
+      deviceId: "",
+      from: toLocalInput(now - DEFAULT_HOURS * 60 * 60 * 1000),
+      to: toLocalInput(now),
+    };
+  });
+
+  async function fetchFaces(currentFilters) {
+    setLoading(true);
+    setError(null);
+
+    const params = {
+      ...(currentFilters.deviceId ? { deviceId: currentFilters.deviceId } : {}),
+      ...(fromLocalInput(currentFilters.from) ? { from: fromLocalInput(currentFilters.from) } : {}),
+      ...(fromLocalInput(currentFilters.to) ? { to: fromLocalInput(currentFilters.to) } : {}),
+      limit: 500,
+    };
+
+    const { data, error: requestError } = await safeApi.get(API_ROUTES.nt407.faces, {
+      params,
+      timeout: 20_000,
+      suppressForbidden: true,
+      forbiddenFallbackData: { faces: [] },
+    });
+
+    if (requestError) {
+      setError(requestError);
+      setItems([]);
+      setSelected(null);
+      setLoading(false);
+      return;
+    }
+
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.faces)
+      ? data.faces
+      : [];
+
+    setItems(list);
+    setSelected((prev) => list.find((item) => item.id === prev?.id) || list[0] || null);
+    setLoading(false);
+  }
 
   useEffect(() => {
-    if (!FACE_ALERTS_ENABLED) {
-      setAlerts(buildStubAlerts(devices));
-      setInfoMessage("Módulo de reconhecimento facial desativado neste ambiente.");
-      setError(null);
-      setLoading(false);
-      return undefined;
-    }
+    fetchFaces(filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    let cancelled = false;
-    let timer;
-    let abortController;
+  function onSubmit(event) {
+    event.preventDefault();
+    fetchFaces(filters);
+  }
 
-    async function fetchAlerts() {
-      setLoading(true);
-      setError(null);
-      abortController?.abort();
-      abortController = new AbortController();
-      try {
-        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.media.faceAlerts, {
-          signal: abortController.signal,
-          timeout: 15_000,
-        });
-        if (requestError) {
-          if (safeApi.isAbortError(requestError)) return;
-          throw requestError;
-        }
-        if (cancelled) return;
-        const list = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.alerts)
-          ? payload.alerts
-          : [];
-        setAlerts(list);
-        setInfoMessage(typeof payload?.message === "string" ? payload.message : "");
-      } catch (requestError) {
-        if (cancelled) return;
-        setError(requestError);
-        setAlerts(buildStubAlerts(devices));
-        setInfoMessage("Módulo de reconhecimento facial ainda não configurado");
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          timer = setTimeout(fetchAlerts, 30_000);
-        }
-      }
-    }
-
-    fetchAlerts();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      abortController?.abort();
-    };
-  }, [devices]);
-
-  const filteredAlerts = useMemo(() => {
-    if (filter === "all") return alerts;
-    return alerts.filter((alert) => alert?.type === filter);
-  }, [alerts, filter]);
+  const selectedVideoUrl = resolveFaceVideoUrl(selected);
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de vídeo"
-        title="Reconhecimento facial e cabine"
-        subtitle="Alertas provenientes das câmeras embarcadas Euro Vision (fadiga, distração, uso de cinto). Atualização contínua."
-        rightSlot={
-          <select
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            className="h-10 rounded-lg border border-border bg-layer px-3 text-sm focus:border-primary focus:outline-none"
-          >
-            <option value="all">Todos os alertas</option>
-            {ALERT_TYPES.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        }
-      />
+      <PageHeader />
+
       <section className="card space-y-4">
-        {error && <ErrorMessage error={error} fallback="Não foi possível buscar os alertas." />}
-        {infoMessage && !error && (
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">{infoMessage}</div>
-        )}
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit}>
+          <label className="space-y-1 text-xs">
+            <span className="opacity-70">Dispositivo</span>
+            <select
+              value={filters.deviceId}
+              onChange={(event) => setFilters((prev) => ({ ...prev, deviceId: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-layer px-3 text-sm focus:border-primary focus:outline-none"
+            >
+              <option value="">Todos</option>
+              {devices.map((device) => {
+                const id = String(device?.id ?? device?.deviceId ?? device?.uniqueId ?? "");
+                if (!id) return null;
+                return (
+                  <option key={id} value={id}>
+                    {device?.name || device?.uniqueId || id}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+
+          <label className="space-y-1 text-xs">
+            <span className="opacity-70">De</span>
+            <input
+              type="datetime-local"
+              value={filters.from}
+              onChange={(event) => setFilters((prev) => ({ ...prev, from: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-layer px-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+
+          <label className="space-y-1 text-xs">
+            <span className="opacity-70">Até</span>
+            <input
+              type="datetime-local"
+              value={filters.to}
+              onChange={(event) => setFilters((prev) => ({ ...prev, to: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-layer px-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+
+          <div className="flex items-end gap-2">
+            <button type="submit" className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90">
+              Buscar
+            </button>
+            <button
+              type="button"
+              onClick={() => fetchFaces(filters)}
+              className="h-10 rounded-lg border border-border px-4 text-sm hover:bg-white/5"
+            >
+              Atualizar
+            </button>
+          </div>
+        </form>
+
+        {loading && <Loading message="Carregando eventos de reconhecimento..." />}
+        {error && <ErrorMessage error={error} fallback="Não foi possível carregar os eventos de reconhecimento." />}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        {loading && <Loading message="Sincronizando alertas…" />}
-        {filteredAlerts.map((alert) => (
-          <article key={`${alert.id}-${alert.timestamp || alert.type}`} className="rounded-2xl border border-border bg-layer p-4">
-            <header className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold">{alert?.driverName ?? "Motorista não identificado"}</div>
-                <div className="text-xs opacity-60">{formatDevice(alert?.deviceId, devices)}</div>
-              </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${badgeClass(alert?.type)}`}>
-                {translateAlert(alert?.type)}
-              </span>
-            </header>
-            <p className="mt-2 text-xs opacity-60">{formatTimestamp(alert?.timestamp)}</p>
-            <p className="mt-3 text-sm opacity-80">{alert?.description ?? "Evento registrado pela câmera"}</p>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs opacity-70">
-              <span className="rounded-full border border-border px-2 py-1">
-                Confiança {Math.round((alert?.confidence ?? 0) * 100)}%
-              </span>
-              {alert?.duration && (
-                <span className="rounded-full border border-border px-2 py-1">{formatDuration(alert.duration)}</span>
+      <section className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
+        <div className="card overflow-auto">
+          <table className="w-full min-w-[700px] text-left text-sm">
+            <thead className="text-xs uppercase text-white/60">
+              <tr>
+                <th className="px-3 py-2">Timestamp</th>
+                <th className="px-3 py-2">Dispositivo</th>
+                <th className="px-3 py-2">Evento</th>
+                <th className="px-3 py-2">Severidade</th>
+                <th className="px-3 py-2">Canal</th>
+                <th className="px-3 py-2">Mídia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const deviceId = String(item?.deviceId || "");
+                const device = devices.find((entry) => String(entry?.id ?? entry?.deviceId ?? "") === deviceId);
+                const mediaUrl = resolveFaceVideoUrl(item);
+                const selectedRow = selected?.id === item.id;
+
+                return (
+                  <tr
+                    key={item.id}
+                    className={`border-t border-white/5 ${selectedRow ? "bg-white/10" : "hover:bg-white/5"}`}
+                    onClick={() => setSelected(item)}
+                  >
+                    <td className="px-3 py-2">{formatTimestamp(item.timestamp || item.createdAt)}</td>
+                    <td className="px-3 py-2">{device?.name || device?.uniqueId || deviceId || "-"}</td>
+                    <td className="px-3 py-2">{item.eventType || "face-match"}</td>
+                    <td className="px-3 py-2">{item.severity || "-"}</td>
+                    <td className="px-3 py-2">{item.cameraChannel ?? "-"}</td>
+                    <td className="px-3 py-2">
+                      {mediaUrl ? (
+                        <a href={mediaUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                          Abrir
+                        </a>
+                      ) : (
+                        <span className="opacity-60">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!items.length && !loading && (
+                <tr>
+                  <td className="px-3 py-4 text-sm opacity-70" colSpan={6}>
+                    Nenhum evento de reconhecimento encontrado no período.
+                  </td>
+                </tr>
               )}
-            </div>
-          </article>
-        ))}
-        {!filteredAlerts.length && (
-          <div className="card text-sm opacity-60">
-            {loading ? "Sincronizando alertas…" : "Nenhum alerta com os filtros atuais."}
-          </div>
-        )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="card space-y-3">
+          <div className="text-sm font-semibold">Detalhes</div>
+          {!selected && <div className="text-sm opacity-70">Selecione um evento para visualizar detalhes.</div>}
+          {selected && (
+            <>
+              <div className="space-y-1 text-xs opacity-80">
+                <div><strong>Evento:</strong> {selected.eventType || "face-match"}</div>
+                <div><strong>Timestamp:</strong> {formatTimestamp(selected.timestamp || selected.createdAt)}</div>
+                <div><strong>Canal:</strong> {selected.cameraChannel ?? "-"}</div>
+                <div><strong>Severidade:</strong> {selected.severity || "-"}</div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-border/50 bg-black">
+                {selectedVideoUrl ? (
+                  <video key={selected.id} src={selectedVideoUrl} controls className="aspect-video w-full bg-black" />
+                ) : (
+                  <div className="flex aspect-video items-center justify-center text-sm text-white/60">
+                    Evento sem mídia associada.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </section>
     </div>
   );
 }
 
-function buildStubAlerts(devices) {
-  if (!devices.length) {
-    return [];
-  }
-  return devices.slice(0, 4).map((device, index) => ({
-    id: `stub-${device.id ?? index}`,
-    deviceId: device.id ?? device.deviceId ?? device.uniqueId,
-    driverName: device.name ?? device.uniqueId ?? `Motorista ${index + 1}`,
-    type: ALERT_TYPES[index % ALERT_TYPES.length].key,
-    description: "Alerta simulado para ambiente de homologação.",
-    confidence: 0.75 + index * 0.05,
-    duration: 90 + index * 15,
-    timestamp: new Date(Date.now() - index * 600000).toISOString(),
-  }));
-}
-
-function translateAlert(type) {
-  const entry = ALERT_TYPES.find((item) => item.key === type);
-  return entry ? entry.label : type;
-}
-
-function badgeClass(type) {
-  switch (type) {
-    case "noSeatbelt":
-      return "bg-red-500/10 text-red-300";
-    case "fatigue":
-      return "bg-amber-500/10 text-amber-300";
-    case "distraction":
-      return "bg-blue-500/10 text-blue-300";
-    case "phone":
-      return "bg-purple-500/10 text-purple-300";
-    default:
-      return "bg-white/10 text-white/70";
-  }
-}
-
-function formatDevice(deviceId, devices) {
-  const match = devices.find((device) => String(device.id ?? device.deviceId ?? device.uniqueId) === String(deviceId));
-  return match ? match.name ?? match.uniqueId ?? match.id : `Dispositivo ${deviceId}`;
-}
-
-function formatDuration(seconds) {
-  const value = Number(seconds);
-  if (!Number.isFinite(value)) return null;
-  const minutes = Math.floor(value / 60);
-  const remainder = Math.round(value % 60);
-  return `${minutes}m ${remainder}s`;
-}
-
 function formatTimestamp(value) {
-  if (!value) return "—";
+  if (!value) return "-";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
 }

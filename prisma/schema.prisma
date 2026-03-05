@@ -82,7 +82,8 @@ model Device {
   modelId    String?
   traccarId  String?  @unique
   chipId     String?  @unique
-  vehicleId  String?  @unique
+  vehicleId  String?
+  ownershipType String @default("COMODATO")
   attributes Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -94,6 +95,82 @@ model Device {
 
   telemetryMappings TelemetryFieldMapping[]
   eventMappings     EventMapping[]
+  nt407Positions    Nt407Position[]
+  nt407Events       Nt407Event[]
+  nt407Media        Nt407Media[]
+
+  @@index([clientId, ownershipType])
+  @@index([vehicleId])
+}
+
+model Nt407Position {
+  id          String   @id @default(uuid())
+  deviceId    String?
+  terminalId  String
+  latitude    Float
+  longitude   Float
+  speedKmh    Float?
+  altitude    Int?
+  direction   Int?
+  alarmFlags  Int?
+  statusFlags Int?
+  extras      Json?
+  protocol    String?  @default("jt808")
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, timestamp])
+  @@index([terminalId, timestamp])
+  @@map("nt407_positions")
+}
+
+model Nt407Event {
+  id            String   @id @default(uuid())
+  deviceId      String?
+  terminalId    String
+  msgId         String?
+  eventType     String
+  severity      String?
+  source        String?
+  cameraChannel Int?
+  fatigueScore  Int?
+  durationSec   Int?
+  metadata      Json?
+  timestamp     DateTime
+  createdAt     DateTime @default(now())
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, timestamp])
+  @@index([terminalId, timestamp])
+  @@index([eventType, timestamp])
+  @@map("nt407_events")
+}
+
+model Nt407Media {
+  id            String   @id @default(uuid())
+  deviceId      String?
+  terminalId    String
+  cameraChannel Int?
+  mediaType     String
+  mediaFormat   String?
+  eventType     String?
+  source        String?
+  filePath      String?
+  fileSize      Int?
+  metadata      Json?
+  startTime     DateTime
+  endTime       DateTime?
+  createdAt     DateTime @default(now())
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, startTime])
+  @@index([terminalId, startTime])
+  @@index([eventType, startTime])
+  @@map("nt407_media")
 }
 
 model Chip {
@@ -453,7 +530,15 @@ model Task {
   status             String
   ownerName          String?
   technicianName     String?
+  assignedTechnicianId String?
   assignedTeam       String?
+  schedulingId       String?
+  workOrderId        String?
+  vehicleBrand       String?
+  vehicleYear        String?
+  vehicleColor       String?
+  selectedEquipments Json?
+  isRescheduled      Boolean   @default(false)
   rescheduleReason   String?
   cancelReason       String?
   attachments        Json?

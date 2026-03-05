@@ -353,6 +353,8 @@ export function getCachedGeocode(lat, lng) {
     address: cached.address || formattedAddress || cached.shortAddress || null,
     formattedAddress,
     shortAddress: cached.shortAddress || formattedAddress || cached.address || null,
+    parts: cached.parts || null,
+    provider: cached.provider || null,
     cachedAt: cached.updatedAt || cached.createdAt || null,
   };
 }

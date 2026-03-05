@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import api from "../lib/api";
@@ -25,6 +25,14 @@ const documentTypeOptions = ["CPF", "CNPJ", "CI", "RUC"];
 const clientTypeOptions = ["Cliente Final", "Gerenciadora", "Seguradora"];
 const cnhCategories = ["ACC", "A", "B", "C", "D", "E", "AB", "AC", "AD", "AE"];
 const genderOptions = ["Masculino", "Feminino"];
+const roleLabels = {
+  admin: "Administrador",
+  tenant_admin: "Administrador do cliente",
+  manager: "Gestor",
+  user: "Operador",
+  driver: "Motorista",
+  viewer: "Visualizador",
+};
 
 const defaultProfile = {
   documentType: "CPF",
@@ -74,6 +82,37 @@ const baseFormState = {
   profile: defaultProfile,
 };
 
+function normalizePresentationCandidate(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
+  if (candidate.permissions && typeof candidate.permissions === "object") {
+    return candidate.permissions;
+  }
+  return candidate;
+}
+
+function resolvePresentationPermissions(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = [
+    attributes.presentationPermissions,
+    attributes.presentation,
+    attributes.apresentacao,
+    attributes.apresentacaoPermissions,
+    attributes.menuPresentation,
+    attributes.menuPermissions,
+    attributes.presentationMenu,
+    attributes.menuConfig,
+    attributes.modules,
+    attributes.modulePermissions,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizePresentationCandidate(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 const tabs = [
   {
     id: "informacoes",
@@ -93,6 +132,11 @@ const tabs = [
   {
     id: "permissoes",
     label: "Grupo de Permissões",
+    permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-permissions" },
+  },
+  {
+    id: "apresentacao",
+    label: "Apresentação",
     permission: { menuKey: "admin", pageKey: "clients", subKey: "clients-permissions" },
   },
   {
@@ -134,7 +178,7 @@ function Drawer({ open, onClose, title, description, children }) {
 export default function ClientDetailsPage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { role } = useTenant();
+  const { role, permissionContext } = useTenant();
   const [client, setClient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -147,6 +191,8 @@ export default function ClientDetailsPage() {
   const [permissionDrawerOpen, setPermissionDrawerOpen] = useState(false);
   const [editingPermissionGroup, setEditingPermissionGroup] = useState(null);
   const [permissionGroupForm, setPermissionGroupForm] = useState({ name: "", description: "", permissions: {} });
+  const [presentationForm, setPresentationForm] = useState({ permissions: {} });
+  const [presentationSaving, setPresentationSaving] = useState(false);
   const [mirrors, setMirrors] = useState(EMPTY_LIST);
   const [mirrorDrawerOpen, setMirrorDrawerOpen] = useState(false);
   const [editingMirror, setEditingMirror] = useState(null);
@@ -161,6 +207,13 @@ export default function ClientDetailsPage() {
   const [clients, setClients] = useState(EMPTY_LIST);
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
+  const selfRequestOptions = useMemo(
+    () => ({
+      skipMirrorClient: true,
+      headers: { "X-Mirror-Mode": "self" },
+    }),
+    [],
+  );
   const { getPermission } = usePermissions();
   const availableTabs = useMemo(() => tabs.filter((tab) => getPermission(tab.permission).canShow), [getPermission]);
   const activeTabPermission = useMemo(() => {
@@ -170,6 +223,14 @@ export default function ClientDetailsPage() {
 
   const isAdmin = role === "admin";
   const isAdminGeneralClient = isAdminGeneralClientName(client?.name);
+  const handlePresentationPermissionsChange = useCallback(
+    (nextPermissions) => setPresentationForm((prev) => ({ ...prev, permissions: nextPermissions })),
+    [],
+  );
+  const handlePermissionGroupPermissionsChange = useCallback(
+    (nextPermissions) => setPermissionGroupForm((prev) => ({ ...prev, permissions: nextPermissions })),
+    [],
+  );
 
   const mirrorTargetOptions = useMemo(
     () =>
@@ -203,6 +264,34 @@ export default function ClientDetailsPage() {
     () => groups.filter((entry) => entry.attributes?.kind === "PERMISSION_GROUP"),
     [groups],
   );
+  const permissionGroupLabelById = useMemo(() => {
+    const map = new Map();
+    permissionGroups.forEach((group) => {
+      if (!group?.id) return;
+      const suffix = group.attributes?.scope === "global" ? " (Global)" : "";
+      map.set(String(group.id), `${group.name}${suffix}`);
+    });
+    return map;
+  }, [permissionGroups]);
+  const resolveUserProfileLabel = useMemo(
+    () => (entry) => {
+      if (!entry) return "—";
+      const groupId = entry.attributes?.permissionGroupId;
+      if (groupId && permissionGroupLabelById.has(String(groupId))) {
+        return permissionGroupLabelById.get(String(groupId));
+      }
+      if (entry.role === "admin") {
+        return "Administrador (Global)";
+      }
+      return roleLabels[entry.role] || entry.role || "—";
+    },
+    [permissionGroupLabelById],
+  );
+  const scopedPermissionContext = useMemo(() => {
+    if (isAdminGeneral) return null;
+    if (permissionContext?.isFull) return null;
+    return permissionContext?.permissions || {};
+  }, [isAdminGeneral, permissionContext]);
 
   useEffect(() => {
     let isMounted = true;
@@ -239,6 +328,10 @@ export default function ClientDetailsPage() {
           vehicleLimit: attributes.vehicleLimit ?? 0,
           profile,
         });
+        const presentationPermissions = resolvePresentationPermissions(attributes);
+        setPresentationForm({
+          permissions: buildPermissionEditorState(presentationPermissions || {}, PERMISSION_REGISTRY),
+        });
       } catch (loadError) {
         if (!isMounted) return;
         console.error("Erro ao carregar cliente", loadError);
@@ -265,7 +358,10 @@ export default function ClientDetailsPage() {
     let isMounted = true;
     async function loadUsers() {
       try {
-        const response = await api.get(API_ROUTES.users, { params: { clientId: client.id } });
+        const response = await api.get(API_ROUTES.users, {
+          params: { clientId: client.id },
+          ...selfRequestOptions,
+        });
         if (!isMounted) return;
         const list = response?.data?.users || response?.data || [];
         setUsers(Array.isArray(list) ? list : EMPTY_LIST);
@@ -447,6 +543,30 @@ export default function ClientDetailsPage() {
     } catch (permissionError) {
       console.error("Erro ao salvar grupo de permissões", permissionError);
       setError(permissionError);
+    }
+  };
+
+  const handlePresentationSave = async (event) => {
+    event.preventDefault();
+    if (!client?.id) return;
+    setPresentationSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const nextAttributes = {
+        ...(client.attributes || {}),
+        presentationPermissions: normalizePermissionPayload(presentationForm.permissions),
+      };
+      const response = await api.put(`/clients/${client.id}`, { attributes: nextAttributes });
+      const updated = response?.data?.client || client;
+      setClient(updated);
+      showToast("Apresentação atualizada com sucesso.");
+    } catch (presentationError) {
+      console.error("Erro ao salvar apresentação", presentationError);
+      showToast("Falha ao salvar apresentação.", "error");
+      setError(presentationError);
+    } finally {
+      setPresentationSaving(false);
     }
   };
 
@@ -1108,7 +1228,7 @@ export default function ClientDetailsPage() {
                       <tr key={userItem.id} className="hover:bg-white/5">
                         <td className="py-2 pr-4 text-white">{userItem.name}</td>
                         <td className="py-2 pr-4 text-white/70">{userItem.email}</td>
-                        <td className="py-2 pr-4 text-white/70">{userItem.role}</td>
+                        <td className="py-2 pr-4 text-white/70">{resolveUserProfileLabel(userItem)}</td>
                       </tr>
                     ))}
                     {!users.length && (
@@ -1253,6 +1373,35 @@ export default function ClientDetailsPage() {
             </section>
           )}
 
+          {activeTabPermission?.canRead && activeTab === "apresentacao" && (
+            <section className="border border-white/10 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Apresentação</h2>
+                  <p className="text-xs text-white/60">
+                    Define quais módulos aparecem para este cliente. A visibilidade final depende da permissão
+                    do usuário + apresentação.
+                  </p>
+                </div>
+              </div>
+              <form onSubmit={handlePresentationSave} className="mt-4 space-y-4">
+                <PermissionTreeEditor
+                  permissions={presentationForm.permissions}
+                  onChange={handlePresentationPermissionsChange}
+                />
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <button
+                    type="submit"
+                    disabled={presentationSaving}
+                    className="rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {presentationSaving ? "Salvando…" : "Salvar apresentação"}
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
+
           {activeTabPermission?.canRead && activeTab === "espelhamento" && (
             <section className="border border-white/10 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1361,9 +1510,9 @@ export default function ClientDetailsPage() {
               </label>
               <PermissionTreeEditor
                 permissions={permissionGroupForm.permissions}
-                onChange={(nextPermissions) =>
-                  setPermissionGroupForm((prev) => ({ ...prev, permissions: nextPermissions }))
-                }
+                scopePermissions={scopedPermissionContext}
+                allowBulkActions={isAdminGeneral}
+                onChange={handlePermissionGroupPermissionsChange}
               />
               <div className="flex items-center justify-end gap-3">
                 <button

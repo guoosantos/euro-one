@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
-import AddressSearchInput, { useAddressSearchState } from "../../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../../components/AddressAutocomplete.jsx";
 import VehicleSelector from "../../components/VehicleSelector.jsx";
 import AutocompleteSelect from "../../components/ui/AutocompleteSelect.jsx";
 import api from "../../lib/api.js";
@@ -66,7 +66,8 @@ function formatPhone(value) {
 
 export default function ServiceOrderNew() {
   const navigate = useNavigate();
-  const { tenantId, user, tenants } = useTenant();
+  const [searchParams] = useSearchParams();
+  const { tenantId, tenantScope, user, tenants } = useTenant();
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [createdOrder, setCreatedOrder] = useState(null);
@@ -76,6 +77,7 @@ export default function ServiceOrderNew() {
   const [techniciansLoading, setTechniciansLoading] = useState(false);
   const [technicianId, setTechnicianId] = useState("");
   const [clientSelection, setClientSelection] = useState("");
+  const [prefillApplied, setPrefillApplied] = useState(false);
   const [technicianSignature, setTechnicianSignature] = useState(null);
   const [clientSignature, setClientSignature] = useState(null);
   const technicianCanvasRef = React.useRef(null);
@@ -91,8 +93,17 @@ export default function ServiceOrderNew() {
     responsibleName: "",
     responsiblePhone: "",
     addressStart: "",
+    addressStartLat: "",
+    addressStartLng: "",
+    addressStartPlaceId: "",
     address: "",
+    addressLat: "",
+    addressLng: "",
+    addressPlaceId: "",
     addressReturn: "",
+    addressReturnLat: "",
+    addressReturnLng: "",
+    addressReturnPlaceId: "",
     km: "",
     vehicleId: "",
     vehiclePlate: "",
@@ -107,15 +118,25 @@ export default function ServiceOrderNew() {
     CHECKLIST_ITEMS.map((item) => ({ item, before: "", after: "" })),
   );
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
   const canManageAll = user?.role === "admin";
   const canSignAsTechnician = user?.role === "technician";
   const canSignAsClient = user?.role === "user";
-  const { vehicles } = useVehicles({ includeUnlinked: true });
+  const { vehicles } = useVehicles({ includeUnlinked: true, includeTelemetry: false });
 
-  const addressStartState = useAddressSearchState({ initialValue: "" });
-  const addressServiceState = useAddressSearchState({ initialValue: "" });
-  const addressReturnState = useAddressSearchState({ initialValue: "" });
+  const [addressStartValue, setAddressStartValue] = useState({ formattedAddress: "" });
+  const [addressServiceValue, setAddressServiceValue] = useState({ formattedAddress: "" });
+  const [addressReturnValue, setAddressReturnValue] = useState({ formattedAddress: "" });
+
+  const prefillTaskId = searchParams.get("taskId") || "";
+  const prefillClientId = searchParams.get("clientId") || "";
+  const prefillClientName = searchParams.get("clientName") || "";
+  const prefillResponsibleName = searchParams.get("responsibleName") || "";
+  const prefillResponsiblePhone = searchParams.get("responsiblePhone") || "";
+  const prefillAddress = searchParams.get("address") || "";
+  const prefillStartAt = searchParams.get("startAt") || "";
+  const prefillType = searchParams.get("type") || "";
+  const prefillTechnicianName = searchParams.get("technicianName") || "";
 
   useEffect(() => {
     if (form.type !== "Instalação" || !form.startAt || equipments.length === 0) {
@@ -124,22 +145,84 @@ export default function ServiceOrderNew() {
   }, [equipments.length, form.startAt, form.type]);
 
   useEffect(() => {
-    if (addressStartState.query !== form.addressStart) {
-      setForm((prev) => ({ ...prev, addressStart: addressStartState.query }));
+    if (prefillApplied) return;
+    const hasPrefill =
+      prefillTaskId ||
+      prefillClientId ||
+      prefillClientName ||
+      prefillResponsibleName ||
+      prefillResponsiblePhone ||
+      prefillAddress ||
+      prefillStartAt ||
+      prefillType ||
+      prefillTechnicianName;
+    if (!hasPrefill) return;
+    setForm((prev) => ({
+      ...prev,
+      clientName: prefillClientName || prev.clientName,
+      responsibleName: prefillResponsibleName || prev.responsibleName,
+      responsiblePhone: prefillResponsiblePhone || prev.responsiblePhone,
+      address: prefillAddress || prev.address,
+      startAt: prefillStartAt || prev.startAt,
+      type: prefillType || prev.type,
+      technicianName: prefillTechnicianName || prev.technicianName,
+    }));
+    if (prefillAddress) {
+      setAddressServiceValue({ formattedAddress: prefillAddress });
     }
-  }, [addressStartState.query, form.addressStart]);
+    if (prefillClientId && canManageAll) {
+      setClientSelection(prefillClientId);
+    }
+    setPrefillApplied(true);
+  }, [
+    canManageAll,
+    prefillAddress,
+    prefillApplied,
+    prefillClientId,
+    prefillClientName,
+    prefillResponsibleName,
+    prefillResponsiblePhone,
+    prefillStartAt,
+    prefillTaskId,
+    prefillTechnicianName,
+    prefillType,
+  ]);
 
-  useEffect(() => {
-    if (addressServiceState.query !== form.address) {
-      setForm((prev) => ({ ...prev, address: addressServiceState.query }));
-    }
-  }, [addressServiceState.query, form.address]);
+  const handleAddressStartChange = useCallback((value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setAddressStartValue(nextValue);
+    setForm((prev) => ({
+      ...prev,
+      addressStart: nextValue.formattedAddress || "",
+      addressStartLat: nextValue.lat ?? "",
+      addressStartLng: nextValue.lng ?? "",
+      addressStartPlaceId: nextValue.placeId || "",
+    }));
+  }, []);
 
-  useEffect(() => {
-    if (addressReturnState.query !== form.addressReturn) {
-      setForm((prev) => ({ ...prev, addressReturn: addressReturnState.query }));
-    }
-  }, [addressReturnState.query, form.addressReturn]);
+  const handleAddressServiceChange = useCallback((value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setAddressServiceValue(nextValue);
+    setForm((prev) => ({
+      ...prev,
+      address: nextValue.formattedAddress || "",
+      addressLat: nextValue.lat ?? "",
+      addressLng: nextValue.lng ?? "",
+      addressPlaceId: nextValue.placeId || "",
+    }));
+  }, []);
+
+  const handleAddressReturnChange = useCallback((value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setAddressReturnValue(nextValue);
+    setForm((prev) => ({
+      ...prev,
+      addressReturn: nextValue.formattedAddress || "",
+      addressReturnLat: nextValue.lat ?? "",
+      addressReturnLng: nextValue.lng ?? "",
+      addressReturnPlaceId: nextValue.placeId || "",
+    }));
+  }, []);
 
   useEffect(() => {
     const loadDevices = async () => {
@@ -429,8 +512,17 @@ export default function ServiceOrderNew() {
         responsibleName: form.responsibleName,
         responsiblePhone: form.responsiblePhone,
         addressStart: form.addressStart || null,
+        addressStartLat: form.addressStartLat || null,
+        addressStartLng: form.addressStartLng || null,
+        addressStartPlaceId: form.addressStartPlaceId || null,
         address: form.address || null,
+        addressLat: form.addressLat || null,
+        addressLng: form.addressLng || null,
+        addressPlaceId: form.addressPlaceId || null,
         addressReturn: form.addressReturn || null,
+        addressReturnLat: form.addressReturnLat || null,
+        addressReturnLng: form.addressReturnLng || null,
+        addressReturnPlaceId: form.addressReturnPlaceId || null,
         km: form.km === "" ? null : Number(form.km),
         vehicleId: form.vehicleId || null,
         vehiclePlate: form.vehiclePlate || null,
@@ -438,6 +530,7 @@ export default function ServiceOrderNew() {
         checklistItems: checklist,
         notes: form.notes || null,
         warrantyFromInstallation,
+        externalRef: prefillTaskId ? String(prefillTaskId) : null,
       };
       if (hasSignatures) {
         payload.signatures = {
@@ -480,8 +573,6 @@ export default function ServiceOrderNew() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Nova Ordem de Serviço"
-        subtitle="Solicite o serviço e acompanhe o status."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {createdOrder?.id && (
@@ -640,8 +731,11 @@ export default function ServiceOrderNew() {
             <div>
               <span className="block text-xs text-white/60">Endereço Partida</span>
               <div className="mt-2">
-                <AddressSearchInput
-                  state={addressStartState}
+                <AddressAutocomplete
+                  label={null}
+                  value={addressStartValue}
+                  onChange={handleAddressStartChange}
+                  onSelect={handleAddressStartChange}
                   placeholder="Buscar endereço de partida"
                   variant="toolbar"
                   containerClassName="w-full"
@@ -651,8 +745,11 @@ export default function ServiceOrderNew() {
             <div>
               <span className="block text-xs text-white/60">Endereço Serviço</span>
               <div className="mt-2">
-                <AddressSearchInput
-                  state={addressServiceState}
+                <AddressAutocomplete
+                  label={null}
+                  value={addressServiceValue}
+                  onChange={handleAddressServiceChange}
+                  onSelect={handleAddressServiceChange}
                   placeholder="Buscar endereço do serviço"
                   variant="toolbar"
                   containerClassName="w-full"
@@ -662,8 +759,11 @@ export default function ServiceOrderNew() {
             <div>
               <span className="block text-xs text-white/60">Endereço Volta</span>
               <div className="mt-2">
-                <AddressSearchInput
-                  state={addressReturnState}
+                <AddressAutocomplete
+                  label={null}
+                  value={addressReturnValue}
+                  onChange={handleAddressReturnChange}
+                  onSelect={handleAddressReturnChange}
                   placeholder="Buscar endereço de retorno"
                   variant="toolbar"
                   containerClassName="w-full"
@@ -691,6 +791,7 @@ export default function ServiceOrderNew() {
             <VehicleSelector
               label="Buscar veículo"
               placeholder="Busque por placa ou nome"
+              allowUnlinked
               onChange={(vehicleId, vehicle) => {
                 setField("vehicleId", vehicleId || "");
                 setField("vehiclePlate", vehicle?.plate || "");

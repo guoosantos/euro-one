@@ -54,9 +54,20 @@ export function resolveAllowedMirrorOwnerIds(user) {
 
   const ids = new Set();
   let allowAll = false;
+  let hasExplicitMirrorAccess = false;
 
   const mirrorAccess = user.attributes?.mirrorAccess;
   const userAccess = user.attributes?.userAccess;
+
+  if (mirrorAccess !== undefined && mirrorAccess !== null) {
+    if (typeof mirrorAccess === "object" && !Array.isArray(mirrorAccess)) {
+      if (Object.keys(mirrorAccess).length > 0) {
+        hasExplicitMirrorAccess = true;
+      }
+    } else {
+      hasExplicitMirrorAccess = true;
+    }
+  }
 
   if (mirrorAccess === true || mirrorAccess === "all") {
     allowAll = true;
@@ -74,6 +85,23 @@ export function resolveAllowedMirrorOwnerIds(user) {
   }
 
   if (userAccess && typeof userAccess === "object") {
+    if (Object.prototype.hasOwnProperty.call(userAccess, "mirrorAccess")) {
+      const mirrorAccessValue = userAccess.mirrorAccess;
+      if (mirrorAccessValue && typeof mirrorAccessValue === "object" && !Array.isArray(mirrorAccessValue)) {
+        if (Object.keys(mirrorAccessValue).length > 0) {
+          hasExplicitMirrorAccess = true;
+        }
+      } else if (mirrorAccessValue !== undefined && mirrorAccessValue !== null) {
+        hasExplicitMirrorAccess = true;
+      }
+    }
+    if (
+      userAccess.ownerClientIds ||
+      userAccess.mirrorOwnerIds ||
+      userAccess.ownerClientId
+    ) {
+      hasExplicitMirrorAccess = true;
+    }
     extractIdsFromObject(userAccess, ids);
     if (userAccess.mirrorAccess && typeof userAccess.mirrorAccess === "object") {
       const mode = resolveAccessMode(userAccess.mirrorAccess);
@@ -83,6 +111,7 @@ export function resolveAllowedMirrorOwnerIds(user) {
   }
 
   if (allowAll) return null;
+  if (!hasExplicitMirrorAccess && ids.size === 0) return null;
   return Array.from(ids.values());
 }
 

@@ -104,7 +104,6 @@ export default function TrackerManagement() {
   return (
     <div className="space-y-6">
       <PageHeader
-        overline="Central de rastreadores"
         title="Gerenciar rastreador"
         subtitle="Configure atributos, mapeamentos e eventos do Traccar."
       />

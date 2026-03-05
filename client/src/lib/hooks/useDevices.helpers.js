@@ -9,7 +9,8 @@ export function toDeviceKey(value) {
 
 export function getDeviceKey(device) {
   return toDeviceKey(
-    device?.id ??
+    device?.traccarId ??
+      device?.id ??
       device?.deviceId ??
       device?.device_id ??
       device?.uniqueId ??

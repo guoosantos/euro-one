@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip } from "react-leaflet";
+import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip, Polyline, Polygon } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
-import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
 import useMapDataRefresh from "../../lib/map/useMapDataRefresh.js";
 import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import MapZoomControls from "./MapZoomControls.jsx";
 import AppMap from "./AppMap.jsx";
 import { formatAddress } from "../../lib/format-address.js";
+import { DEFAULT_MAP_LAYER } from "../../lib/mapLayers.js";
+import { buildOverlayShapes, buildRouteCorridorPolygons } from "../../lib/itinerary-overlay.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
@@ -22,8 +23,8 @@ function getAddressPinIcon() {
   addressPinIconCache.current = L.divIcon({
     className: "address-pin",
     html: `
-      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:20px;height:20px;">
-        <div style="width:14px;height:14px;border-radius:9999px;background:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,0.8);border:2px solid white;"></div>
+      <div class="address-pin__wrap">
+        <div class="address-pin__dot"></div>
       </div>
     `,
     iconSize: [20, 20],
@@ -73,6 +74,8 @@ function getClusterIcon(count) {
 
 function PopupContent({ marker }) {
   const statusStyle = getStatusStyle(marker.status);
+  const primaryLabel = marker.plate || marker.label || "Sem placa";
+  const secondaryLabel = marker.model && marker.model !== primaryLabel ? marker.model : "";
   
   const addressText = useMemo(() => {
     if (typeof marker.address === "string") return marker.address;
@@ -90,9 +93,10 @@ function PopupContent({ marker }) {
 
   return (
     <div className="space-y-1.5 text-white min-w-[200px]">
-      {marker.label && <div className="text-sm font-bold leading-tight text-white">{marker.label}</div>}
-      {marker.plate && <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div>}
-      {marker.model && <div className="text-[11px] text-white/70">{marker.model}</div>}
+      <div className="text-sm font-bold leading-tight text-white">{primaryLabel}</div>
+      {secondaryLabel ? (
+        <div className="text-[11px] text-white/70">{secondaryLabel}</div>
+      ) : null}
       
       {addressText && <div className="text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">{addressText}</div>}
       
@@ -133,6 +137,26 @@ function PopupContent({ marker }) {
           <span className="text-white/70">{marker.lastUpdateLabel}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function formatToleranceLabel(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return "—";
+  return `${Math.round(parsed)} m`;
+}
+
+function OverlayHoverTooltip({ name, type, tolerance }) {
+  return (
+    <div className="monitoring-overlay-tooltip text-[11px] leading-tight text-white/85">
+      <div className="font-semibold text-white">{name || "—"}</div>
+      <div className="mt-0.5 text-white/65">
+        Tipo: <span className="text-white/85">{type}</span>
+      </div>
+      <div className="text-white/60">
+        Tolerância: <span className="text-white/85">{tolerance || "—"}</span>
+      </div>
     </div>
   );
 }
@@ -305,6 +329,8 @@ function RegionOverlay({ target }) {
   const radius = target?.radius ?? 500;
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
+  const targetLabel = target.label || target.name || "Alvo";
+  const toleranceLabel = formatToleranceLabel(radius);
   return (
     <Circle
       center={[target.lat, target.lng]}
@@ -312,10 +338,9 @@ function RegionOverlay({ target }) {
       pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.12, weight: 2 }}
     >
       <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
-        <div className="text-xs text-white/80">
-          <div className="font-semibold text-white">{target.label}</div>
-          <div>{formatAddress(target.address)}</div>
-          <div className="text-white/60">Raio: {radius} m</div>
+        <div className="space-y-1">
+          <OverlayHoverTooltip name={targetLabel} type="Alvo" tolerance={toleranceLabel} />
+          <div className="text-[11px] text-white/60">{formatAddress(target.address)}</div>
         </div>
       </Tooltip>
     </Circle>
@@ -347,6 +372,146 @@ function AddressMarker({ marker }) {
   );
 }
 
+function ItineraryOverlayLayer({ overlay, focusPoint, variant = "official", shouldFit = true }) {
+  const map = useMap();
+  const lastFitTokenRef = useRef(null);
+  const isDebug = variant === "debug";
+  const { routeLines, geofences, checkpoints } = useMemo(
+    () => buildOverlayShapes(overlay),
+    [overlay],
+  );
+  const corridorBufferMeters = useMemo(() => {
+    const raw = Number(overlay?.bufferMeters);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return raw;
+  }, [overlay?.bufferMeters]);
+  const routeCorridors = useMemo(
+    () => buildRouteCorridorPolygons(routeLines, corridorBufferMeters),
+    [corridorBufferMeters, routeLines],
+  );
+  const routeStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", weight: 3, opacity: 0.9 }
+      : { color: "#3b82f6", weight: 3, opacity: 0.9 }),
+    [isDebug],
+  );
+  const corridorStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", weight: 1, fillColor: "#ef4444", fillOpacity: 0.18 }
+      : { color: "#3b82f6", weight: 1, fillColor: "#3b82f6", fillOpacity: 0.18 }),
+    [isDebug],
+  );
+  const geofenceStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", weight: 2, fillColor: "#ef4444", fillOpacity: 0.12 }
+      : { color: "#3b82f6", weight: 2, fillColor: "#3b82f6", fillOpacity: 0.12 }),
+    [isDebug],
+  );
+  const checkpointStyle = useMemo(
+    () => (isDebug
+      ? { color: "#ef4444", fillColor: "#ef4444", fillOpacity: 0.8 }
+      : { color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.8 }),
+    [isDebug],
+  );
+  const prefix = isDebug ? "itinerary-debug" : "itinerary";
+  const routeTooltipLabel = overlay?.name || overlay?.itineraryName || overlay?.id || "Rota";
+  const routeBufferLabel = useMemo(() => {
+    const raw = Number(overlay?.bufferMeters);
+    if (!Number.isFinite(raw) || raw <= 0) return "—";
+    return formatToleranceLabel(raw);
+  }, [overlay?.bufferMeters]);
+
+  const safeRouteLines = routeLines.filter((line) => Array.isArray(line) && line.length > 1);
+  const safeGeofences = geofences
+    .map((geofence) => ({
+      ...geofence,
+      polygons: (geofence.polygons || []).filter((ring) => Array.isArray(ring) && ring.length > 2),
+    }))
+    .filter((geofence) => geofence.polygons.length > 0);
+
+  useEffect(() => {
+    if (!overlay || !map || !canInteractWithMap(map) || !shouldFit) return;
+    const fitToken = overlay?.fitToken || "default";
+    if (fitToken === lastFitTokenRef.current) return;
+    lastFitTokenRef.current = fitToken;
+    const bounds = L.latLngBounds([]);
+    safeRouteLines.forEach((line) => {
+      line.forEach((point) => bounds.extend(point));
+    });
+    safeGeofences.forEach((geofence) => {
+      (geofence.polygons || []).forEach((ring) => {
+        ring.forEach((point) => bounds.extend(point));
+      });
+    });
+    if (focusPoint && Number.isFinite(focusPoint.lat) && Number.isFinite(focusPoint.lng)) {
+      bounds.extend([focusPoint.lat, focusPoint.lng]);
+    }
+    if (!bounds.isValid()) return;
+    map.fitBounds(bounds, { padding: [36, 36], animate: true });
+  }, [focusPoint, map, overlay, safeGeofences, safeRouteLines, shouldFit]);
+
+  if (!overlay) return null;
+
+  return (
+    <>
+      {routeCorridors.length > 0
+        ? routeCorridors.map((polygon, index) => (
+            <Polygon
+              key={`${prefix}-corridor-${index}`}
+              positions={polygon}
+              pathOptions={corridorStyle}
+            >
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+                <OverlayHoverTooltip name={routeTooltipLabel} type="Rota" tolerance={routeBufferLabel} />
+              </Tooltip>
+            </Polygon>
+          ))
+        : safeRouteLines.map((line, index) => (
+            <Polyline
+              key={`${prefix}-route-${index}`}
+              positions={line}
+              pathOptions={routeStyle}
+            >
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+                <OverlayHoverTooltip name={routeTooltipLabel} type="Rota" tolerance={routeBufferLabel} />
+              </Tooltip>
+            </Polyline>
+          ))}
+      {safeGeofences.map((geofence, index) => (
+        <Polygon
+          key={`${prefix}-geofence-${geofence.id || index}`}
+          positions={geofence.polygons}
+          pathOptions={geofenceStyle}
+        >
+          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+            <OverlayHoverTooltip
+              name={geofence.name || "Cerca"}
+              type="Cerca"
+              tolerance={formatToleranceLabel(geofence?.toleranceMeters)}
+            />
+          </Tooltip>
+        </Polygon>
+      ))}
+      {checkpoints.map((checkpoint, index) => (
+        <CircleMarker
+          key={`${prefix}-checkpoint-${index}`}
+          center={[checkpoint.lat, checkpoint.lng]}
+          radius={6}
+          pathOptions={checkpointStyle}
+        >
+          <Tooltip direction="top" offset={[0, -8]} opacity={0.9} className="monitoring-popup">
+            <OverlayHoverTooltip
+              name={checkpoint.name || "Alvo"}
+              type="Alvo"
+              tolerance={formatToleranceLabel(checkpoint?.toleranceMeters)}
+            />
+          </Tooltip>
+        </CircleMarker>
+      ))}
+    </>
+  );
+}
+
 // --- COMPONENTE PRINCIPAL ---
 
 const MonitoringMap = React.forwardRef(function MonitoringMap({
@@ -358,10 +523,20 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   onMarkerOpenDetails = null,
   mapLayer,
   addressMarker,
+  itineraryOverlay = null,
+  itineraryOverlayFocusPoint = null,
+  itineraryDebugOverlay = null,
+  itineraryDebugOverlayFocusPoint = null,
+  itineraryDebugBadge = null,
   invalidateKey = 0,
   mapPreferences = null,
 }, _ref) {
-  const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const fallbackLayer = DEFAULT_MAP_LAYER;
+  const tileUrl =
+    mapLayer?.url ||
+    fallbackLayer?.url ||
+    import.meta.env.VITE_MAP_TILE_URL ||
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const userActionRef = useRef(false);
@@ -370,9 +545,16 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const [isMapReady, setIsMapReady] = useState(false);
   const [shouldRenderMap, setShouldRenderMap] = useState(false);
   const pendingResizeRef = useRef({ rafIds: [], timeoutIds: [] });
-  const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
+  const resizeObserverRef = useRef(null);
+  const resizeDebounceRef = useRef(null);
+  const lastContainerSizeRef = useRef({ width: 0, height: 0 });
+  const lastInvalidateAtRef = useRef(0);
   const isDev = Boolean(import.meta?.env?.DEV);
-  const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
+  const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom)
+    ? Number(mapLayer.maxZoom)
+    : Number.isFinite(fallbackLayer?.maxZoom)
+      ? Number(fallbackLayer.maxZoom)
+      : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
     [mapPreferences?.maxZoom, providerMaxZoom],
@@ -451,6 +633,14 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (resizeDebounceRef.current) {
+        clearTimeout(resizeDebounceRef.current);
+        resizeDebounceRef.current = null;
+      }
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
+      }
       pendingResizeRef.current.rafIds.forEach((id) => cancelAnimationFrame(id));
       pendingResizeRef.current.timeoutIds.forEach((id) => clearTimeout(id));
       pendingResizeRef.current = { rafIds: [], timeoutIds: [] };
@@ -475,8 +665,77 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   }, []);
 
   useEffect(() => {
-    refreshMap();
-  }, [invalidateKey, mapLayer?.key, refreshMap]);
+    if (!isMapReady) return;
+    const map = mapRef.current;
+    if (!map || !canUseMap(map)) return;
+    const now = Date.now();
+    if (now - lastInvalidateAtRef.current < 120) return;
+    lastInvalidateAtRef.current = now;
+    const rafId = requestAnimationFrame(() => {
+      if (!isMountedRef.current) return;
+      if (!canUseMap(mapRef.current)) return;
+      mapRef.current?.invalidateSize?.({ pan: false });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [canUseMap, invalidateKey, isMapReady, mapLayer?.key]);
+
+  useEffect(() => {
+    if (!shouldRenderMap) return undefined;
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const scheduleInvalidate = () => {
+      if (resizeDebounceRef.current) {
+        clearTimeout(resizeDebounceRef.current);
+      }
+      resizeDebounceRef.current = setTimeout(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady || !canUseMap(map)) return;
+        const now = Date.now();
+        if (now - lastInvalidateAtRef.current < 120) return;
+        lastInvalidateAtRef.current = now;
+        map.invalidateSize?.({ pan: false });
+      }, 140);
+    };
+
+    const onResize = () => {
+      const rect = container.getBoundingClientRect?.();
+      if (!rect) return;
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width <= 0 || height <= 0) return;
+      if (
+        width === lastContainerSizeRef.current.width &&
+        height === lastContainerSizeRef.current.height
+      ) {
+        return;
+      }
+      lastContainerSizeRef.current = { width, height };
+      scheduleInvalidate();
+    };
+
+    onResize();
+
+    if (typeof ResizeObserver === "function") {
+      resizeObserverRef.current = new ResizeObserver(onResize);
+      resizeObserverRef.current.observe(container);
+    } else {
+      window.addEventListener("resize", onResize);
+    }
+
+    return () => {
+      if (resizeDebounceRef.current) {
+        clearTimeout(resizeDebounceRef.current);
+        resizeDebounceRef.current = null;
+      }
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
+      } else {
+        window.removeEventListener("resize", onResize);
+      }
+    };
+  }, [canUseMap, isMapReady, shouldRenderMap]);
 
   useMapDataRefresh(mapRef, {
     markers,
@@ -485,14 +744,17 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     markerRefs,
   });
 
-  const tileSubdomains = mapLayer?.subdomains ?? "abc";
+  const tileSubdomains = mapLayer?.subdomains ?? fallbackLayer?.subdomains ?? "abc";
 
   const handleMapReady = useCallback(
     (event) => {
-      onMapReady?.(event);
+      const map = event?.target || null;
+      if (map) {
+        mapRef.current = map;
+      }
       setIsMapReady(true);
     },
-    [onMapReady],
+    [],
   );
 
   return (
@@ -500,6 +762,46 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       {shouldWarnMaxZoom ? (
         <div className="pointer-events-none absolute left-3 bottom-3 z-[1300] rounded-md border border-amber-500/40 bg-[#1f1205]/85 px-3 py-2 text-[11px] font-medium text-amber-100 shadow-lg shadow-amber-900/30">
           Zoom limitado a {effectiveMaxZoom} (web.maxZoom). Ajuste a configuração para permitir aproximação maior.
+        </div>
+      ) : null}
+      {itineraryDebugBadge ? (
+        <div
+          className={`monitoring-test-banner pointer-events-none absolute left-3 top-3 z-[1300] ${
+            itineraryDebugBadge.statusTone === "confirmed"
+              ? "monitoring-test-banner--confirmed"
+              : itineraryDebugBadge.kind === "disembarked"
+                ? "monitoring-test-banner--disembarked"
+                : ""
+          }`}
+          title="Exibição para conferência visual. Pode não estar embarcado no equipamento."
+        >
+          <div className="monitoring-test-banner__text">
+            <span className="monitoring-test-banner__label">{itineraryDebugBadge.headline}</span>
+            {itineraryDebugBadge.kind === "disembarked" ? (
+              <span className="monitoring-test-banner__message">— {itineraryDebugBadge.message}</span>
+            ) : (
+              <>
+                <span className="monitoring-test-banner__message">
+                  — {itineraryDebugBadge.itineraryLabel}: {itineraryDebugBadge.itineraryName}
+                </span>
+                <span className="monitoring-test-banner__message">
+                  — {itineraryDebugBadge.plateLabel}: {itineraryDebugBadge.plate}
+                </span>
+                <span className="monitoring-test-banner__message">
+                  — {itineraryDebugBadge.statusLabelPrefix}:{" "}
+                  <span
+                    className={
+                      itineraryDebugBadge.statusTone === "confirmed"
+                        ? "monitoring-test-banner__status monitoring-test-banner__status--confirmed"
+                        : "monitoring-test-banner__status"
+                    }
+                  >
+                    {itineraryDebugBadge.statusLabel}
+                  </span>
+                </span>
+              </>
+            )}
+          </div>
         </div>
       ) : null}
       <div ref={containerRef} className="h-full w-full">
@@ -510,16 +812,29 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
             scrollWheelZoom
             zoom={mapPreferences?.selectZoom}
             invalidateKey={invalidateKey}
+            style={{ minHeight: 0 }}
             whenReady={handleMapReady}
           >
             <TileLayer
               key={mapLayer?.key || tileUrl}
               url={tileUrl}
-              attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+              attribution={
+                mapLayer?.attribution ||
+                fallbackLayer?.attribution ||
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              }
               maxZoom={effectiveMaxZoom}
               subdomains={tileSubdomains}
             />
             <MapZoomControls variant="classic" />
+
+            <ItineraryOverlayLayer
+              overlay={itineraryDebugOverlay}
+              focusPoint={itineraryDebugOverlayFocusPoint}
+              variant="debug"
+              shouldFit={!itineraryOverlay}
+            />
+            <ItineraryOverlayLayer overlay={itineraryOverlay} focusPoint={itineraryOverlayFocusPoint} />
 
             <MarkerLayer
               markers={markers}

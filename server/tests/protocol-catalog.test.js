@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import iotmEventCatalog from "../../shared/iotmEventCatalog.pt-BR.json" with { type: "json" };
 import diagnosticCatalog from "../../shared/deviceDiagnosticEvents.pt-BR.json" with { type: "json" };
-import { getProtocolEvents } from "../services/protocol-catalog.js";
+import { getProtocolEvents, getProtocolList } from "../services/protocol-catalog.js";
 
 test("getProtocolEvents inclui todos os ids do catálogo IOTM", () => {
   const events = getProtocolEvents("iotm") || [];
@@ -20,4 +20,20 @@ test("getProtocolEvents inclui eventos diagnósticos e supera os 69 eventos", ()
   const diagnosticEntry = diagnosticCatalog?.events?.[0];
   assert.ok(diagnosticEntry?.key);
   assert.ok(ids.has(String(diagnosticEntry.key)));
+});
+
+test("getProtocolEvents inclui ITINERARIO_INVERTIDO em todos os protocolos cadastrados", () => {
+  const protocols = getProtocolList();
+  protocols.forEach((protocol) => {
+    const protocolId = String(protocol?.id || "");
+    const events = getProtocolEvents(protocolId) || [];
+    const ids = new Set(events.map((event) => String(event?.id)));
+    assert.ok(ids.has("ITINERARIO_INVERTIDO"), `Protocolo ${protocolId} sem ITINERARIO_INVERTIDO`);
+  });
+});
+
+test("getProtocolList inclui protocolo NT407", () => {
+  const protocols = getProtocolList();
+  const ids = new Set((protocols || []).map((entry) => String(entry?.id || "")));
+  assert.ok(ids.has("nt407"));
 });

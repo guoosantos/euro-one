@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "bash ../scripts/prebuild-guard.sh && vite build && node ../scripts/write-build-version.js",
     "preview": "vite preview --port 5173 --strictPort",
+    "e2e": "playwright test",
     "test": "NODE_ENV=test node --test --loader ./tests/jsx-loader.js",
     "lint": "eslint \"src/lib/**/*.{js,jsx,ts,tsx}\" \"tests/**/*.js\"",
     "format": "prettier --write \"{src,tests}/**/*.{js,jsx,ts,tsx,json,css,md}\""
@@ -29,6 +30,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.0",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.19",
     "esbuild": "^0.25.9",

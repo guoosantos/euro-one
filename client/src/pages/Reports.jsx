@@ -6,7 +6,9 @@ import useVehicles from "../lib/hooks/useVehicles.js";
 import { useVehicleAccess } from "../contexts/VehicleAccessContext.jsx";
 
 export default function Reports() {
-  const { vehicles, loading: loadingVehicles, error: vehiclesError } = useVehicles();
+  const { vehicles, loading: loadingVehicles, error: vehiclesError } = useVehicles({
+    includeTelemetry: false,
+  });
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { data, loading, error, generateTripsReport, downloadTripsCsv } = useReports();
 
@@ -76,11 +78,7 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Relatórios de viagens"
-        subtitle="Selecione o veículo e o período para gerar relatórios detalhados."
-      />
+      <PageHeader />
       <section className="card space-y-4">
         <form onSubmit={handleGenerate} className="grid gap-4 md:grid-cols-4">
           <label className="text-sm md:col-span-2">
@@ -131,7 +129,9 @@ export default function Reports() {
             <button
               type="submit"
               disabled={loading || loadingVehicles || !vehicleIds.length}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+                loading ? "bg-red-500 hover:bg-red-600" : "bg-primary hover:bg-primary/90"
+              }`}
             >
               {loading ? "Gerando…" : "Gerar relatório"}
             </button>

@@ -48,14 +48,72 @@ const EVENT_LABELS_PT = {
   door: "Porta",
   engineon: "Motor ligado",
   engineoff: "Motor desligado",
+  itineraryreverse: "Itinerário invertido",
+  conditionalactiontrigger: "Ação condicional",
+};
+
+const EVENT_LABELS_EN = {
+  generic: "Event",
+  alarm: "Alarm",
+  deviceonline: "Device online",
+  deviceoffline: "Device offline",
+  deviceunknown: "Unknown vehicle",
+  deviceinactive: "Inactive vehicle",
+  devicemoving: "Vehicle moving",
+  devicestopped: "Vehicle stopped",
+  ignitionon: "Ignition on",
+  ignitionoff: "Ignition off",
+  tripstart: "Trip started",
+  tripstop: "Trip finished",
+  idle: "Idle",
+  parking: "Parked",
+  speeding: "Speeding",
+  speedlimit: "Speeding",
+  overspeed: "Speeding",
+  commandresult: "Command response",
+  textmessage: "Message",
+  media: "Media",
+  fuelup: "Refuel",
+  fueldrop: "Fuel drop detected",
+  geofenceenter: "Geofence entered",
+  geofenceexit: "Geofence exited",
+  sos: "SOS",
+  theft: "Theft",
+  crime: "Crime",
+  assault: "Assault",
+  crash: "Crash",
+  panic: "Panic",
+  maintenance: "Maintenance",
+  driverchanged: "Driver changed",
+  harshacceleration: "Harsh acceleration",
+  harshbraking: "Harsh braking",
+  harshcornering: "Harsh cornering",
+  jamming: "Jamming detected",
+  powercut: "Power cut",
+  powerdisconnect: "Power disconnected",
+  powerdisconnected: "Power disconnected",
+  externalpowerdisconnect: "External power disconnected",
+  externalpowerdisconnected: "External power disconnected",
+  lowbattery: "Low battery",
+  towing: "Towing detected",
+  tampering: "Tampering",
+  door: "Door",
+  engineon: "Engine on",
+  engineoff: "Engine off",
+  itineraryreverse: "Reverse itinerary",
+  conditionalactiontrigger: "Conditional action",
 };
 
 const EVENT_LABELS = {
   "pt-BR": EVENT_LABELS_PT,
-  "en-US": EVENT_LABELS_PT,
+  "en-US": EVENT_LABELS_EN,
 };
 
 const POSITION_LABEL_PT = "Posição";
+const POSITION_LABELS = {
+  "pt-BR": POSITION_LABEL_PT,
+  "en-US": "Position",
+};
 const POSITION_REGISTERED_LABELS = new Set(["posicao registrada", "position registered"]);
 const GENERIC_EVENT_LABELS_PT = new Set(["Evento padrão", "Evento do dispositivo"]);
 
@@ -116,6 +174,8 @@ const EVENT_SEVERITY = {
   door: "medium",
   engineon: "info",
   engineoff: "info",
+  itineraryreverse: "critical",
+  conditionalactiontrigger: "warning",
 };
 
 export const J16_EVENT_DEFINITIONS = {
@@ -276,9 +336,9 @@ function extractDiagnosticIds(payload = {}) {
 function buildUnknownEventLabel(candidate, payload) {
   const { funId, warId } = extractDiagnosticIds(payload);
   if (funId || warId) {
-    return `Evento desconhecido (fun_id=${funId || "?"}, war_id=${warId || "?"})`;
+    return `NÃO MAPEADO (fun_id=${funId || "?"}, war_id=${warId || "?"})`;
   }
-  return `Evento desconhecido (${candidate || "sem código"})`;
+  return `NÃO MAPEADO (${candidate || "sem código"})`;
 }
 
 function resolvePayloadEventLabel(payload = {}) {
@@ -554,6 +614,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
 }
 
 export function translateEventType(type, locale = "pt-BR", fallbackTranslator, protocol = null, payload = null) {
+  const positionLabel = POSITION_LABELS[locale] || POSITION_LABEL_PT;
   const raw = normalizeEventCandidate(type);
   if (!raw) {
     const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];
@@ -561,7 +622,7 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
   }
   const payloadLabel = resolvePayloadEventLabel(payload);
   if (payloadLabel) {
-    if (shouldFallbackToPosition(payloadLabel, payload)) return POSITION_LABEL_PT;
+    if (shouldFallbackToPosition(payloadLabel, payload)) return positionLabel;
     return payloadLabel;
   }
   const protocolKey = normalizeProtocol(protocol);
@@ -573,7 +634,7 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
     if (protocolKey === "iotm") {
       const descriptor = resolveDescriptorLabel(raw, protocol, payload);
       if (descriptor?.labelPt) {
-        if (shouldFallbackToPosition(descriptor.labelPt, payload)) return POSITION_LABEL_PT;
+        if (shouldFallbackToPosition(descriptor.labelPt, payload)) return positionLabel;
         return descriptor.labelPt;
       }
       return buildUnknownEventLabel(raw, payload);
@@ -581,7 +642,7 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
 
     const descriptor = resolveDescriptorLabel(raw, protocol, payload);
     if (descriptor?.labelPt) {
-      if (shouldFallbackToPosition(descriptor.labelPt, payload)) return POSITION_LABEL_PT;
+      if (shouldFallbackToPosition(descriptor.labelPt, payload)) return positionLabel;
       return descriptor.labelPt;
     }
     return buildUnknownEventLabel(raw, payload);

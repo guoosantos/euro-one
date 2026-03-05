@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
-import http from "node:http";
 import { after, before, it } from "node:test";
-import { once } from "node:events";
 
 import app from "../app.js";
 import { signSession } from "../middleware/auth.js";
 import { initStorage } from "../services/storage.js";
 import { clearGeofenceMappings } from "../models/xdm-geofence.js";
 import { clearGeozoneGroupMappings } from "../models/xdm-geozone-group.js";
+import { requestApp } from "./app-request.js";
 
 let importCalls = 0;
 let groupCreateCalls = 0;
@@ -15,83 +14,8 @@ let rolloutCalls = 0;
 let overrideCalls = 0;
 let lastOverridePayload = null;
 
-function sendJson(res, payload, status = 200) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(body);
-}
-
-function createMockServer() {
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      if (!req.url) {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
-
-      if (req.url === "/oauth/token" && req.method === "POST") {
-        sendJson(res, { access_token: "token", expires_in: 3600 });
-        return;
-      }
-
-      if (req.url === "/api/external/v1/geozones/import" && req.method === "POST") {
-        importCalls += 1;
-        sendJson(res, [123]);
-        return;
-      }
-
-      if (req.url === "/api/external/v1/geozonegroups" && req.method === "POST") {
-        groupCreateCalls += 1;
-        sendJson(res, 555);
-        return;
-      }
-
-      if (/^\/api\/external\/v1\/geozonegroups\/\d+$/.test(req.url) && req.method === "GET") {
-        sendJson(res, { id: 555, geozoneIds: [] });
-        return;
-      }
-
-      if (req.url.endsWith("/geozones") && req.method === "POST") {
-        sendJson(res, 1);
-        return;
-      }
-
-      if (/^\/api\/external\/v3\/settingsOverrides\//.test(req.url) && req.method === "PUT") {
-        let body = "";
-        req.on("data", (chunk) => {
-          body += chunk;
-        });
-        req.on("end", () => {
-          overrideCalls += 1;
-          lastOverridePayload = body ? JSON.parse(body) : null;
-          sendJson(res, {});
-        });
-        return;
-      }
-
-      if (req.url === "/api/external/v1/rollouts/create" && req.method === "POST") {
-        rolloutCalls += 1;
-        sendJson(res, { rolloutId: `rollout-${rolloutCalls}` });
-        return;
-      }
-
-      if (req.url === "/api/external/v3/configs/forDevices" && req.method === "POST") {
-        sendJson(res, [{ id: 99, name: "Config XDM" }]);
-        return;
-      }
-
-      res.writeHead(404);
-      res.end();
-    });
-
-    server.listen(0, "127.0.0.1", () => resolve(server));
-  });
-}
-
-let xdmServer;
-let server;
-let baseUrl;
+let originalFetch;
+let overrideEnvSnapshot = null;
 
 const geofenceFixture = {
   id: "geo-1",
@@ -106,9 +30,7 @@ const geofenceFixture = {
 };
 
 before(async () => {
-  xdmServer = await createMockServer();
-  const { port } = xdmServer.address();
-  const xdmBaseUrl = `http://127.0.0.1:${port}`;
+  const xdmBaseUrl = "http://xdm.local";
 
   process.env.NODE_ENV = "test";
   process.env.XDM_AUTH_URL = `${xdmBaseUrl}/oauth/token`;
@@ -116,21 +38,83 @@ before(async () => {
   process.env.XDM_CLIENT_ID = "client";
   process.env.XDM_CLIENT_SECRET = "secret";
   process.env.XDM_DEALER_ID = "10";
+  overrideEnvSnapshot = Object.keys(process.env)
+    .filter(
+      (key) =>
+        key === "XDM_GEOZONE_GROUP_OVERRIDE_ID" ||
+        key === "XDM_GEOZONE_GROUP_OVERRIDE_KEY" ||
+        key === "XDM_GEOZONE_GROUP_OVERRIDE_KEYS" ||
+        key.startsWith("XDM_GEOZONE_GROUP_OVERRIDE_ID_") ||
+        key.startsWith("XDM_GEOZONE_GROUP_OVERRIDE_KEY_"),
+    )
+    .reduce((acc, key) => {
+      acc[key] = process.env[key];
+      return acc;
+    }, {});
+  Object.keys(overrideEnvSnapshot).forEach((key) => {
+    delete process.env[key];
+  });
   process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS = "1234,2345,3456";
   process.env.XDM_CONFIG_NAME = "Config XDM";
   process.env.ENABLE_DEMO_FALLBACK = "true";
 
   await initStorage();
+  originalFetch = global.fetch;
+  global.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const method = String(init.method || "GET").toUpperCase();
+    const json = (payload, status = 200) =>
+      new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json" } });
 
-  server = app.listen(0);
-  await once(server, "listening");
-  const { port: appPort } = server.address();
-  baseUrl = `http://127.0.0.1:${appPort}`;
+    const readBody = () => {
+      if (!init.body) return null;
+      if (typeof init.body === "string") return JSON.parse(init.body);
+      if (Buffer.isBuffer(init.body)) return JSON.parse(init.body.toString("utf8"));
+      return null;
+    };
+
+    if (url.pathname === "/oauth/token" && method === "POST") {
+      return json({ access_token: "token", expires_in: 3600 });
+    }
+    if (url.pathname === "/api/external/v1/geozones/import" && method === "POST") {
+      importCalls += 1;
+      return json([123]);
+    }
+    if (url.pathname === "/api/external/v1/geozonegroups" && method === "POST") {
+      groupCreateCalls += 1;
+      return json(555);
+    }
+    if (/^\/api\/external\/v1\/geozonegroups\/\d+$/.test(url.pathname) && method === "GET") {
+      return json({ id: 555, geozoneIds: [] });
+    }
+    if (url.pathname.endsWith("/geozones") && method === "POST") {
+      return json(1);
+    }
+    if (/^\/api\/external\/v3\/settingsOverrides\//.test(url.pathname) && method === "PUT") {
+      overrideCalls += 1;
+      lastOverridePayload = readBody();
+      return json({});
+    }
+    if (url.pathname === "/api/external/v1/rollouts/create" && method === "POST") {
+      rolloutCalls += 1;
+      return json({ rolloutId: `rollout-${rolloutCalls}` });
+    }
+    if (url.pathname === "/api/external/v3/configs/forDevices" && method === "POST") {
+      return json([{ id: 99, name: "Config XDM" }]);
+    }
+    return json({ message: "Not Found" }, 404);
+  };
 });
 
 after(() => {
-  if (server) server.close();
-  if (xdmServer) xdmServer.close();
+  if (originalFetch) {
+    global.fetch = originalFetch;
+  }
+  if (overrideEnvSnapshot) {
+    Object.keys(overrideEnvSnapshot).forEach((key) => {
+      process.env[key] = overrideEnvSnapshot[key];
+    });
+  }
 });
 
 it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () => {
@@ -151,23 +135,25 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
     groupName: "GROUP-TEST",
   };
 
-  const first = await fetch(`${baseUrl}/api/xdm/geozone-group/apply`, {
+  const first = await requestApp(app, {
+    url: "/api/xdm/geozone-group/apply",
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: payload,
   });
   const firstBody = await first.json();
 
-  const second = await fetch(`${baseUrl}/api/xdm/geozone-group/apply`, {
+  const second = await requestApp(app, {
+    url: "/api/xdm/geozone-group/apply",
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: payload,
   });
   const secondBody = await second.json();
 
@@ -179,11 +165,11 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   assert.equal(groupCreateCalls, 1);
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 2);
-  assert.deepEqual(lastOverridePayload?.modified, [
-    { userElementId: 1234, value: 555 },
-    { userElementId: 2345, value: null },
-    { userElementId: 3456, value: null },
-  ]);
+  assert.deepEqual(lastOverridePayload?.Overrides, {
+    1234: { value: 555 },
+    2345: { value: null },
+    3456: { value: null },
+  });
 });
 
 it("falha quando override id não é numérico", async () => {
@@ -200,13 +186,14 @@ it("falha quando override id não é numérico", async () => {
     groupName: "GROUP-TEST",
   };
 
-  const response = await fetch(`${baseUrl}/api/xdm/geozone-group/apply`, {
+  const response = await requestApp(app, {
+    url: "/api/xdm/geozone-group/apply",
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: payload,
   });
 
   assert.equal(response.status, 400);
