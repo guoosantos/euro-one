@@ -577,7 +577,12 @@ export async function countPositions(deviceIds = [], from, to) {
   return Number.isFinite(total) ? total : 0;
 }
 
-export async function fetchPositions(deviceIds = [], from, to, { limit = null, offset = null } = {}) {
+export async function fetchPositions(
+  deviceIds = [],
+  from,
+  to,
+  { limit = null, offset = null, sortBy = null, sortDir = null } = {},
+) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
@@ -595,6 +600,14 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
     conditions.push(`fixtime <= ${dialect.placeholder(params.length + 1)}`);
     params.push(to);
   }
+
+  const sortMap = {
+    gpsTime: "fixtime",
+    deviceTime: "devicetime",
+    serverTime: "servertime",
+  };
+  const sortColumn = sortMap[sortBy] || "fixtime";
+  const direction = String(sortDir || "").toLowerCase() === "desc" ? "DESC" : "ASC";
 
   const sql = `
     SELECT
@@ -621,7 +634,7 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
       attributes
     FROM ${POSITION_TABLE}
     WHERE ${conditions.join(" AND ")}
-    ORDER BY fixtime ASC
+    ORDER BY ${sortColumn} ${direction}, fixtime ${direction}
     ${limit ? `LIMIT ${Number(limit)}` : ""}
     ${offset ? `OFFSET ${Number(offset)}` : ""}
   `;

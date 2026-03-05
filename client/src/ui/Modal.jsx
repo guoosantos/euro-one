@@ -1,6 +1,20 @@
 import React, { useEffect, useRef } from "react";
 
-export default function Modal({ open, title, onClose, children, footer = null, width = "max-w-5xl" }) {
+export default function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  footer = null,
+  width = "max-w-5xl",
+  panelClassName = "",
+  headerClassName = "",
+  bodyClassName = "",
+  overlayClassName = "",
+  containerClassName = "",
+  zIndex = "z-[12000]",
+  topOffsetClassName = "pt-20",
+}) {
   const bodyRef = useRef(null);
 
   useEffect(() => {
@@ -23,18 +37,18 @@ export default function Modal({ open, title, onClose, children, footer = null, w
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+    <div className={`fixed inset-0 ${zIndex} flex items-start justify-center overflow-y-auto px-4 pb-4 ${topOffsetClassName} ${containerClassName}`}>
+      <div className={`absolute inset-0 bg-black/60 ${overlayClassName}`} onClick={onClose} />
       <div className={`relative z-50 w-full max-w-5xl ${width}`}>
-        <div className="card flex max-h-[90vh] flex-col overflow-hidden">
-          <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-stroke pb-3">
+        <div className={`card flex max-h-[90vh] flex-col overflow-hidden ${panelClassName}`}>
+          <div className={`sticky top-0 flex items-center justify-between gap-3 border-b border-stroke pb-3 ${headerClassName}`}>
             <div className="h1">{title}</div>
             <button className="btn" onClick={onClose} type="button">
               Fechar
             </button>
           </div>
 
-          <div ref={bodyRef} className="flex-1 overflow-y-auto pt-3">
+          <div ref={bodyRef} className={`flex-1 overflow-y-auto pt-3 ${bodyClassName}`}>
             {children}
           </div>
 

@@ -69,10 +69,10 @@ export default function MultiSelectChips({
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
           disabled={disabled}
-          className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
+          className="w-full rounded-xl border border-white/10 bg-[var(--field-bg)] px-4 py-2 text-sm text-white placeholder:text-white/50 hover:bg-[var(--field-bg-hover)] focus:border-white/30 focus:bg-[var(--field-bg-focus)] focus:outline-none disabled:cursor-not-allowed disabled:bg-[var(--field-bg-disabled)] disabled:opacity-70"
         />
         {open && !disabled && (
-          <div className="absolute z-[60] mt-2 max-h-60 w-full overflow-auto rounded-lg border border-white/10 bg-[#0f141c] py-1 shadow-lg">
+          <div className="absolute z-[60] mt-2 max-h-60 w-full overflow-auto rounded-lg border border-white/10 bg-[var(--sidebar)] py-1 shadow-lg">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-2 text-xs text-white/50">{emptyText}</div>
             ) : (

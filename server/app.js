@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { config } from "./config.js";
 import authRoutes from "./routes/auth.js";
+import bootstrapRoutes from "./routes/bootstrap.js";
 import contextRoutes from "./routes/context.js";
 import clientRoutes from "./routes/clients.js";
 import userRoutes from "./routes/users.js";
@@ -39,6 +40,8 @@ import serviceOrderRoutes from "./routes/service-orders.js";
 import xdmRoutes from "./routes/xdm.js";
 import xdmAdminRoutes from "./routes/xdm-admin.js";
 import mirrorRoutes from "./routes/mirrors.js";
+import conditionalActionRoutes from "./routes/conditional-actions.js";
+import nt407Routes from "./routes/nt407.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { formatVersionText, getVersionInfo } from "./utils/version.js";
 
@@ -84,7 +87,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "60mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
@@ -100,6 +103,7 @@ app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
 
 app.use("/api", authRoutes);
+app.use("/api", bootstrapRoutes);
 app.use("/api", contextRoutes);
 
 
@@ -132,6 +136,8 @@ app.use("/api", protocolRoutes);
 app.use("/api", xdmRoutes);
 app.use("/api/core", serviceOrderRoutes);
 app.use("/api/admin", xdmAdminRoutes);
+app.use("/api", conditionalActionRoutes);
+app.use("/api", nt407Routes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(

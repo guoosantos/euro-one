@@ -2,17 +2,14 @@ import React from "react";
 import { Navigate } from "react-router-dom";
 
 import { useTenant } from "../lib/tenant-context.jsx";
+import Loading from "./Loading.jsx";
 
 export function RequireRole({ roles, children }) {
   const { user, loading, initialising } = useTenant();
   const allowed = !roles?.length || roles.includes(user?.role);
 
   if (loading || initialising) {
-    return (
-      <div className="flex min-h-[320px] items-center justify-center text-white/70">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-label="Carregando" />
-      </div>
-    );
+    return <Loading message="Carregando..." />;
   }
 
   if (!allowed) {

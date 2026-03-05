@@ -15,9 +15,10 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import usePageToast from "../lib/hooks/usePageToast.js";
@@ -166,12 +167,18 @@ function resolveDeviceTechnicianReference(device) {
 }
 
 export default function Stock() {
-  const { tenantId, user, tenants, hasAdminAccess } = useTenant();
+  const { tenantId, tenantScope, user, tenants, hasAdminAccess } = useTenant();
   const stockPermission = usePermissionGate({
     menuKey: "primary",
     pageKey: "devices",
     subKey: "devices-stock",
   });
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -218,15 +225,15 @@ export default function Stock() {
     longitude: "",
     notes: "",
   });
-  const mapSearchState = useAddressSearchState({ initialValue: "" });
-  const transferAddressState = useAddressSearchState({ initialValue: "" });
+  const [mapAddressValue, setMapAddressValue] = useState({ formattedAddress: "" });
+  const [transferAddressValue, setTransferAddressValue] = useState({ formattedAddress: "" });
   const [generalAddressResetKey, setGeneralAddressResetKey] = useState(0);
   const [generalAddressSelection, setGeneralAddressSelection] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
   const mapRef = useRef(null);
   const { onMapReady, map } = useMapLifecycle({ mapRef });
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
 
   useEffect(() => {
     const defaultClientId = hasAdminAccess ? "" : resolvedClientId || "";
@@ -313,6 +320,36 @@ export default function Stock() {
     });
     return map;
   }, [tenants]);
+  const resolveDeviceClientId = useCallback((device) => {
+    const candidate =
+      device?.clientId ??
+      device?.client?.id ??
+      device?.vehicle?.clientId ??
+      device?.vehicle?.client?.id ??
+      null;
+    if (candidate === null || candidate === undefined) return null;
+    const normalized = String(candidate).trim();
+    return normalized || null;
+  }, []);
+  const resolveDeviceClientName = useCallback(
+    (device) => {
+      const clientId = resolveDeviceClientId(device);
+      if (clientId && clientNameById.has(clientId)) {
+        return clientNameById.get(clientId);
+      }
+      const explicitName =
+        device?.clientName ||
+        device?.client?.name ||
+        device?.vehicle?.clientName ||
+        device?.vehicle?.client?.name ||
+        "";
+      const normalizedName = String(explicitName || "").trim();
+      if (normalizedName) return normalizedName;
+      if (clientId) return `Cliente ${clientId.slice(0, 6)}`;
+      return "EURO ONE";
+    },
+    [clientNameById, resolveDeviceClientId],
+  );
 
   const clientOptions = useMemo(
     () =>
@@ -401,7 +438,7 @@ export default function Stock() {
   const groupedByClient = useMemo(() => {
     const groups = new Map();
     devices.forEach((device) => {
-      const clientId = device.clientId || "global";
+      const clientId = resolveDeviceClientId(device) || "global";
       if (!groups.has(clientId)) {
         groups.set(clientId, []);
       }
@@ -412,12 +449,16 @@ export default function Stock() {
       const linked = list.filter((item) => item.vehicleId).length;
       return {
         clientId,
-        name: clientNameById.get(String(clientId)) || `Cliente ${String(clientId).slice(0, 6)}`,
+        name:
+          (clientId === "global" ? "EURO ONE" : null) ||
+          clientNameById.get(String(clientId)) ||
+          list.map((item) => resolveDeviceClientName(item)).find(Boolean) ||
+          `Cliente ${String(clientId).slice(0, 6)}`,
         available,
         linked,
       };
     });
-  }, [clientNameById, devices]);
+  }, [clientNameById, devices, resolveDeviceClientId, resolveDeviceClientName]);
 
   const detailsClient = useMemo(
     () => groupedByClient.find((client) => String(client.clientId) === String(detailsClientId)) || null,
@@ -425,8 +466,8 @@ export default function Stock() {
   );
 
   const detailsDevices = useMemo(
-    () => devices.filter((device) => String(device.clientId || "global") === String(detailsClientId)),
-    [detailsClientId, devices],
+    () => devices.filter((device) => String(resolveDeviceClientId(device) || "global") === String(detailsClientId)),
+    [detailsClientId, devices, resolveDeviceClientId],
   );
 
   const detailsFilteredDevices = useMemo(() => {
@@ -474,14 +515,14 @@ export default function Stock() {
     return devices.filter((device) => {
       if (generalFilters.availability === "available" && device.vehicleId) return false;
       if (generalFilters.availability === "linked" && !device.vehicleId) return false;
-      if (generalFilters.clientId && String(device.clientId || "") !== String(generalFilters.clientId)) {
+      if (generalFilters.clientId && String(resolveDeviceClientId(device) || "") !== String(generalFilters.clientId)) {
         return false;
       }
       if (term && !normalizeText(device.uniqueId || device.id || "").includes(term)) return false;
       if (addressTerm && !normalizeText(resolveDeviceAddress(device)).includes(addressTerm)) return false;
       return true;
     });
-  }, [devices, generalFilters]);
+  }, [devices, generalFilters, resolveDeviceClientId]);
 
   const conditionCounts = useMemo(() => {
     const counts = { all: filteredDevicesBase.length, novo: 0, usado_funcionando: 0, usado_defeito: 0 };
@@ -517,7 +558,7 @@ export default function Stock() {
 
     return devices.filter((device) => {
       const modelLabel = modelById.get(device.modelId)?.name || device.model || "";
-      const clientLabel = clientNameById.get(String(device.clientId)) || "";
+      const clientLabel = resolveDeviceClientName(device);
       const deviceLabel = String(device.uniqueId || device.id || "").toLowerCase();
 
       if (modelTerm && !modelLabel.toLowerCase().includes(modelTerm)) return false;
@@ -525,7 +566,7 @@ export default function Stock() {
       if (clientTerm && !clientLabel.toLowerCase().includes(clientTerm)) return false;
       return true;
     });
-  }, [clientNameById, devices, modelById, transferSearch]);
+  }, [devices, modelById, resolveDeviceClientName, transferSearch]);
 
   const nearbyDevices = useMemo(() => {
     if (!regionTarget) return [];
@@ -572,7 +613,7 @@ export default function Stock() {
       destinationTechnicianId: "",
       destinationType: prev.destinationType || "client",
     }));
-    transferAddressState.setQuery("");
+    setTransferAddressValue({ formattedAddress: "" });
     setTransferSearch({ model: "", deviceId: "", client: "" });
     setTransferDrawerOpen(true);
   };
@@ -601,23 +642,28 @@ export default function Stock() {
     setTransferDrawerOpen(false);
   };
 
-  const handleSelectRegion = (option) => {
-    if (!option) return;
-    if (!Number.isFinite(option.lat) || !Number.isFinite(option.lng)) return;
+  const handleSelectRegion = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setMapAddressValue(nextValue);
+    if (!Number.isFinite(nextValue.lat) || !Number.isFinite(nextValue.lng)) {
+      setRegionTarget(null);
+      return;
+    }
     setRegionTarget({
-      lat: option.lat,
-      lng: option.lng,
-      label: option.label || option.concise,
+      lat: nextValue.lat,
+      lng: nextValue.lng,
+      label: nextValue.formattedAddress || "Local encontrado",
     });
   };
 
-  const handleSelectTransferAddress = (option) => {
-    if (!option) return;
+  const handleSelectTransferAddress = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setTransferAddressValue(nextValue);
     setTransferForm((prev) => ({
       ...prev,
-      address: option.label || option.concise || prev.address,
-      latitude: option.lat ?? prev.latitude,
-      longitude: option.lng ?? prev.longitude,
+      address: nextValue.formattedAddress || "",
+      latitude: nextValue.lat ?? "",
+      longitude: nextValue.lng ?? "",
     }));
   };
 
@@ -659,8 +705,8 @@ export default function Stock() {
       latitude: technician.latitude ?? prev.latitude,
       longitude: technician.longitude ?? prev.longitude,
     }));
-    transferAddressState.setQuery(resolvedAddress || "");
-  }, [technicianOptions, transferAddressState, transferForm.destinationTechnicianId, transferForm.destinationType]);
+    setTransferAddressValue({ formattedAddress: resolvedAddress || "" });
+  }, [technicianOptions, transferForm.destinationTechnicianId, transferForm.destinationType]);
 
   const handleDeleteDevice = async (device) => {
     if (!device?.id) return;
@@ -683,10 +729,8 @@ export default function Stock() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-[calc(100vh-72px)] flex-col gap-4">
       <PageHeader
-        title="Estoque"
-        subtitle="Controle por cliente, disponíveis e vinculados."
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -738,7 +782,7 @@ export default function Stock() {
       </div>
 
       {view === "geral" && (
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <div className="flex flex-wrap gap-2">
             {CONDITION_FILTERS.map((option) => {
               const isActive = conditionFilter === option.value;
@@ -824,7 +868,7 @@ export default function Stock() {
             </button>
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex min-h-0 flex-1 flex-col pb-4">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
@@ -874,7 +918,7 @@ export default function Stock() {
                             {modelById.get(device.modelId)?.name || device.model || "—"}
                           </td>
                           <td className="px-4 py-3 text-white/70">
-                            {clientNameById.get(String(device.clientId)) || "—"}
+                            {resolveDeviceClientName(device)}
                           </td>
                           <td className="px-4 py-3 text-white/70">{formatConditionLabel(condition)}</td>
                           <td className="px-4 py-3">
@@ -906,6 +950,7 @@ export default function Stock() {
               </DataTable>
               {filteredDevices.length > 0 && (
                 <DataTablePagination
+                  className="mt-auto"
                   pageSize={generalPageSize}
                   pageSizeOptions={PAGE_SIZE_OPTIONS}
                   onPageSizeChange={(value) => {
@@ -1001,8 +1046,10 @@ export default function Stock() {
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-white">Busca por região</h2>
             <div className="flex flex-wrap gap-3">
-              <AddressSearchInput
-                state={mapSearchState}
+              <AddressAutocomplete
+                label={null}
+                value={mapAddressValue}
+                onChange={handleSelectRegion}
                 onSelect={handleSelectRegion}
                 placeholder="Buscar endereço"
                 variant="toolbar"
@@ -1023,12 +1070,12 @@ export default function Stock() {
                 style={{ height: "100%", width: "100%" }}
                 whenReady={onMapReady}
               >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+                <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
                 {regionTarget && (
                   <>
                     <Marker
                       position={[regionTarget.lat, regionTarget.lng]}
-                      icon={regionCountIcon || undefined}
+                      icon={regionCountIcon || leafletDefaultIcon}
                     />
                     <Circle
                       center={[regionTarget.lat, regionTarget.lng]}
@@ -1040,7 +1087,7 @@ export default function Stock() {
                 {nearbyDevices.map((device) => {
                   const coords = resolveDeviceCoords(device);
                   if (!coords) return null;
-                  return <Marker key={device.id} position={[coords.lat, coords.lng]} />;
+                  return <Marker key={device.id} position={[coords.lat, coords.lng]} icon={leafletDefaultIcon} />;
                 })}
               </MapContainer>
             </div>
@@ -1288,8 +1335,10 @@ export default function Stock() {
           </div>
           <div className="space-y-2">
             <span className="text-xs text-white/60">Endereço da transferência</span>
-            <AddressSearchInput
-              state={transferAddressState}
+            <AddressAutocomplete
+              label={null}
+              value={transferAddressValue}
+              onChange={handleSelectTransferAddress}
               onSelect={handleSelectTransferAddress}
               placeholder="Buscar endereço"
               variant="toolbar"

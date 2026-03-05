@@ -23,7 +23,18 @@ function sanitizeColumns(columns) {
   if (!columns || typeof columns !== "object") return null;
   const visible = columns.visible && typeof columns.visible === "object" ? { ...columns.visible } : undefined;
   const order = Array.isArray(columns.order) ? [...columns.order] : undefined;
-  return { visible, order };
+  const widths = columns.widths && typeof columns.widths === "object" ? { ...columns.widths } : undefined;
+  return { visible, order, widths };
+}
+
+function sanitizePlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return { ...value };
+}
+
+function sanitizeNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 export function getUserPreferences(userId) {
@@ -33,6 +44,14 @@ export function getUserPreferences(userId) {
   return {
     ...record,
     monitoringTableColumns: sanitizeColumns(record.monitoringTableColumns),
+    monitoringColumnWidths: sanitizePlainObject(record.monitoringColumnWidths),
+    monitoringLayoutVisibility: sanitizePlainObject(record.monitoringLayoutVisibility),
+    monitoringDefaultFilters: sanitizePlainObject(record.monitoringDefaultFilters),
+    monitoringMapLayerKey: record.monitoringMapLayerKey || null,
+    monitoringMapHeight: sanitizeNumber(record.monitoringMapHeight),
+    monitoringSearchRadius: sanitizeNumber(record.monitoringSearchRadius),
+    monitoringPanelRatio: sanitizeNumber(record.monitoringPanelRatio),
+    monitoringContexts: sanitizePlainObject(record.monitoringContexts),
     routeReportColumns: sanitizeColumns(record.routeReportColumns),
     tripsReportColumns: sanitizeColumns(record.tripsReportColumns),
   };
@@ -43,9 +62,16 @@ export function saveUserPreferences(userId, updates = {}) {
   const existing = preferences.get(String(userId)) || {
     userId: String(userId),
     monitoringTableColumns: null,
+    monitoringColumnWidths: null,
     routeReportColumns: null,
     tripsReportColumns: null,
     monitoringDefaultFilters: null,
+    monitoringLayoutVisibility: null,
+    monitoringMapLayerKey: null,
+    monitoringMapHeight: null,
+    monitoringSearchRadius: null,
+    monitoringPanelRatio: null,
+    monitoringContexts: null,
     createdAt: new Date().toISOString(),
   };
 
@@ -55,6 +81,11 @@ export function saveUserPreferences(userId, updates = {}) {
       typeof updates.monitoringTableColumns !== "undefined"
         ? updates.monitoringTableColumns
         : existing.monitoringTableColumns,
+    ),
+    monitoringColumnWidths: sanitizePlainObject(
+      typeof updates.monitoringColumnWidths !== "undefined"
+        ? updates.monitoringColumnWidths
+        : existing.monitoringColumnWidths,
     ),
     routeReportColumns: sanitizeColumns(
       typeof updates.routeReportColumns !== "undefined" ? updates.routeReportColumns : existing.routeReportColumns,
@@ -66,6 +97,32 @@ export function saveUserPreferences(userId, updates = {}) {
       typeof updates.monitoringDefaultFilters !== "undefined"
         ? updates.monitoringDefaultFilters
         : existing.monitoringDefaultFilters,
+    monitoringLayoutVisibility: sanitizePlainObject(
+      typeof updates.monitoringLayoutVisibility !== "undefined"
+        ? updates.monitoringLayoutVisibility
+        : existing.monitoringLayoutVisibility,
+    ),
+    monitoringMapLayerKey:
+      typeof updates.monitoringMapLayerKey !== "undefined"
+        ? updates.monitoringMapLayerKey
+        : existing.monitoringMapLayerKey,
+    monitoringMapHeight:
+      typeof updates.monitoringMapHeight !== "undefined"
+        ? updates.monitoringMapHeight
+        : existing.monitoringMapHeight,
+    monitoringSearchRadius:
+      typeof updates.monitoringSearchRadius !== "undefined"
+        ? updates.monitoringSearchRadius
+        : existing.monitoringSearchRadius,
+    monitoringPanelRatio:
+      typeof updates.monitoringPanelRatio !== "undefined"
+        ? updates.monitoringPanelRatio
+        : existing.monitoringPanelRatio,
+    monitoringContexts: sanitizePlainObject(
+      typeof updates.monitoringContexts !== "undefined"
+        ? updates.monitoringContexts
+        : existing.monitoringContexts,
+    ),
     updatedAt: new Date().toISOString(),
   };
 
@@ -81,9 +138,16 @@ export function resetUserPreferences(userId) {
   return {
     userId: String(userId),
     monitoringTableColumns: null,
+    monitoringColumnWidths: null,
     routeReportColumns: null,
     tripsReportColumns: null,
     monitoringDefaultFilters: null,
+    monitoringLayoutVisibility: null,
+    monitoringMapLayerKey: null,
+    monitoringMapHeight: null,
+    monitoringSearchRadius: null,
+    monitoringPanelRatio: null,
+    monitoringContexts: null,
   };
 }
 

@@ -246,6 +246,14 @@ export function getGeocodeQueue() {
           removeOnComplete: true,
           removeOnFail: false,
         },
+        settings: {
+          backoffStrategy: (attemptsMade, type) => {
+            if (type !== "geocodeBackoff") return 0;
+            return (
+              RETRY_DELAYS_MS[Math.max(0, attemptsMade - 1)] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]
+            );
+          },
+        },
       });
   } catch (error) {
     console.warn("[geocode-queue] Failed to initialize queue", error?.message || error);

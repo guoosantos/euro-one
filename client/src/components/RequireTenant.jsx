@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 
 import { useTenant } from "../lib/tenant-context.jsx";
+import Loading from "./Loading.jsx";
 
 export function RequireTenant({ children }) {
   const { tenantId, tenants, role, loading, initialising, setTenantId, isGlobalAdmin } = useTenant();
@@ -15,11 +16,7 @@ export function RequireTenant({ children }) {
   }, [isGlobalAdmin, tenantId, tenants, setTenantId]);
 
   if (loading || initialising) {
-    return (
-      <div className="flex min-h-[320px] items-center justify-center text-white/70">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-label="Carregando" />
-      </div>
-    );
+    return <Loading message="Carregando..." />;
   }
 
   if (!canProceed) {

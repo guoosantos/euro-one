@@ -10,9 +10,6 @@ export default function Groups() {
   return (
     <div className="space-y-6">
       <PageHeader
-        overline="Central de grupos"
-        title="Grupos"
-        subtitle="Sincronizados diretamente com o Traccar."
         actions={
           <button
             type="button"

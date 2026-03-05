@@ -8,6 +8,8 @@ import { ensureHookResult } from "./hook-shape.js";
 
 export function useTrips({
   deviceId,
+  vehicleId,
+  clientId,
   from,
   to,
   limit = 10,
@@ -28,7 +30,8 @@ export function useTrips({
   const abortRef = useRef(null);
   const initialLoadRef = useRef(true);
 
-  const shouldFetch = Boolean(enabled && tenantId && deviceId);
+  const resolvedClientId = clientId ?? tenantId ?? null;
+  const shouldFetch = Boolean(enabled && (deviceId || vehicleId));
 
   const fetchTrips = useCallback(async () => {
     if (!shouldFetch) {
@@ -43,7 +46,7 @@ export function useTrips({
       return;
     }
 
-    setLoading((current) => current || initialLoadRef.current);
+    setLoading(true);
     setError(null);
 
     abortRef.current?.abort();
@@ -58,8 +61,9 @@ export function useTrips({
         from: (from ? new Date(from) : defaultFrom).toISOString(),
         to: (to ? new Date(to) : now).toISOString(),
         type: "all",
-        deviceId,
-        clientId: tenantId,
+        ...(deviceId ? { deviceId } : {}),
+        ...(vehicleId ? { vehicleId } : {}),
+        ...(resolvedClientId ? { clientId: resolvedClientId } : {}),
       };
 
       const { data: responseData, error: requestError } = await safeApi.get(
@@ -74,6 +78,7 @@ export function useTrips({
 
       if (requestError) {
         if (safeApi.isAbortError(requestError)) return;
+        console.warn("[useTrips] Falha ao carregar trajetos", requestError);
 
         const friendly =
           requestError?.response?.data?.message ||
@@ -114,7 +119,7 @@ export function useTrips({
       }
       initialLoadRef.current = false;
     }
-  }, [deviceId, from, to, limit, shouldFetch, tenantId, t]);
+  }, [deviceId, from, to, limit, resolvedClientId, shouldFetch, t, vehicleId]);
 
   const pollingEnabled =
     typeof refreshInterval === "number" &&

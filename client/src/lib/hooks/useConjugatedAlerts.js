@@ -11,13 +11,10 @@ export function useConjugatedAlerts({
   refreshInterval = 30_000,
   enabled = true,
 } = {}) {
-  const { tenantId, mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
-  const alertsPermission = usePermissionGate({
-    menuKey: "primary",
-    pageKey: "monitoring",
-    subKey: "alerts-conjugated",
-  });
-  const canAccessAlerts = alertsPermission.hasAccess;
+  const { tenantId, mirrorContextMode, activeMirror, activeMirrorOwnerClientId, mirrorModeEnabled } = useTenant();
+  const monitoringPermission = usePermissionGate({ menuKey: "primary", pageKey: "monitoring" });
+  const eventsPermission = usePermissionGate({ menuKey: "primary", pageKey: "events" });
+  const canAccessAlerts = monitoringPermission.hasAccess || eventsPermission.hasAccess;
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -27,9 +24,15 @@ export function useConjugatedAlerts({
     () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
     [mirrorModeEnabled, mirrorOwnerClientId],
   );
-
+  const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
   const fetchAlerts = useCallback(async () => {
     if (!enabled || !canAccessAlerts) {
+      setLoading(false);
+      setError(null);
+      setData([]);
+      return;
+    }
+    if (shouldWaitForMirror) {
       setLoading(false);
       setError(null);
       setData([]);
@@ -39,7 +42,7 @@ export function useConjugatedAlerts({
     setError(null);
     try {
       const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
-      const response = await safeApi.get(API_ROUTES.alertsConjugated, {
+      const response = await safeApi.get(API_ROUTES.alertsConjugatedPending, {
         params: resolveMirrorClientParams({ params: parsedParams, tenantId, mirrorContextMode, mirrorOwnerClientId }),
         headers: mirrorHeaders,
         suppressForbidden: true,
@@ -62,11 +65,20 @@ export function useConjugatedAlerts({
     } finally {
       setLoading(false);
     }
-  }, [canAccessAlerts, enabled, mirrorContextMode, mirrorHeaders, mirrorOwnerClientId, paramsKey, tenantId]);
+  }, [
+    canAccessAlerts,
+    enabled,
+    mirrorContextMode,
+    mirrorOwnerClientId,
+    mirrorHeaders,
+    paramsKey,
+    shouldWaitForMirror,
+    tenantId,
+  ]);
 
   useEffect(() => {
     let timer;
-    if (!enabled || !canAccessAlerts) {
+    if (!enabled || !canAccessAlerts || shouldWaitForMirror) {
       setLoading(false);
       return undefined;
     }

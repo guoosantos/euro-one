@@ -1,26 +1,100 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 export default function MonitoringLayoutSelector({
   layoutVisibility,
-  onToggle,
+  onSave,
   onClose,
   searchRadius,
-  onRadiusChange,
   mapLayers = [],
   mapLayerSections = [],
   activeMapLayer,
-  onMapLayerChange,
+  sortingEnabled = true,
+  sortKey = null,
+  sortDirection = null,
+  sortOptions = [],
 }) {
+  const [workingVisibility, setWorkingVisibility] = useState({ ...(layoutVisibility || {}) });
+  const [workingRadius, setWorkingRadius] = useState(searchRadius || 0);
+  const [workingMapLayer, setWorkingMapLayer] = useState(activeMapLayer);
+  const [workingSortingEnabled, setWorkingSortingEnabled] = useState(Boolean(sortingEnabled));
+  const [workingSortKey, setWorkingSortKey] = useState(sortKey);
+  const [workingSortDir, setWorkingSortDir] = useState(sortDirection);
+  const sortingAvailable = workingVisibility?.showExcelFilters !== false;
+
+  useEffect(() => {
+    setWorkingVisibility({ ...(layoutVisibility || {}) });
+  }, [layoutVisibility]);
+
+  useEffect(() => {
+    setWorkingRadius(searchRadius || 0);
+  }, [searchRadius]);
+
+  useEffect(() => {
+    setWorkingMapLayer(activeMapLayer);
+  }, [activeMapLayer]);
+
+  useEffect(() => {
+    setWorkingSortingEnabled(Boolean(sortingEnabled));
+  }, [sortingEnabled]);
+
+  useEffect(() => {
+    setWorkingSortKey(sortKey ?? null);
+  }, [sortKey]);
+
+  useEffect(() => {
+    setWorkingSortDir(sortDirection);
+  }, [sortDirection]);
+
+  useEffect(() => {
+    if (!sortingAvailable) {
+      setWorkingSortingEnabled(false);
+      setWorkingSortKey(null);
+      setWorkingSortDir(null);
+    }
+  }, [sortingAvailable]);
+
+  useEffect(() => {
+    if (!workingSortingEnabled) {
+      setWorkingSortKey(null);
+      setWorkingSortDir(null);
+    }
+  }, [workingSortingEnabled]);
+
   const options = [
     { key: "showMap", label: "Mostrar Mapa" },
     { key: "showTable", label: "Mostrar Tabela" },
     { key: "showToolbar", label: "Ativar busca e filtros rápidos" },
     { key: "showTopbar", label: "Mostrar Top bar fixa" },
+    { key: "showExcelFilters", label: "Filtros por coluna (Excel)" },
   ];
 
   const sections = mapLayerSections?.length
     ? mapLayerSections
     : [{ key: "default", label: "Mapas", layers: mapLayers }];
+
+  const handleToggle = (key) => {
+    setWorkingVisibility((prev) => {
+      const next = { ...(prev || {}), [key]: !prev?.[key] };
+      if (key === "showMap" || key === "showTable") {
+        if (!next.showMap && !next.showTable) {
+          next[key] = true;
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleSave = () => {
+    const canUseSorting = sortingAvailable && workingSortingEnabled;
+    onSave?.({
+      visibility: workingVisibility,
+      searchRadius: workingRadius,
+      mapLayerKey: workingMapLayer,
+      sortingEnabled: canUseSorting,
+      sortKey: canUseSorting ? workingSortKey : null,
+      sortDir: canUseSorting ? workingSortDir : null,
+    });
+  };
 
   return (
     <div
@@ -48,7 +122,7 @@ export default function MonitoringLayoutSelector({
 
         <div className="mt-4 space-y-3">
           {options.map((option) => {
-            const isChecked = layoutVisibility?.[option.key] !== false;
+            const isChecked = workingVisibility?.[option.key] !== false;
 
             return (
               <label
@@ -73,11 +147,109 @@ export default function MonitoringLayoutSelector({
                   type="checkbox"
                   className="hidden"
                   checked={isChecked}
-                  onChange={() => onToggle && onToggle(option.key)}
+                  onChange={() => handleToggle(option.key)}
                 />
               </label>
             );
           })}
+
+          <div className={`rounded-lg border px-3 py-2 ${sortingAvailable ? "border-white/10" : "border-white/5 opacity-70"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">Filtro por Ordenação</div>
+                <p className="text-[11px] text-white/60">
+                  {sortingAvailable
+                    ? "Marque para exibir os controles de ordenação da tabela."
+                    : 'Ative "Filtros por coluna (Excel)" para habilitar esta opção.'}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                disabled={!sortingAvailable}
+                checked={sortingAvailable && workingSortingEnabled}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setWorkingSortingEnabled(checked);
+                  if (!checked) {
+                    setWorkingSortKey(null);
+                    setWorkingSortDir(null);
+                  } else if (!workingSortDir) {
+                    setWorkingSortDir("asc");
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          {sortingAvailable && workingSortingEnabled && (
+            <div className="rounded-lg border border-white/10 px-3 py-2">
+              <div className="text-sm font-semibold text-white">Ordenação da tabela</div>
+              <p className="text-[11px] text-white/60">Defina a coluna e a direção da ordenação.</p>
+
+              <label className="mt-2 flex flex-col gap-1 text-xs text-white/60" htmlFor="monitoring-sort-key">
+                Ordenar por
+              </label>
+              <select
+                id="monitoring-sort-key"
+                value={workingSortKey || ""}
+                onChange={(event) => {
+                  const nextKey = event.target.value || null;
+                  setWorkingSortKey(nextKey);
+                  if (nextKey && !workingSortDir) {
+                    setWorkingSortDir("asc");
+                  }
+                }}
+                className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/60 focus:outline-none"
+              >
+                <option value="">Selecione uma coluna</option>
+                {sortOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!workingSortKey}
+                    onClick={() => setWorkingSortDir("asc")}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
+                      workingSortDir === "asc"
+                        ? "border-primary/60 bg-primary/20 text-white"
+                        : "border-white/10 text-white/60 hover:border-white/30"
+                    }`}
+                  >
+                    Crescente
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!workingSortKey}
+                    onClick={() => setWorkingSortDir("desc")}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
+                      workingSortDir === "desc"
+                        ? "border-primary/60 bg-primary/20 text-white"
+                        : "border-white/10 text-white/60 hover:border-white/30"
+                    }`}
+                  >
+                    Decrescente
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkingSortKey(null);
+                    setWorkingSortDir(null);
+                  }}
+                  className="rounded-md border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/70 hover:border-white/30 hover:text-white"
+                >
+                  Limpar ordenação
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-lg border border-white/10 px-3 py-2">
             <label className="flex flex-col gap-1 text-xs text-white/60" htmlFor="search-radius">
@@ -89,8 +261,8 @@ export default function MonitoringLayoutSelector({
               min={50}
               max={5000}
               step={50}
-              value={searchRadius}
-              onChange={(event) => onRadiusChange?.(Number(event.target.value))}
+              value={workingRadius}
+              onChange={(event) => setWorkingRadius(Number(event.target.value))}
               className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/60 focus:outline-none"
             />
             <p className="mt-1 text-[11px] text-white/50">Ajuste o raio usado na busca por endereço (50m a 5km).</p>
@@ -118,7 +290,7 @@ export default function MonitoringLayoutSelector({
 
                       <div className="space-y-2">
                         {section.layers.map((layer) => {
-                          const isActive = layer.key === activeMapLayer;
+                          const isActive = layer.key === workingMapLayer;
                           const isDisabled = layer.available === false || !layer.url;
                           return (
                             <label
@@ -142,7 +314,7 @@ export default function MonitoringLayoutSelector({
                                 className="h-4 w-4"
                                 disabled={isDisabled}
                                 checked={isActive}
-                                onChange={() => onMapLayerChange?.(layer.key)}
+                                onChange={() => setWorkingMapLayer(layer.key)}
                               />
                             </label>
                           );
@@ -154,6 +326,23 @@ export default function MonitoringLayoutSelector({
               </div>
             </div>
           )}
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+            onClick={onClose}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
+            onClick={handleSave}
+          >
+            Salvar
+          </button>
         </div>
       </div>
     </div>

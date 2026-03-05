@@ -16,6 +16,7 @@ import useCrmPipeline from "../lib/hooks/useCrmPipeline.js";
 import { useConfirmDialog } from "../components/ui/ConfirmDialogProvider.jsx";
 import usePageToast from "../lib/hooks/usePageToast.js";
 import PageToast from "../components/ui/PageToast.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const defaultForm = {
   name: "",
@@ -687,13 +688,7 @@ const {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-lg font-semibold text-white">CRM</div>
-          <p className="text-sm text-white/60">Cadastre clientes, acompanhe contratos e registre interações.</p>
-        </div>
-        <div className="flex gap-2" />
-      </div>
+      <PageHeader />
 
       <div className="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
         {tabs.map((tab) => (

@@ -40,7 +40,7 @@ export default function ReportsRoute() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles();
+  } = useVehicles({ includeTelemetry: false });
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,
@@ -392,11 +392,7 @@ export default function ReportsRoute() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        overline="Central de relatórios"
-        title="Relatório de rota"
-        subtitle="Extrai todos os pontos percorridos no intervalo informado."
-      />
+      <PageHeader />
       <div className="flex flex-col gap-2">
         {(loading || fetching || loadingPreferences) && <Loading message="Carregando rotas..." />}
         {error && <ErrorMessage error={error} fallback="Não foi possível carregar o relatório de rota." />}
@@ -430,7 +426,9 @@ export default function ReportsRoute() {
           <div className="md:col-span-4 flex items-center gap-3">
             <button
               type="submit"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+                fetching ? "bg-red-500 hover:bg-red-600" : "bg-primary hover:bg-primary/90"
+              }`}
               disabled={fetching || loading || !deviceId}
             >
               {fetching ? "Gerando…" : "Gerar"}

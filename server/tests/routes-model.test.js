@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { __resetStorageForTests } from "../services/storage.js";
+import { __resetStorageForTests, saveCollection } from "../services/storage.js";
 
 test("createRoute mantém múltiplas rotas por cliente", async () => {
   const originalEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = "test";
+    process.env.NODE_ENV = "test";
 
   try {
     __resetStorageForTests();
+    saveCollection("routes", []);
     const { createRoute, listRoutes } = await import(`../models/route.js?test=${Date.now()}`);
 
     await createRoute({ clientId: "client-1", name: "Rota A", points: [[1, 1], [2, 2]] });

@@ -18,6 +18,7 @@ import { filterAlertsByVehicleAccess } from "../routes/alerts.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
 import { __resetTraccarDbForTests, __setTraccarDbTestOverrides } from "../services/traccar-db.js";
 import { saveCollection } from "../services/storage.js";
+import { requestApp } from "./app-request.js";
 
 const createdVehicles = [];
 const createdDevices = [];
@@ -88,16 +89,12 @@ async function callAlertsConjugated({ clientId }) {
   app.use("/api", alertRoutes);
   app.use(errorHandler);
 
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const token = signSession({ id: "user-1", role: "user", clientId });
-  const response = await fetch(`${baseUrl}/api/alerts/conjugated?clientId=${clientId}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+  const token = signSession({ id: "user-1", role: "admin", clientId });
+  const response = await requestApp(app, {
+    url: `/api/alerts/conjugated?clientId=${clientId}`,
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const payload = await response.json();
-  server.close();
   return { status: response.status, payload };
 }
 
@@ -107,13 +104,11 @@ async function callAlerts({ clientId, token, headers = {} }) {
   app.use("/api", alertRoutes);
   app.use(errorHandler);
 
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}/api/alerts?clientId=${clientId}`, {
+  const response = await requestApp(app, {
+    url: `/api/alerts?clientId=${clientId}`,
     headers: { Authorization: `Bearer ${token}`, ...headers },
   });
   const payload = await response.json();
-  server.close();
   return { status: response.status, payload };
 }
 
@@ -161,7 +156,12 @@ describe("getAccessibleVehicles (mirror)", () => {
     buildVehicle({ clientId: ownerId, plate: "AAA-0002", model: "Modelo B" });
 
     const access = await getAccessibleVehicles({
-      user: { id: "user-1", clientId: receiverId },
+      user: {
+        id: "user-1",
+        role: "user",
+        clientId: receiverId,
+        attributes: { userAccess: { vehicleAccess: { mode: "selected", vehicleIds: [allowed.id] } } },
+      },
       clientId: ownerId,
       mirrorContext: {
         ownerClientId: ownerId,
@@ -324,13 +324,11 @@ describe("/api/alerts/conjugated (mirror)", () => {
     app.use("/api", alertRoutes);
     app.use(errorHandler);
 
-    const server = app.listen(0);
-    const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    const response = await fetch(`${baseUrl}/api/alerts/conjugated?clientId=${ownerId}`, {
+    const response = await requestApp(app, {
+      url: `/api/alerts/conjugated?clientId=${ownerId}`,
       headers: { Authorization: `Bearer ${token}` },
     });
     const payload = await response.json();
-    server.close();
 
     assert.equal(response.status, 200);
     assert.deepEqual(requestedDeviceIds, [allowedTraccarId]);
@@ -360,7 +358,12 @@ describe("mirror access (core routes)", () => {
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
-        req.user = { id: "user-vehicles", role: "user", clientId: receiverId };
+        req.user = {
+          id: "user-vehicles",
+          role: "user",
+          clientId: receiverId,
+          attributes: { userAccess: { vehicleAccess: { mode: "selected", vehicleIds: [allowedVehicle.id] } } },
+        };
         const ownerHeader = req.headers["x-owner-client-id"];
         if (ownerHeader) {
           req.mirrorContext = {
@@ -370,9 +373,13 @@ describe("mirror access (core routes)", () => {
             permissionGroupId: permissionGroup.id,
           };
           req.clientId = String(ownerHeader);
+          req.tenant = { clientIdResolved: String(ownerHeader), mirrorContext: req.mirrorContext };
+        } else {
+          req.tenant = { clientIdResolved: receiverId };
         }
         next();
       },
+      listDevicesFromDb: async () => [],
       fetchLatestPositionsWithFallback: async () => [],
       fetchDevicesMetadata: async () => [],
       getCachedTraccarResources: () => [],
@@ -384,14 +391,11 @@ describe("mirror access (core routes)", () => {
     app.use("/api", coreRoutes);
     app.use(errorHandler);
 
-    const server = app.listen(0);
-    const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    const response = await fetch(
-      `${baseUrl}/api/vehicles?clientId=${ownerId}&accessible=true`,
-      { headers: { "X-Owner-Client-Id": ownerId } },
-    );
+    const response = await requestApp(app, {
+      url: `/api/vehicles?clientId=${ownerId}&accessible=true`,
+      headers: { "X-Owner-Client-Id": ownerId },
+    });
     const payload = await response.json();
-    server.close();
 
     assert.equal(response.status, 200);
     assert.equal(payload.vehicles.length, 1);
@@ -418,7 +422,12 @@ describe("mirror access (core routes)", () => {
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
-        req.user = { id: "user-detail", role: "user", clientId: receiverId };
+        req.user = {
+          id: "user-detail",
+          role: "user",
+          clientId: receiverId,
+          attributes: { userAccess: { vehicleAccess: { mode: "selected", vehicleIds: [allowedVehicle.id] } } },
+        };
         const ownerHeader = req.headers["x-owner-client-id"];
         if (ownerHeader) {
           req.mirrorContext = {
@@ -428,9 +437,13 @@ describe("mirror access (core routes)", () => {
             permissionGroupId: permissionGroup.id,
           };
           req.clientId = String(ownerHeader);
+          req.tenant = { clientIdResolved: String(ownerHeader), mirrorContext: req.mirrorContext };
+        } else {
+          req.tenant = { clientIdResolved: receiverId };
         }
         next();
       },
+      listDevicesFromDb: async () => [],
       fetchLatestPositionsWithFallback: async () => [],
       fetchDevicesMetadata: async () => [],
       isTraccarDbConfigured: () => false,
@@ -443,14 +456,11 @@ describe("mirror access (core routes)", () => {
     app.use("/api", coreRoutes);
     app.use(errorHandler);
 
-    const server = app.listen(0);
-    const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    const response = await fetch(
-      `${baseUrl}/api/vehicles/${blockedVehicle.id}/traccar-device?clientId=${ownerId}`,
-      { headers: { "X-Owner-Client-Id": ownerId } },
-    );
+    const response = await requestApp(app, {
+      url: `/api/vehicles/${blockedVehicle.id}/traccar-device?clientId=${ownerId}`,
+      headers: { "X-Owner-Client-Id": ownerId },
+    });
     const payload = await response.json();
-    server.close();
 
     assert.equal(response.status, 404);
     assert.equal(payload.message, "Veículo não encontrado para este espelhamento");
@@ -489,7 +499,12 @@ describe("mirror access (core routes)", () => {
 
     __setCoreRouteMocks({
       authenticate: (req, _res, next) => {
-        req.user = { id: "user-telemetry", role: "user", clientId: receiverId };
+        req.user = {
+          id: "user-telemetry",
+          role: "user",
+          clientId: receiverId,
+          attributes: { userAccess: { vehicleAccess: { mode: "selected", vehicleIds: [allowedVehicle.id] } } },
+        };
         const ownerHeader = req.headers["x-owner-client-id"];
         if (ownerHeader) {
           req.mirrorContext = {
@@ -499,9 +514,13 @@ describe("mirror access (core routes)", () => {
             permissionGroupId: permissionGroup.id,
           };
           req.clientId = String(ownerHeader);
+          req.tenant = { clientIdResolved: String(ownerHeader), mirrorContext: req.mirrorContext };
+        } else {
+          req.tenant = { clientIdResolved: receiverId };
         }
         next();
       },
+      listDevicesFromDb: async () => [],
       fetchLatestPositionsWithFallback: async (deviceIds) =>
         deviceIds.map((deviceId) => ({
           deviceId: Number(deviceId),
@@ -519,13 +538,11 @@ describe("mirror access (core routes)", () => {
     app.use("/api", coreRoutes);
     app.use(errorHandler);
 
-    const server = app.listen(0);
-    const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    const response = await fetch(`${baseUrl}/api/telemetry?clientId=${ownerId}`, {
+    const response = await requestApp(app, {
+      url: `/api/telemetry?clientId=${ownerId}`,
       headers: { "X-Owner-Client-Id": ownerId },
     });
     const payload = await response.json();
-    server.close();
 
     assert.equal(response.status, 200);
     const telemetry = payload.telemetry || [];

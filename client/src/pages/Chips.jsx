@@ -114,7 +114,7 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Chips() {
-  const { tenantId, user } = useTenant();
+  const { tenantId, tenantScope, user, tenants, hasAdminAccess, homeClient } = useTenant();
   const { positions } = useLivePositions();
   const [chips, setChips] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -132,7 +132,8 @@ export default function Chips() {
   const { isAdminGeneral } = useAdminGeneralAccess();
   const { toast, showToast } = usePageToast();
 
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
+  const clientSelectionRequired = !resolvedClientId && hasAdminAccess;
   const columnStorageKey = useMemo(
     () => `chips.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
     [resolvedClientId, user?.id],
@@ -162,7 +163,35 @@ export default function Chips() {
     apnPass: "",
     notes: "",
     deviceId: "",
+    clientId: resolvedClientId || "",
   });
+  const [formErrors, setFormErrors] = useState({});
+
+  const clientOptions = useMemo(() => {
+    const base = Array.isArray(tenants) ? tenants : [];
+    const merged = homeClient?.id ? [...base, homeClient] : base;
+    const seen = new Set();
+    return merged
+      .filter((tenant) => tenant?.id != null)
+      .map((tenant) => ({
+        id: String(tenant.id),
+        name: tenant.name || tenant.company || tenant.id,
+      }))
+      .filter((tenant) => {
+        if (seen.has(tenant.id)) return false;
+        seen.add(tenant.id);
+        return true;
+      });
+  }, [homeClient, tenants]);
+
+  const clientAutocompleteOptions = useMemo(
+    () =>
+      clientOptions.map((client) => ({
+        value: String(client.id),
+        label: client.name,
+      })),
+    [clientOptions],
+  );
 
   const latestPositionByDevice = useMemo(() => {
     const map = new Map();
@@ -282,8 +311,9 @@ export default function Chips() {
 
   const loadDeviceOptions = useCallback(
     async ({ query, page, pageSize }) => {
+      const targetClientId = resolvedClientId || form.clientId || undefined;
       const response = await CoreApi.searchDevices({
-        clientId: resolvedClientId || undefined,
+        clientId: targetClientId,
         query,
         page,
         pageSize,
@@ -299,7 +329,7 @@ export default function Chips() {
         }));
       return { options, hasMore: Boolean(response?.hasMore) };
     },
-    [editingId, resolvedClientId],
+    [editingId, form.clientId, resolvedClientId],
   );
 
   const filteredChips = useMemo(() => {
@@ -322,8 +352,16 @@ export default function Chips() {
   }, [chips, query, statusFilter, carrierFilter]);
 
   const availableDevices = useMemo(
-    () => devices.filter((device) => !device.chipId || device.chipId === editingId),
-    [devices, editingId],
+    () => {
+      const targetClientId = resolvedClientId || form.clientId || null;
+      return devices.filter((device) => {
+        if (targetClientId && device?.clientId && String(device.clientId) !== String(targetClientId)) {
+          return false;
+        }
+        return !device.chipId || device.chipId === editingId;
+      });
+    },
+    [devices, editingId, form.clientId, resolvedClientId],
   );
   const deviceById = useMemo(() => {
     const map = new Map();
@@ -372,7 +410,9 @@ export default function Chips() {
       apnPass: "",
       notes: "",
       deviceId: "",
+      clientId: resolvedClientId || "",
     });
+    setFormErrors({});
   }
 
   function toggleColumn(key) {
@@ -381,10 +421,22 @@ export default function Chips() {
 
   async function handleSave(event) {
     event.preventDefault();
-    if (!form.iccid.trim() || !form.phone.trim()) {
-      alert("Preencha ICCID e telefone");
+    const validationErrors = {};
+    if (!form.iccid.trim()) validationErrors.iccid = "Informe o ICCID.";
+    if (!form.phone.trim()) validationErrors.phone = "Informe o telefone.";
+    if (clientSelectionRequired && !form.clientId) {
+      validationErrors.clientId = "Selecione um cliente.";
+    }
+    const targetClientId = resolvedClientId || form.clientId || "";
+    if (!clientSelectionRequired && !targetClientId) {
+      showToast("Não foi possível identificar o cliente atual. Refaça login ou selecione um cliente.", "error");
       return;
     }
+    if (Object.keys(validationErrors).length > 0) {
+      setFormErrors(validationErrors);
+      return;
+    }
+    setFormErrors({});
     setSaving(true);
     try {
       const payload = {
@@ -398,7 +450,7 @@ export default function Chips() {
         apnPass: form.apnPass.trim() || undefined,
         notes: form.notes.trim() || undefined,
         deviceId: form.deviceId || undefined,
-        clientId: tenantId || user?.clientId,
+        clientId: targetClientId || undefined,
       };
       if (editingId) {
         await CoreApi.updateChip(editingId, payload);
@@ -408,24 +460,37 @@ export default function Chips() {
       setOpen(false);
       resetForm();
       await load();
+      showToast(editingId ? "Chip atualizado com sucesso." : "Chip cadastrado com sucesso.");
     } catch (requestError) {
+      const requestMessage = requestError?.message || "Falha ao salvar chip";
       setError(requestError instanceof Error ? requestError : new Error("Falha ao salvar chip"));
-      alert(requestError?.message || "Falha ao salvar chip");
+      if (/clientid/i.test(String(requestMessage))) {
+        setFormErrors((current) => ({ ...current, clientId: "Selecione um cliente." }));
+        showToast("Selecione um cliente para salvar o chip.", "error");
+      } else {
+        showToast(requestMessage, "error");
+      }
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(id) {
-    if (!id) return;
+  async function handleDelete(chip) {
+    const chipId = chip?.id;
+    if (!chipId) return;
     if (!isAdminGeneral) return;
+    const targetClientId = resolvedClientId || chip?.clientId || null;
+    if (!targetClientId) {
+      showToast("Selecione um cliente para remover o chip.", "error");
+      return;
+    }
     await confirmDelete({
       title: "Excluir chip",
       message: "Tem certeza que deseja excluir o chip? Essa ação não pode ser desfeita.",
       confirmLabel: "Excluir",
       onConfirm: async () => {
         try {
-          await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
+          await CoreApi.deleteChip(chipId, { clientId: targetClientId });
           await load();
           showToast("Excluído com sucesso.");
         } catch (requestError) {
@@ -449,22 +514,27 @@ export default function Chips() {
       apnPass: chip.apnPass || "",
       notes: chip.notes || "",
       deviceId: chip.deviceId || "",
+      clientId: chip.clientId || resolvedClientId || "",
     });
+    setFormErrors({});
     setOpen(true);
   }
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-5">
       <PageHeader
-        overline="Central de chips"
-        title="Chips"
-        subtitle="Gerencie chips ativos, vínculos e informações de conectividade."
         actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={load} icon={RefreshCw}>
               Atualizar
             </Button>
-            <Button onClick={() => setOpen(true)} icon={Plus}>
+            <Button
+              onClick={() => {
+                resetForm();
+                setOpen(true);
+              }}
+              icon={Plus}
+            >
               Novo chip
             </Button>
           </div>
@@ -595,7 +665,7 @@ export default function Chips() {
                     showLastPing={visibleColumns.lastPing}
                     showDevice={visibleColumns.device}
                     onEdit={() => openEdit(chip)}
-                    onDelete={() => handleDelete(chip.id)}
+                    onDelete={() => handleDelete(chip)}
                     canDelete={isAdminGeneral}
                   />
                 ))}
@@ -611,33 +681,73 @@ export default function Chips() {
         description="Cadastre dados do chip e vincule um equipamento."
       >
         <form onSubmit={handleSave} className="space-y-4">
+          {clientSelectionRequired && (
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-[0.12em] text-white/50">Cliente</div>
+              <AutocompleteSelect
+                label="Cliente"
+                placeholder="Selecione o cliente"
+                value={form.clientId}
+                options={clientAutocompleteOptions}
+                onChange={(nextClientId) => {
+                  setForm((current) => ({ ...current, clientId: nextClientId || "", deviceId: "" }));
+                  setFormErrors((current) => ({ ...current, clientId: undefined }));
+                }}
+                allowClear
+                inputClassName={formErrors.clientId ? "border-red-500/70 focus:border-red-400/80" : ""}
+              />
+              {formErrors.clientId ? <p className="text-xs text-red-300">{formErrors.clientId}</p> : null}
+            </div>
+          )}
+          <div className="text-xs uppercase tracking-[0.12em] text-white/50">Dados do chip</div>
           <div className="grid gap-3 md:grid-cols-2">
             <Input
+              label="ICCID"
               placeholder="ICCID *"
               value={form.iccid}
-              onChange={(event) => setForm((current) => ({ ...current, iccid: event.target.value }))}
+              className={formErrors.iccid ? "border-red-500/70 focus:border-red-400/80" : ""}
+              onChange={(event) => {
+                setForm((current) => ({ ...current, iccid: event.target.value }));
+                setFormErrors((current) => ({ ...current, iccid: undefined }));
+              }}
             />
             <Input
+              label="Telefone"
               placeholder="Telefone *"
               value={form.phone}
-              onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+              className={formErrors.phone ? "border-red-500/70 focus:border-red-400/80" : ""}
+              onChange={(event) => {
+                setForm((current) => ({ ...current, phone: event.target.value }));
+                setFormErrors((current) => ({ ...current, phone: undefined }));
+              }}
             />
+            {formErrors.iccid ? <p className="text-xs text-red-300">{formErrors.iccid}</p> : null}
+            {formErrors.phone ? <p className="text-xs text-red-300">{formErrors.phone}</p> : null}
             <Input
+              label="Operadora"
               placeholder="Operadora"
               value={form.carrier}
               onChange={(event) => setForm((current) => ({ ...current, carrier: event.target.value }))}
             />
             <Input
+              label="Fornecedor"
               placeholder="Fornecedor"
               value={form.provider}
               onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
             />
-            <Select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
+            <Select
+              label="Status"
+              value={form.status}
+              onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
+            >
               <option value="Disponível">Disponível</option>
               <option value="Vinculado">Vinculado</option>
               <option value="Ativo">Ativo</option>
               <option value="Inativo">Inativo</option>
             </Select>
+          </div>
+          <div className="text-xs uppercase tracking-[0.12em] text-white/50">Vínculo com equipamento</div>
+          <div className="grid gap-3 md:grid-cols-2">
             <AutocompleteSelect
               label="Equipamento"
               placeholder="Buscar equipamento"
@@ -645,28 +755,41 @@ export default function Chips() {
               onChange={(nextValue) => setForm((current) => ({ ...current, deviceId: nextValue }))}
               loadOptions={loadDeviceOptions}
               options={availableDevices.map((device) => ({
-                value: device.internalId || device.id,
-                label: device.name || device.uniqueId || device.internalId,
+                value: device.id,
+                label: device.name || device.uniqueId || device.internalId || device.id,
                 description: device.modelName || device.model || "",
               }))}
               allowClear
             />
+          </div>
+          <div className="text-xs uppercase tracking-[0.12em] text-white/50">Configuração de rede</div>
+          <div className="grid gap-3 md:grid-cols-2">
             <Input
+              label="APN"
               placeholder="APN"
               value={form.apn}
               onChange={(event) => setForm((current) => ({ ...current, apn: event.target.value }))}
             />
             <Input
+              label="APN Usuário"
               placeholder="APN Usuário"
               value={form.apnUser}
               onChange={(event) => setForm((current) => ({ ...current, apnUser: event.target.value }))}
             />
             <Input
+              label="APN Senha"
               placeholder="APN Senha"
               value={form.apnPass}
               onChange={(event) => setForm((current) => ({ ...current, apnPass: event.target.value }))}
             />
+          </div>
+          <div className="text-xs uppercase tracking-[0.12em] text-white/50">Observações</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-xs uppercase tracking-[0.12em] text-white/60 md:col-span-2" htmlFor="chip-notes">
+              Observações
+            </label>
             <textarea
+              id="chip-notes"
               placeholder="Observações"
               value={form.notes}
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}

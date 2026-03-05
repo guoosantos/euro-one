@@ -98,7 +98,18 @@ async function updateGeozoneName({ xdmGeofenceId, name, correlationId }) {
       { id: Number(normalizedId), name },
       { correlationId },
     );
+    return { updated: true };
   } catch (error) {
+    const status = Number(error?.status || error?.statusCode);
+    if (status === 405) {
+      console.warn("[xdm] update geofence name não permitido (ignorado)", {
+        correlationId,
+        xdmGeozoneId: normalizedId,
+        name,
+        status,
+      });
+      return { skipped: true, status };
+    }
     if (isNoPermissionError(error)) {
       logNoPermissionDiagnostics({
         error,
@@ -134,7 +145,13 @@ async function shouldAddGeofenceSuffix({ clientId, geofenceId, name }) {
   if (!clientId || !name) return false;
   const normalizedName = sanitizeFriendlyName(name).toLowerCase();
   if (!normalizedName) return false;
-  const geofences = await listGeofences({ clientId });
+  let geofences = [];
+  try {
+    geofences = await listGeofences({ clientId });
+  } catch (error) {
+    console.warn("[xdm] falha ao listar geofences para sufixo", error?.message || error);
+    return false;
+  }
   const duplicates = geofences.filter((item) => {
     if (!item?.name) return false;
     if (String(item.id) === String(geofenceId)) return false;

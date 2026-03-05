@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 
 import api from "../lib/api.js";
@@ -9,22 +10,26 @@ import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
-import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 const STATUS_OPTIONS = [
   { value: "pendente", label: "Pendente" },
   { value: "confirmado", label: "Confirmado" },
+  { value: "em_rota", label: "Em rota" },
+  { value: "no_local", label: "No local" },
   { value: "em_execucao", label: "Em execução" },
+  { value: "aguardando_validacao", label: "Aguardando validação" },
   { value: "concluido", label: "Concluído" },
   { value: "remarcado", label: "Remarcado" },
+  { value: "reprovado", label: "Reprovado" },
   { value: "cancelado", label: "Cancelado" },
 ];
 
 const STATUS_TABS = [
   { key: "requested", label: "Agendamentos Solicitados", statuses: ["pendente", "confirmado", "remarcado"] },
-  { key: "inProgress", label: "Agendamentos em Andamento", statuses: ["em_execucao"] },
-  { key: "completed", label: "Agendamento Concluído", statuses: ["concluido"] },
+  { key: "inProgress", label: "Agendamentos em Andamento", statuses: ["em_rota", "no_local", "em_execucao", "aguardando_validacao"] },
+  { key: "completed", label: "Agendamento Concluído", statuses: ["concluido", "cancelado", "reprovado"] },
 ];
 
 const SERVICE_TYPE_OPTIONS = [
@@ -46,6 +51,7 @@ const DEFAULT_FORM = {
   referencePoint: "",
   latitude: "",
   longitude: "",
+  geoFenceId: "",
   type: "Instalação",
   serviceReason: "",
   startTimeExpected: "",
@@ -54,6 +60,8 @@ const DEFAULT_FORM = {
   technicianId: "",
   technicianName: "",
   assignedTeam: "",
+  operation: "",
+  serviceItem: "",
 };
 
 function formatDate(value) {
@@ -64,6 +72,18 @@ function formatDate(value) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function toLocalDateTimeInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
 }
 
 function normalizeServiceType(value) {
@@ -112,8 +132,10 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Appointments() {
-  const { tenantId, user, tenants } = useTenant();
-  const resolvedClientId = tenantId || user?.clientId || "";
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { tenantId, tenantScope, user, tenants } = useTenant();
+  const resolvedClientId = tenantScope === "ALL" ? "" : tenantId || user?.clientId || "";
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [technicians, setTechnicians] = useState([]);
@@ -139,10 +161,12 @@ export default function Appointments() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusTab, setStatusTab] = useState(STATUS_TABS[0].key);
   const [form, setForm] = useState({ ...DEFAULT_FORM, clientId: resolvedClientId });
-  const addressSearchState = useAddressSearchState({ initialValue: "" });
-  const filterAddressState = useAddressSearchState({ initialValue: "" });
+  const [autoOpenHandled, setAutoOpenHandled] = useState(false);
+  const [addressValue, setAddressValue] = useState({ formattedAddress: "" });
+  const [filterAddressValue, setFilterAddressValue] = useState({ formattedAddress: "" });
 
   const clientOptions = useMemo(
     () => (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
@@ -172,11 +196,15 @@ export default function Appointments() {
 
   const technicianAutocompleteOptions = useMemo(
     () =>
-      technicianOptions.map((technician) => ({
-        value: String(technician.id),
-        label: technician.name,
-        description: technician.team,
-      })),
+      technicianOptions.map((technician) => {
+        const label = technician.name || String(technician.id);
+        return {
+          value: label,
+          label,
+          description: technician.team,
+          id: technician.id,
+        };
+      }),
     [technicianOptions],
   );
 
@@ -207,12 +235,13 @@ export default function Appointments() {
     [technicianAutocompleteOptions],
   );
 
-  const loadAppointments = async () => {
+  const loadAppointments = async (nextFilters = filters) => {
     setLoading(true);
     try {
       const params = {
-        from: filters.from || undefined,
-        to: filters.to || undefined,
+        from: nextFilters.from || undefined,
+        to: nextFilters.to || undefined,
+        category: "appointment",
       };
       const response = await CoreApi.listTasks(params);
       setItems(Array.isArray(response?.tasks) ? response.tasks : response || []);
@@ -262,15 +291,9 @@ export default function Appointments() {
     setForm((prev) => ({ ...prev, clientId: resolvedClientId || prev.clientId }));
   }, [resolvedClientId]);
 
-  useEffect(() => {
-    const nextRegion = filterAddressState.query || "";
-    if (draftFilters.region === nextRegion) return;
-    setDraftFilters((prev) => ({ ...prev, region: nextRegion }));
-  }, [draftFilters.region, filterAddressState.query]);
-
   const applyFilters = () => {
-    setFilters((prev) => ({
-      ...prev,
+    const nextFilters = {
+      ...filters,
       query: draftFilters.query,
       status: draftFilters.status,
       from: draftFilters.from,
@@ -278,12 +301,13 @@ export default function Appointments() {
       technician: draftFilters.technician,
       region: draftFilters.region,
       clientId: draftFilters.clientId,
-    }));
-    loadAppointments();
+    };
+    setFilters(nextFilters);
+    loadAppointments(nextFilters);
   };
 
   const clearFilters = () => {
-    setDraftFilters({
+    const nextFilters = {
       query: "",
       status: "",
       from: "",
@@ -291,18 +315,11 @@ export default function Appointments() {
       technician: "",
       region: "",
       clientId: "",
-    });
-    filterAddressState.setQuery("");
-    setFilters({
-      query: "",
-      status: "",
-      from: "",
-      to: "",
-      technician: "",
-      region: "",
-      clientId: "",
-    });
-    loadAppointments();
+    };
+    setDraftFilters(nextFilters);
+    setFilterAddressValue({ formattedAddress: "" });
+    setFilters(nextFilters);
+    loadAppointments(nextFilters);
   };
 
   const filtered = useMemo(() => {
@@ -324,8 +341,13 @@ export default function Appointments() {
         .filter(Boolean)
         .map((value) => String(value).toLowerCase());
       if (term && !searchable.some((value) => value.includes(term))) return false;
-      if (filters.technician && String(item.technicianId || "") !== String(filters.technician)) {
-        return false;
+      if (filters.technician) {
+        const technicianMatch = String(item.technicianName || "").toLowerCase();
+        const teamMatch = String(item.assignedTeam || "").toLowerCase();
+        const filterValue = String(filters.technician || "").toLowerCase();
+        if (!technicianMatch.includes(filterValue) && !teamMatch.includes(filterValue)) {
+          return false;
+        }
       }
       if (filters.clientId && String(item.clientId || "") !== String(filters.clientId)) {
         return false;
@@ -339,6 +361,15 @@ export default function Appointments() {
       return true;
     });
   }, [filters.clientId, filters.query, filters.region, filters.technician, items, statusTab]);
+
+  const extractRequestId = useCallback((task) => {
+    if (!task) return "";
+    if (task.serviceItem) return String(task.serviceItem);
+    if (typeof task.operation === "string" && task.operation.startsWith("request:")) {
+      return task.operation.replace("request:", "").trim();
+    }
+    return "";
+  }, []);
 
   const openDrawer = (task = null) => {
     if (task) {
@@ -354,32 +385,62 @@ export default function Appointments() {
         referencePoint: task.referencePoint || "",
         latitude: task.latitude ?? "",
         longitude: task.longitude ?? "",
+        geoFenceId: task.geoFenceId || "",
         type: normalizeServiceType(task.type) || "Instalação",
         serviceReason: task.serviceReason || "",
-        startTimeExpected: task.startTimeExpected ? new Date(task.startTimeExpected).toISOString().slice(0, 16) : "",
-        endTimeExpected: task.endTimeExpected ? new Date(task.endTimeExpected).toISOString().slice(0, 16) : "",
+        startTimeExpected: task.startTimeExpected ? toLocalDateTimeInput(task.startTimeExpected) : "",
+        endTimeExpected: task.endTimeExpected ? toLocalDateTimeInput(task.endTimeExpected) : "",
         status: task.status || "pendente",
         technicianId: task.technicianId || "",
         technicianName: task.technicianName || "",
         assignedTeam: task.assignedTeam || "",
+        operation: task.operation || "",
+        serviceItem: task.serviceItem || "",
       });
-      addressSearchState.setQuery(task.address || "");
+      setAddressValue({
+        formattedAddress: task.address || "",
+        lat: task.latitude ?? undefined,
+        lng: task.longitude ?? undefined,
+        placeId: task.geoFenceId ?? undefined,
+      });
     } else {
       setEditingId(null);
       setForm({ ...DEFAULT_FORM, clientId: resolvedClientId || "" });
-      addressSearchState.setQuery("");
+      setAddressValue({ formattedAddress: "" });
     }
     setDrawerOpen(true);
   };
 
-  const handleSelectAddress = (option) => {
-    if (!option) return;
+  useEffect(() => {
+    if (autoOpenHandled) return;
+    const openId = searchParams.get("open");
+    if (!openId) {
+      setAutoOpenHandled(true);
+      return;
+    }
+    const match = items.find((item) => String(item.id) === String(openId));
+    if (match) {
+      openDrawer(match);
+      setAutoOpenHandled(true);
+    }
+  }, [autoOpenHandled, items, searchParams]);
+
+  const handleAddressChange = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setAddressValue(nextValue);
     setForm((prev) => ({
       ...prev,
-      address: option.label || option.concise || prev.address,
-      latitude: option.lat ?? prev.latitude,
-      longitude: option.lng ?? prev.longitude,
+      address: nextValue.formattedAddress || "",
+      latitude: nextValue.lat ?? "",
+      longitude: nextValue.lng ?? "",
+      geoFenceId: nextValue.placeId || "",
     }));
+  };
+
+  const handleFilterAddressChange = (value) => {
+    const nextValue = value || { formattedAddress: "" };
+    setFilterAddressValue(nextValue);
+    setDraftFilters((prev) => ({ ...prev, region: nextValue.formattedAddress || "" }));
   };
 
   const saveAppointment = async (payloadForm) => {
@@ -400,9 +461,11 @@ export default function Appointments() {
         assignedTeam: payloadForm.assignedTeam,
         latitude: payloadForm.latitude !== "" ? Number(payloadForm.latitude) : null,
         longitude: payloadForm.longitude !== "" ? Number(payloadForm.longitude) : null,
+        geoFenceId: payloadForm.geoFenceId || null,
         startTimeExpected: payloadForm.startTimeExpected ? new Date(payloadForm.startTimeExpected).toISOString() : null,
         endTimeExpected: payloadForm.endTimeExpected ? new Date(payloadForm.endTimeExpected).toISOString() : null,
         type: normalizeServiceType(payloadForm.type),
+        category: "appointment",
       };
       if (editingId) {
         await CoreApi.updateTask(editingId, payload);
@@ -422,6 +485,41 @@ export default function Appointments() {
   const handleSave = async (event) => {
     event.preventDefault();
     await saveAppointment(form);
+  };
+
+  const updateAppointmentStatus = async (nextStatus) => {
+    if (!editingId) return;
+    setStatusUpdating(true);
+    try {
+      const now = new Date().toISOString();
+      const payload = { status: nextStatus, category: "appointment" };
+      if (nextStatus === "no_local") payload.arrivalTime = now;
+      if (nextStatus === "em_execucao") payload.serviceStartTime = now;
+      if (nextStatus === "aguardando_validacao" || nextStatus === "concluido") payload.serviceEndTime = now;
+      await CoreApi.updateTask(editingId, payload);
+      setForm((prev) => ({ ...prev, status: nextStatus }));
+      await loadAppointments();
+    } catch (error) {
+      console.error("Falha ao atualizar status do agendamento", error);
+      alert("Não foi possível atualizar o status do agendamento.");
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  const handleCreateServiceOrder = () => {
+    if (!editingId) return;
+    const params = new URLSearchParams();
+    params.set("taskId", editingId);
+    if (form.clientId) params.set("clientId", String(form.clientId));
+    if (form.clientName) params.set("clientName", form.clientName);
+    if (form.contactName) params.set("responsibleName", form.contactName);
+    if (form.contactChannel) params.set("responsiblePhone", form.contactChannel);
+    if (form.address) params.set("address", form.address);
+    if (form.startTimeExpected) params.set("startAt", form.startTimeExpected);
+    if (form.type) params.set("type", form.type);
+    if (form.technicianName) params.set("technicianName", form.technicianName);
+    navigate(`/services/new?${params.toString()}`);
   };
 
   const handleCancelAppointment = async () => {
@@ -453,8 +551,6 @@ export default function Appointments() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Agendamentos"
-        subtitle="Gestão operacional com janela, responsável e status por agendamento."
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -525,18 +621,13 @@ export default function Appointments() {
             />
             <div className="min-w-[240px] flex-1">
               <span className="block text-xs uppercase tracking-wide text-white/60">Endereço</span>
-              <AddressSearchInput
-                state={filterAddressState}
-                onSelect={(option) =>
-                  setDraftFilters((prev) => ({
-                    ...prev,
-                    region: option?.label || option?.concise || option?.address || "",
-                  }))
-                }
-                onClear={() => setDraftFilters((prev) => ({ ...prev, region: "" }))}
+              <AddressAutocomplete
+                label={null}
+                value={filterAddressValue}
+                onChange={handleFilterAddressChange}
                 placeholder="Buscar endereço"
                 variant="toolbar"
-                containerClassName="mt-2 w-full"
+                containerClassName="w-full"
                 portalSuggestions
               />
             </div>
@@ -697,9 +788,11 @@ export default function Appointments() {
 
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Local</h3>
-            <AddressSearchInput
-              state={addressSearchState}
-              onSelect={handleSelectAddress}
+            <AddressAutocomplete
+              label={null}
+              value={addressValue}
+              onChange={handleAddressChange}
+              onSelect={handleAddressChange}
               placeholder="Buscar endereço"
               variant="toolbar"
               containerClassName="w-full"
@@ -773,20 +866,98 @@ export default function Appointments() {
             </select>
           </section>
 
+          {editingId ? (
+            <section className="space-y-3">
+              <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Fluxo rápido</h3>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateAppointmentStatus("em_rota")}
+                  disabled={statusUpdating || form.status === "em_rota"}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-xs text-white/80 hover:border-white/30 disabled:opacity-50"
+                >
+                  Iniciar deslocamento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAppointmentStatus("no_local")}
+                  disabled={statusUpdating || form.status === "no_local"}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-xs text-white/80 hover:border-white/30 disabled:opacity-50"
+                >
+                  Cheguei no local
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAppointmentStatus("em_execucao")}
+                  disabled={statusUpdating || form.status === "em_execucao"}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-xs text-white/80 hover:border-white/30 disabled:opacity-50"
+                >
+                  Iniciar execução
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAppointmentStatus("aguardando_validacao")}
+                  disabled={statusUpdating || form.status === "aguardando_validacao"}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-xs text-white/80 hover:border-white/30 disabled:opacity-50"
+                >
+                  Enviar para validação
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAppointmentStatus("concluido")}
+                  disabled={statusUpdating || form.status === "concluido"}
+                  className="rounded-xl border border-emerald-400/40 px-4 py-2 text-xs text-emerald-100 hover:border-emerald-300 disabled:opacity-50"
+                >
+                  Concluir atendimento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAppointmentStatus("reprovado")}
+                  disabled={statusUpdating || form.status === "reprovado"}
+                  className="rounded-xl border border-red-500/40 px-4 py-2 text-xs text-red-200 hover:border-red-400 disabled:opacity-50"
+                >
+                  Reprovar
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {editingId ? (
+            <section className="space-y-3">
+              <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Vínculos</h3>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
+                <span className="rounded-lg bg-white/10 px-3 py-1 text-xs">
+                  Agendamento: {editingId}
+                </span>
+                {extractRequestId(form) ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/service-requests?open=${extractRequestId(form)}`)}
+                    className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white hover:border-white/30"
+                  >
+                    Ver solicitação
+                  </button>
+                ) : (
+                  <span className="text-xs text-white/50">Solicitação não vinculada</span>
+                )}
+              </div>
+            </section>
+          ) : null}
+
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Responsáveis</h3>
             <div className="grid gap-3 md:grid-cols-2">
               <AutocompleteSelect
                 label="Técnico"
                 placeholder={techniciansLoading ? "Carregando técnicos..." : "Buscar técnico"}
-                value={form.technicianId}
+                value={form.technicianName}
                 options={technicianAutocompleteOptions}
                 loadOptions={loadTechnicianOptions}
                 onChange={(value, option) => {
                   setForm((prev) => ({
                     ...prev,
-                    technicianId: value || "",
-                    technicianName: option?.label || prev.technicianName,
+                    technicianId: option?.id || "",
+                    technicianName: option?.label || value || "",
                     assignedTeam: option?.description || prev.assignedTeam,
                   }));
                 }}
@@ -812,6 +983,15 @@ export default function Appointments() {
                   disabled={saving}
                 >
                   Cancelar agendamento
+                </button>
+              ) : null}
+              {editingId ? (
+                <button
+                  type="button"
+                  onClick={handleCreateServiceOrder}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white hover:border-white/30"
+                >
+                  Criar OS
                 </button>
               ) : null}
               <button

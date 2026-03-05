@@ -13,10 +13,9 @@ import {
 import { fetchDevicesMetadata, isTraccarDbConfigured } from "../services/traccar-db.js";
 
 const router = express.Router();
+const adminGuard = [authenticate, requireRole("admin")];
 
-router.use(authenticate, requireRole("admin"));
-
-router.get("/tracker/devices", async (req, res, next) => {
+router.get("/tracker/devices", adminGuard, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const metadata = isTraccarDbConfigured() ? await fetchDevicesMetadata() : [];
@@ -43,7 +42,7 @@ router.get("/tracker/devices", async (req, res, next) => {
   }
 });
 
-router.get("/tracker/mappings", async (req, res, next) => {
+router.get("/tracker/mappings", adminGuard, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const deviceId = req.query?.deviceId || null;
@@ -58,7 +57,7 @@ router.get("/tracker/mappings", async (req, res, next) => {
   }
 });
 
-router.post("/tracker/mappings/telemetry", async (req, res, next) => {
+router.post("/tracker/mappings/telemetry", adminGuard, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameTenant(req.user, clientId);
@@ -69,7 +68,7 @@ router.post("/tracker/mappings/telemetry", async (req, res, next) => {
   }
 });
 
-router.put("/tracker/mappings/telemetry/:id", async (req, res, next) => {
+router.put("/tracker/mappings/telemetry/:id", adminGuard, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameTenant(req.user, clientId);
@@ -80,7 +79,7 @@ router.put("/tracker/mappings/telemetry/:id", async (req, res, next) => {
   }
 });
 
-router.delete("/tracker/mappings/telemetry/:id", async (req, res, next) => {
+router.delete("/tracker/mappings/telemetry/:id", adminGuard, async (req, res, next) => {
   try {
     const mapping = await deleteTelemetryFieldMapping(req.params.id);
     return res.json({ mapping });
@@ -89,7 +88,7 @@ router.delete("/tracker/mappings/telemetry/:id", async (req, res, next) => {
   }
 });
 
-router.post("/tracker/mappings/events", async (req, res, next) => {
+router.post("/tracker/mappings/events", adminGuard, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameTenant(req.user, clientId);
@@ -100,7 +99,7 @@ router.post("/tracker/mappings/events", async (req, res, next) => {
   }
 });
 
-router.put("/tracker/mappings/events/:id", async (req, res, next) => {
+router.put("/tracker/mappings/events/:id", adminGuard, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameTenant(req.user, clientId);
@@ -111,7 +110,7 @@ router.put("/tracker/mappings/events/:id", async (req, res, next) => {
   }
 });
 
-router.delete("/tracker/mappings/events/:id", async (req, res, next) => {
+router.delete("/tracker/mappings/events/:id", adminGuard, async (req, res, next) => {
   try {
     const mapping = await deleteEventMapping(req.params.id);
     return res.json({ mapping });

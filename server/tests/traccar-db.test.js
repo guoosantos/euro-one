@@ -1,16 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import {
-  __resetTraccarDbForTests,
-  __setTraccarDbTestOverrides,
-  fetchEvents,
-  fetchLatestPositions,
-  fetchTrips,
-  ensureFullAddressForPositions,
-} from "../services/traccar-db.js";
-
 const defaultEnv = { ...process.env };
+let traccarDb = null;
 
 function setTraccarEnv() {
   process.env.TRACCAR_DB_CLIENT = "postgresql";
@@ -20,13 +12,16 @@ function setTraccarEnv() {
   process.env.TRACCAR_DB_PASSWORD = "pass";
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   Object.assign(process.env, defaultEnv);
+  process.env.NODE_ENV = "test";
   setTraccarEnv();
+  traccarDb = await import(`../services/traccar-db.js?test=${Date.now()}`);
 });
 
 afterEach(() => {
-  __resetTraccarDbForTests();
+  traccarDb?.__resetTraccarDbForTests?.();
+  traccarDb = null;
 });
 
 describe("traccar-db", () => {
@@ -53,7 +48,7 @@ describe("traccar-db", () => {
     ];
 
     const fakePool = { query: async () => ({ rows: positions }) };
-    __setTraccarDbTestOverrides({
+    traccarDb.__setTraccarDbTestOverrides({
       pool: fakePool,
       dialect: {
         placeholder: (index) => `$${index}`,
@@ -61,7 +56,7 @@ describe("traccar-db", () => {
       },
     });
 
-    const trips = await fetchTrips("10", "2024-01-01", "2024-01-02");
+    const trips = await traccarDb.fetchTrips("10", "2024-01-01", "2024-01-02");
 
     assert.equal(trips.length, 1);
     assert.equal(trips[0].distanceKm > 1.9, true);
@@ -82,7 +77,7 @@ describe("traccar-db", () => {
     ];
 
     const fakePool = { query: async () => ({ rows }) };
-    __setTraccarDbTestOverrides({
+    traccarDb.__setTraccarDbTestOverrides({
       pool: fakePool,
       dialect: {
         placeholder: (index) => `$${index}`,
@@ -90,7 +85,7 @@ describe("traccar-db", () => {
       },
     });
 
-    const result = await fetchLatestPositions([11]);
+    const result = await traccarDb.fetchLatestPositions([11]);
     assert.deepEqual(result[0].deviceId, 11);
     assert.equal(result[0].attributes.distance, 1200);
     assert.equal(result[0].fixTime, "2024-01-02T03:00:00.000Z");
@@ -111,7 +106,7 @@ describe("traccar-db", () => {
     ];
 
     const fakePool = { query: async () => ({ rows }) };
-    __setTraccarDbTestOverrides({
+    traccarDb.__setTraccarDbTestOverrides({
       pool: fakePool,
       dialect: {
         placeholder: (index) => `$${index}`,
@@ -119,7 +114,7 @@ describe("traccar-db", () => {
       },
     });
 
-    const events = await fetchEvents([44], "2024-02-01", "2024-02-02", 10);
+    const events = await traccarDb.fetchEvents([44], "2024-02-01", "2024-02-02", 10);
 
     assert.equal(events.length, 1);
     assert.equal(events[0].deviceId, 44);
@@ -133,7 +128,7 @@ describe("traccar-db", () => {
       },
     };
 
-    __setTraccarDbTestOverrides({
+    traccarDb.__setTraccarDbTestOverrides({
       pool: fakePool,
       dialect: {
         placeholder: (index) => `$${index}`,
@@ -141,7 +136,7 @@ describe("traccar-db", () => {
       },
     });
 
-    await assert.rejects(() => fetchLatestPositions([1]), (error) => {
+    await assert.rejects(() => traccarDb.fetchLatestPositions([1]), (error) => {
       assert.equal(error.code, "TRACCAR_UNAVAILABLE");
       assert.equal(error.status, 503);
       return true;
@@ -163,7 +158,7 @@ describe("traccar-db", () => {
       },
     };
 
-    __setTraccarDbTestOverrides({
+    traccarDb.__setTraccarDbTestOverrides({
       pool: fakePool,
       dialect: {
         placeholder: (index) => `$${index}`,
@@ -188,7 +183,7 @@ describe("traccar-db", () => {
       },
     ];
 
-    const { resolvedIds, pendingIds } = await ensureFullAddressForPositions(
+    const { resolvedIds, pendingIds } = await traccarDb.ensureFullAddressForPositions(
       positions.map((item) => item.id),
       { positions, wait: true, minIntervalMs: 0 },
     );

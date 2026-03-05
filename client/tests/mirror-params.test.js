@@ -23,5 +23,6 @@ test("resolveMirrorHeaders retorna X-Owner-Client-Id quando mirrorModeEnabled es
     mirrorOwnerClientId: "owner-456",
   });
 
-  assert.deepEqual(headers, { "X-Owner-Client-Id": "owner-456" });
+  assert.equal(headers?.["X-Owner-Client-Id"], "owner-456");
+  assert.equal(headers?.["X-Mirror-Mode"], "target");
 });

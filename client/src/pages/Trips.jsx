@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -10,26 +10,31 @@ import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
 import { formatAddress } from "../lib/format-address.js";
-import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
+import { resolveEventDefinitionFromPayload, translateEventType } from "../lib/event-translations.js";
+import { buildParams as buildEventParams } from "../lib/hooks/events-helpers.js";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { buildOverlayShapes, buildRouteCorridorPolygons } from "../lib/itinerary-overlay.js";
+import { isEmbarkedConfirmedStatus, translateItineraryStatusLabel } from "../lib/itinerary-status.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
   MAP_LAYER_FALLBACK,
-  MAP_LAYER_SECTIONS,
   MAP_LAYER_STORAGE_KEYS,
   getValidMapLayer,
 } from "../lib/mapLayers.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
-import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
 import AddressStatus from "../ui/AddressStatus.jsx";
-import PageHeader from "../ui/PageHeader.jsx";
+import Button from "../ui/Button.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { canInteractWithMap } from "../lib/map/mapSafety.js";
+import { resolveMirrorHeaders } from "../lib/mirror-params.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
+import PageHeader from "../components/ui/PageHeader.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -40,7 +45,7 @@ const DEFAULT_FROM = () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOStrin
 const DEFAULT_TO = () => new Date().toISOString().slice(0, 16);
 const FALLBACK_CENTER = [-15.793889, -47.882778];
 const FALLBACK_ZOOM = 5;
-const REPLAY_SPEEDS = [1, 2, 4, 8];
+const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8, 16];
 const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
 const MAX_INTERPOLATION_METERS = 120;
 const EVENT_OFFSET_METERS = 70;
@@ -52,6 +57,7 @@ const LOGICAL_ROUTE_PROFILE = "driving";
 const ROUTE_COLOR = "#2563eb";
 const ROUTE_OPACITY = 0.85;
 const ROUTE_WEIGHT = 8;
+const MAX_DRAWER_ROWS = 300;
 
 const TRIP_EVENT_TRANSLATIONS = {
   "position registered": "Posição",
@@ -64,6 +70,35 @@ const TRIP_EVENT_TRANSLATIONS = {
   "ignition on": "Ignição ligada",
   "ignition off": "Ignição desligada",
 };
+
+const SEVERITY_LABELS = {
+  info: "Informativa",
+  informativa: "Informativa",
+  warning: "Alerta",
+  alerta: "Alerta",
+  low: "Baixa",
+  baixa: "Baixa",
+  medium: "Moderada",
+  moderate: "Moderada",
+  moderada: "Moderada",
+  media: "Moderada",
+  "média": "Moderada",
+  high: "Alta",
+  alta: "Alta",
+  critical: "Crítica",
+  critica: "Crítica",
+  "crítica": "Crítica",
+};
+const CRITICAL_EVENT_TYPES = new Set(["deviceoffline", "deviceinactive", "deviceunknown", "powercut", "powerdisconnected"]);
+const MODERATE_EVENT_TYPES = new Set([
+  "ignitionon",
+  "ignitionoff",
+  "devicemoving",
+  "devicestopped",
+  "tripstart",
+  "tripstop",
+]);
+const LOW_EVENT_TYPES = new Set(["deviceonline"]);
 
 const COLUMN_STORAGE_KEY = "tripsReplayColumns:v1";
 const DEFAULT_COLUMN_PRESET = ["time", "event", "speed", "address"];
@@ -174,6 +209,94 @@ function formatDistance(distanceMeters) {
 function formatSpeed(value) {
   if (!Number.isFinite(value)) return "—";
   return `${Math.round(value)} km/h`;
+}
+
+function buildTripItineraryOptions(history = []) {
+  const map = new Map();
+  (Array.isArray(history) ? history : []).forEach((entry) => {
+    const id = entry?.itineraryId ?? entry?.itinerary?.id ?? null;
+    if (!id) return;
+    const key = String(id);
+    const timeValue = entry?.sentAt || entry?.at || entry?.deviceConfirmedAt || entry?.receivedAt || entry?.createdAt || 0;
+    const time = new Date(timeValue).getTime();
+    const statusRaw = entry?.statusLabel || entry?.status || "";
+    const confirmed = Boolean(entry?.deviceConfirmedAt) || isEmbarkedConfirmedStatus(statusRaw);
+    const statusLabel = translateItineraryStatusLabel(statusRaw, { style: "title", fallback: "" });
+    const option = {
+      id: key,
+      name: entry?.itineraryName || entry?.itinerary?.name || key,
+      confirmed,
+      statusLabel,
+      _time: Number.isFinite(time) ? time : 0,
+    };
+    const existing = map.get(key);
+    if (!existing || option._time > existing._time) {
+      map.set(key, option);
+    }
+  });
+  return Array.from(map.values())
+    .sort((a, b) => b._time - a._time)
+    .map(({ _time, ...rest }) => rest);
+}
+
+function resolveTripTimeValue(trip, type) {
+  if (!trip) return null;
+  if (type === "start") {
+    return trip.startTime || trip.start?.time || trip.start || trip.from || null;
+  }
+  return trip.endTime || trip.end?.time || trip.end || trip.to || null;
+}
+
+function resolveTripDistanceMeters(trip) {
+  if (!trip) return null;
+  const km = toFiniteNumber(trip.distanceKm ?? trip.distance_km);
+  if (km !== null) return km * 1000;
+  return toFiniteNumber(trip.distance ?? trip.distanceMeters ?? trip.distance_m ?? trip.distanceM);
+}
+
+function resolveTripDurationSeconds(trip) {
+  if (!trip) return null;
+  const seconds = toFiniteNumber(trip.duration ?? trip.durationSeconds ?? trip.duration_sec);
+  if (seconds !== null) return seconds;
+  const minutes = toFiniteNumber(trip.durationMinutes ?? trip.duration_min);
+  return minutes !== null ? minutes * 60 : null;
+}
+
+function resolveTripAverageSpeed(trip) {
+  return toFiniteNumber(trip?.averageSpeed ?? trip?.averageSpeedKmh ?? trip?.avgSpeed ?? trip?.avgSpeedKmh);
+}
+
+function resolveTripMaxSpeed(trip) {
+  return toFiniteNumber(trip?.maxSpeed ?? trip?.maxSpeedKmh ?? trip?.maximumSpeed);
+}
+
+function resolveTripStopCount(trip) {
+  return toFiniteNumber(trip?.stops ?? trip?.stopCount ?? trip?.stop_count ?? trip?.stopsCount);
+}
+
+function resolveTripSignalBadge(trip) {
+  const raw = trip?.gpsQuality ?? trip?.quality ?? trip?.signalQuality ?? trip?.signal ?? null;
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number") {
+    if (raw >= 70) return { label: "Sinal bom", tone: "good" };
+    if (raw >= 40) return { label: "Sinal médio", tone: "warn" };
+    return { label: "Sinal ruim", tone: "bad" };
+  }
+  const value = String(raw).toLowerCase();
+  if (value.includes("bom") || value.includes("good")) return { label: "Sinal bom", tone: "good" };
+  if (value.includes("medio") || value.includes("médio") || value.includes("medium")) {
+    return { label: "Sinal médio", tone: "warn" };
+  }
+  if (value.includes("ruim") || value.includes("bad")) return { label: "Sinal ruim", tone: "bad" };
+  return null;
+}
+
+function resolveTripKey(trip) {
+  if (!trip) return "";
+  const device = trip.deviceId || trip.device_id || "";
+  const start = resolveTripTimeValue(trip, "start") || "";
+  const end = resolveTripTimeValue(trip, "end") || "";
+  return `${device}:${trip.id || ""}:${start}:${end}`;
 }
 
 function toRadians(value) {
@@ -622,6 +745,129 @@ function normalizeSeverityFromPoint(point) {
   return "normal";
 }
 
+function resolveEventSeverityLabel(rawSeverity, eventType) {
+  const normalizedSeverity = String(rawSeverity || "").trim().toLowerCase();
+  if (normalizedSeverity) {
+    return SEVERITY_LABELS[normalizedSeverity] || normalizedSeverity;
+  }
+
+  const typeKey = String(eventType || "").trim().toLowerCase();
+  if (CRITICAL_EVENT_TYPES.has(typeKey)) return "Crítica";
+  if (MODERATE_EVENT_TYPES.has(typeKey)) return "Moderada";
+  if (LOW_EVENT_TYPES.has(typeKey)) return "Baixa";
+  return "Informativa";
+}
+
+const SECURITY_EVENT_HINTS = [
+  "ignition",
+  "ignição",
+  "ignicao",
+  "speed",
+  "overspeed",
+  "speeding",
+  "excesso",
+  "geofence",
+  "cerca",
+  "fence",
+  "offline",
+  "online",
+  "sem sinal",
+  "gps",
+  "sat",
+  "jammer",
+  "jamming",
+  "tamper",
+  "viol",
+  "panic",
+  "sos",
+  "power",
+  "bateria",
+  "battery",
+  "porta",
+  "door",
+  "towing",
+  "reboque",
+  "theft",
+  "assault",
+  "crime",
+  "crash",
+  "colis",
+  "harsh",
+];
+
+function inferEventCategory(rawType, rawLabel) {
+  const haystack = `${rawType || ""} ${rawLabel || ""}`.toLowerCase();
+  if (SECURITY_EVENT_HINTS.some((hint) => haystack.includes(hint))) return "security";
+  if (haystack.includes("command") || haystack.includes("comando")) return "operation";
+  if (haystack.includes("maintenance") || haystack.includes("manutenção")) return "operation";
+  return "system";
+}
+
+function resolveEventTimestamp(event) {
+  return parseDate(
+    event?.serverTime ||
+      event?.deviceTime ||
+      event?.eventTime ||
+      event?.time ||
+      event?.timestamp ||
+      event?.createdAt ||
+      event?.attributes?.eventTime ||
+      event?.attributes?.time,
+  );
+}
+
+function resolveEventCoordinates(event) {
+  const lat = pickCoordinate([
+    event?.latitude,
+    event?.lat,
+    event?.position?.latitude,
+    event?.position?.lat,
+    event?.attributes?.latitude,
+    event?.attributes?.lat,
+  ]);
+  const lng = pickCoordinate([
+    event?.longitude,
+    event?.lon,
+    event?.lng,
+    event?.position?.longitude,
+    event?.position?.lon,
+    event?.position?.lng,
+    event?.attributes?.longitude,
+    event?.attributes?.lon,
+  ]);
+  const coords = normalizeLatLng({ lat, lng });
+  if (!coords) return { lat: null, lng: null };
+  return coords;
+}
+
+function resolveEventAddress(event) {
+  return (
+    normalizeAddressCandidate(event?.address) ||
+    normalizeAddressCandidate(event?.attributes?.address) ||
+    normalizeAddressCandidate(event?.position?.address) ||
+    normalizeAddressCandidate(event?.position?.attributes?.address) ||
+    normalizeAddressCandidate(event?.attributes?.geofence) ||
+    normalizeAddressCandidate(event?.geofence) ||
+    null
+  );
+}
+
+function findClosestIndexByTime(points = [], timeMs) {
+  if (!points.length || !Number.isFinite(timeMs)) return 0;
+  let bestIndex = 0;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  points.forEach((point, idx) => {
+    const pointTime = point.t ?? (point.__time instanceof Date ? point.__time.getTime() : null);
+    if (!Number.isFinite(pointTime)) return;
+    const diff = Math.abs(pointTime - timeMs);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIndex = Number.isFinite(point.index) ? point.index : idx;
+    }
+  });
+  return bestIndex;
+}
+
 function normalizeAddressValue(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -722,8 +968,14 @@ function ReplayMap({
   focusMode,
   isPlaying,
   manualCenter,
+  tripKey,
   selectedVehicle = null,
+  isActive = false,
+  itineraryOverlay = null,
+  itineraryConfirmed = false,
+  layoutToken,
 }) {
+  const containerRef = useRef(null);
   const routePoints = useMemo(
     () =>
       points
@@ -740,6 +992,40 @@ function ReplayMap({
     const basePath = pathToRender?.length ? pathToRender : routePoints;
     return basePath.filter((point) => isValidLatLng(point.lat, point.lng)).map((point) => [point.lat, point.lng]);
   }, [pathToRender, routePoints]);
+  const itineraryShapes = useMemo(() => buildOverlayShapes(itineraryOverlay), [itineraryOverlay]);
+  const corridorBufferMeters = useMemo(() => {
+    const raw = Number(itineraryOverlay?.bufferMeters);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return raw;
+  }, [itineraryOverlay?.bufferMeters]);
+  const itineraryCorridors = useMemo(
+    () => buildRouteCorridorPolygons(itineraryShapes.routeLines, corridorBufferMeters),
+    [corridorBufferMeters, itineraryShapes.routeLines],
+  );
+  const itineraryColor = itineraryConfirmed ? "#2563eb" : "#ef4444";
+  const itineraryRouteStyle = useMemo(
+    () => ({ color: itineraryColor, weight: 4, opacity: 0.9 }),
+    [itineraryColor],
+  );
+  const itineraryCorridorStyle = useMemo(
+    () => ({ color: itineraryColor, fillColor: itineraryColor, fillOpacity: 0.18, weight: 1 }),
+    [itineraryColor],
+  );
+  const directionPathPoints = useMemo(() => {
+    const basePath = pathToRender?.length ? pathToRender : routePoints;
+    return basePath
+      .map((point) => normalizeLatLng(point))
+      .filter((point) => point && isValidLatLng(point.lat, point.lng))
+      .map((point) => ({ lat: point.lat, lng: point.lng }));
+  }, [pathToRender, routePoints]);
+  const directionPathIndex = useMemo(() => {
+    if (!directionPathPoints.length) return 0;
+    const total = routePoints.length;
+    if (total <= 1) return 0;
+    const ratio = clamp(activeIndex / Math.max(total - 1, 1), 0, 1);
+    return Math.round(ratio * Math.max(directionPathPoints.length - 1, 0));
+  }, [activeIndex, directionPathPoints.length, routePoints.length]);
+  const showDirectionMarkers = focusMode === "map" && (isPlaying || activeIndex > 0);
 
   const activePoint = routePoints[activeIndex] || routePoints[0] || null;
   const ignitionColor = useMemo(() => {
@@ -847,18 +1133,52 @@ function ReplayMap({
   ]);
   const hasSelectedVehicle = Boolean(selectedVehicle);
   const mapRef = useRef(null);
-  const { onMapReady } = useMapLifecycle({ mapRef });
+  const { onMapReady, refreshMap, map } = useMapLifecycle({ mapRef, containerRef });
+
+  useEffect(() => {
+    if (!map || !containerRef.current) return undefined;
+    let frame = null;
+    const observer = new ResizeObserver(() => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (canInteractWithMap(map, containerRef.current) && typeof map.invalidateSize === "function") {
+          map.invalidateSize({ animate: false });
+        }
+        refreshMap();
+      });
+    });
+    observer.observe(containerRef.current);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [map, refreshMap]);
+
+  useEffect(() => {
+    if (!map || !isActive || focusMode !== "map") return undefined;
+    const timeout = setTimeout(() => {
+      if (!map) return;
+      if (canInteractWithMap(map, containerRef.current) && typeof map.invalidateSize === "function") {
+        map.invalidateSize({ animate: false });
+      }
+      refreshMap();
+    }, 120);
+    return () => clearTimeout(timeout);
+  }, [focusMode, isActive, layoutToken, map, refreshMap, pathToRender?.length, selectedVehicle?.id]);
 
   if (!hasSelectedVehicle) {
     return (
-      <div className="relative flex h-[420px] w-full items-center justify-center rounded-xl border border-white/10 bg-[#0f141c] text-sm text-white/60">
+      <div className="relative flex h-full w-full items-center justify-center rounded-xl border border-white/10 bg-[#0f141c] text-sm text-white/60">
         Selecione um veículo para visualizar o replay.
       </div>
     );
   }
 
   return (
-    <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]"
+    >
       <MapContainer
         ref={mapRef}
         center={initialCenter}
@@ -873,6 +1193,21 @@ function ReplayMap({
           subdomains={resolvedSubdomains}
           maxZoom={resolvedMaxZoom}
         />
+        {itineraryCorridors.length > 0
+          ? itineraryCorridors.map((polygon, index) => (
+            <Polygon
+              key={`itinerary-corridor-${index}`}
+              positions={polygon}
+              pathOptions={itineraryCorridorStyle}
+            />
+          ))
+          : itineraryShapes.routeLines.map((line, index) => (
+            <Polyline
+              key={`itinerary-line-${index}`}
+              positions={line}
+              pathOptions={itineraryRouteStyle}
+            />
+          ))}
         {positions.length ? (
           <>
             <Polyline
@@ -894,7 +1229,12 @@ function ReplayMap({
           </>
         ) : null}
         {animatedMarkerPosition ? <Marker ref={markerRef} position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
-        <MapFocus point={activePoint} />
+        <DirectionMarkers
+          pathPoints={directionPathPoints}
+          activeIndex={directionPathIndex}
+          isVisible={showDirectionMarkers}
+        />
+        <MapFocus point={activePoint} tripKey={tripKey} />
         <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} enabled={focusMode === "map" && isPlaying} />
         <ManualCenter target={manualCenter} />
         <MapResizeHandler />
@@ -903,11 +1243,91 @@ function ReplayMap({
   );
 }
 
-function MapFocus({ point }) {
+function DirectionMarkers({ pathPoints = [], activeIndex = 0, isVisible = false }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const lastUpdateRef = useRef(0);
+
+  useEffect(() => {
+    if (!map) return undefined;
+    if (!layerRef.current) {
+      layerRef.current = L.layerGroup().addTo(map);
+    }
+    return () => {
+      if (layerRef.current) {
+        layerRef.current.clearLayers();
+        if (map.hasLayer(layerRef.current)) {
+          map.removeLayer(layerRef.current);
+        }
+        layerRef.current = null;
+      }
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (!layerRef.current) return;
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 160) return;
+    lastUpdateRef.current = now;
+    layerRef.current.clearLayers();
+    if (!isVisible || pathPoints.length < 2) return;
+    if (typeof map?.getZoom === "function" && map.getZoom() < 14) return;
+
+    const clampedIndex = Math.min(Math.max(activeIndex, 0), pathPoints.length - 2);
+    const current = pathPoints[clampedIndex];
+    if (!current) return;
+
+    const radiusMeters = 280;
+    const maxMarkers = 4;
+    const maxAhead = 40;
+    const minSpacing = 60;
+    let added = 0;
+    let lastMarkerPoint = current;
+
+    for (let idx = clampedIndex + 1; idx <= Math.min(pathPoints.length - 2, clampedIndex + maxAhead); idx += 1) {
+      const point = pathPoints[idx];
+      const next = pathPoints[idx + 1];
+      if (!point || !next) continue;
+      const distanceFromCurrent = haversineDistance(current, point);
+      if (!Number.isFinite(distanceFromCurrent) || distanceFromCurrent > radiusMeters) break;
+      if (haversineDistance(lastMarkerPoint, point) < minSpacing) continue;
+
+      const heading = computeHeading(point, next);
+      const icon = L.divIcon({
+        className: "trip-direction-marker",
+        html: `
+          <div style="width:16px;height:16px;transform: rotate(${heading}deg);opacity:0.78;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="rgba(74,163,255,0.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h12" />
+              <path d="M13 6l6 6-6 6" />
+            </svg>
+          </div>
+        `,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      });
+      L.marker([point.lat, point.lng], { icon, interactive: false, keyboard: false }).addTo(layerRef.current);
+      lastMarkerPoint = point;
+      added += 1;
+      if (added >= maxMarkers) break;
+    }
+  }, [activeIndex, isVisible, pathPoints]);
+
+  return null;
+}
+
+function MapFocus({ point, tripKey }) {
   const map = useMap();
   const lastViewRef = useRef(null);
   const retryRef = useRef(null);
   const attemptsRef = useRef(0);
+  const tripKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (!tripKey || tripKey === tripKeyRef.current) return;
+    tripKeyRef.current = tripKey;
+    lastViewRef.current = null;
+  }, [tripKey]);
 
   useEffect(() => {
     if (!map) return undefined;
@@ -1022,7 +1442,8 @@ function ManualCenter({ target }) {
     lastTsRef.current = target.ts;
 
     if (!canInteractWithMap(map)) return undefined;
-    map.flyTo([target.lat, target.lng], map.getZoom(), { animate: true });
+    const zoom = Number.isFinite(target.zoom) ? target.zoom : map.getZoom();
+    map.flyTo([target.lat, target.lng], zoom, { animate: true });
 
     return undefined;
   }, [map, target]);
@@ -1187,21 +1608,67 @@ function normalizeTimelineCellValue(value) {
   return value;
 }
 
-function EventPanel({ events = [], selectedType, onSelectType, totalTimeline = 0 }) {
+function EventPanel({
+  events = [],
+  selectedType,
+  onSelectType,
+  totalTimeline = 0,
+  currentLabel,
+  eventIndex = 0,
+  eventTotal = 0,
+  onPrev,
+  onNext,
+  className = "",
+}) {
   const hasEvents = events.length > 0;
   const totalCount = totalTimeline || events.reduce((sum, event) => sum + (event.count || 0), 0);
   const filters = [{ type: "all", label: "Todos", count: totalTimeline }, ...events];
+  const resolvedEventTotal = Number.isFinite(eventTotal) ? eventTotal : totalCount;
+  const resolvedEventIndex = Number.isFinite(eventIndex) ? eventIndex : 0;
+  const showNav = resolvedEventTotal > 0;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+    <div className={`flex min-h-0 flex-col rounded-xl border border-white/10 bg-white/5 p-3 ${className}`}>
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-white">Eventos do trajeto</div>
         <div className="text-xs text-white/60">{totalCount} ocorrência(s)</div>
       </div>
 
+      <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-[11px] text-white/50">Evento atual</div>
+            <div className="truncate text-sm font-semibold text-white">{currentLabel || "Nenhum evento"}</div>
+            <div className="text-[11px] text-white/40">
+              {showNav ? `${resolvedEventIndex} / ${resolvedEventTotal}` : "—"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80 transition hover:border-primary/50"
+              onClick={() => onPrev?.()}
+              disabled={!showNav}
+              title="Evento anterior"
+            >
+              ◀
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80 transition hover:border-primary/50"
+              onClick={() => onNext?.()}
+              disabled={!showNav}
+              title="Próximo evento"
+            >
+              ▶
+            </button>
+          </div>
+        </div>
+      </div>
+
       {hasEvents ? (
-        <div className="mt-3 space-y-2">
-          <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+        <div className="mt-3 flex-1 min-h-0">
+          <div className="h-full space-y-2 overflow-y-auto pr-1">
             {filters.map((event) => {
               const isAll = event.type === "all";
               const isActive = (!selectedType && isAll) || selectedType === event.type;
@@ -1244,6 +1711,13 @@ function EventPanel({ events = [], selectedType, onSelectType, totalTimeline = 0
 
 export default function Trips() {
   const { locale, t } = useTranslation();
+  const { mirrorContextMode, mirrorModeEnabled, activeMirror, activeMirrorOwnerClientId } = useTenant();
+  const mirrorOwnerClientId = activeMirror?.ownerClientId ?? activeMirrorOwnerClientId;
+  const mirrorHeaders = useMemo(
+    () => resolveMirrorHeaders({ mirrorModeEnabled, mirrorOwnerClientId }),
+    [mirrorModeEnabled, mirrorOwnerClientId],
+  );
+  const shouldWaitForMirror = mirrorContextMode === "target" && mirrorModeEnabled !== false && !mirrorHeaders;
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -1251,7 +1725,7 @@ export default function Trips() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles();
+  } = useVehicles({ includeTelemetry: false });
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,
@@ -1272,6 +1746,14 @@ export default function Trips() {
   const [feedback, setFeedback] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [itineraryList, setItineraryList] = useState([]);
+  const [itineraryListLoading, setItineraryListLoading] = useState(false);
+  const [itineraryListError, setItineraryListError] = useState(null);
+  const [tripItineraryHistory, setTripItineraryHistory] = useState([]);
+  const [selectedItineraryId, setSelectedItineraryId] = useState("");
+  const [itineraryOverlay, setItineraryOverlay] = useState(null);
+  const [itineraryOverlayLoading, setItineraryOverlayLoading] = useState(false);
+  const [itineraryOverlayError, setItineraryOverlayError] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
@@ -1297,8 +1779,21 @@ export default function Trips() {
   const [logicalRouteError, setLogicalRouteError] = useState(null);
   const [logicalRoutePath, setLogicalRoutePath] = useState(null);
   const [logicalRouteProvider, setLogicalRouteProvider] = useState(null);
+  const [activeTab, setActiveTab] = useState("replay");
+  const [tripSearch, setTripSearch] = useState("");
+  const [positionsSearch, setPositionsSearch] = useState("");
+  const [auditSearch, setAuditSearch] = useState("");
+  const [eventSearch, setEventSearch] = useState("");
+  const [eventsReloadToken, setEventsReloadToken] = useState(0);
+  const [drawerTab, setDrawerTab] = useState("events");
+  const [expandedTripKey, setExpandedTripKey] = useState(null);
+  const [tripEventsRaw, setTripEventsRaw] = useState([]);
+  const [tripEventsLoading, setTripEventsLoading] = useState(false);
+  const [tripEventsError, setTripEventsError] = useState(null);
+  const [tripEventsLoaded, setTripEventsLoaded] = useState(false);
   const mapMatchingCacheRef = useRef(new Map());
   const logicalRouteCacheRef = useRef(new Map());
+  const itineraryOverlayRequestRef = useRef(0);
   const lastAvailableColumnsRef = useRef("");
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
@@ -1315,8 +1810,165 @@ export default function Trips() {
   const animatedLivePointRef = useRef(null);
   const playbackUiUpdateRef = useRef(0);
   const animatedUiUpdateRef = useRef(0);
+  const lastItineraryVehicleRef = useRef("");
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
+  const selectedTripRange = useMemo(() => {
+    if (!selectedTrip) return null;
+    const start = parseDate(resolveTripTimeValue(selectedTrip, "start"));
+    const end = parseDate(resolveTripTimeValue(selectedTrip, "end"));
+    if (!start || !end) return null;
+    return { from: start.toISOString(), to: end.toISOString() };
+  }, [selectedTrip]);
+  const lastCenteredTripKeyRef = useRef("");
+  const tripDeviceId = useMemo(
+    () => selectedTrip?.deviceId || selectedTrip?.device_id || deviceId || null,
+    [deviceId, selectedTrip?.deviceId, selectedTrip?.device_id],
+  );
+
+  useEffect(() => {
+    const nextKey = vehicleId ? String(vehicleId) : "";
+    if (lastItineraryVehicleRef.current !== nextKey) {
+      setSelectedItineraryId("");
+      setItineraryOverlay(null);
+    }
+    lastItineraryVehicleRef.current = nextKey;
+  }, [vehicleId]);
+
+  useEffect(() => {
+    if (!vehicleId || !selectedTripRange || shouldWaitForMirror) {
+      setTripItineraryHistory([]);
+      setItineraryList([]);
+      setItineraryListError(null);
+      setSelectedItineraryId("");
+      setItineraryOverlay(null);
+      return;
+    }
+    let cancelled = false;
+    setItineraryListLoading(true);
+    setItineraryListError(null);
+    safeApi
+      .get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId), {
+        headers: mirrorHeaders,
+        params: {
+          from: selectedTripRange.from,
+          to: selectedTripRange.to,
+        },
+        suppressForbidden: true,
+        forbiddenFallbackData: [],
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setTripItineraryHistory([]);
+          setItineraryList([]);
+          setItineraryListError(error);
+          return;
+        }
+        const history = Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.history)
+          ? data.history
+          : Array.isArray(data)
+          ? data
+          : [];
+        setTripItineraryHistory(history);
+      })
+      .catch((requestError) => {
+        if (cancelled) return;
+        setTripItineraryHistory([]);
+        setItineraryList([]);
+        setItineraryListError(requestError);
+      })
+      .finally(() => {
+        if (!cancelled) setItineraryListLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mirrorHeaders, selectedTripRange, shouldWaitForMirror, vehicleId]);
+
+  useEffect(() => {
+    if (!selectedItineraryId) {
+      setItineraryOverlay(null);
+      setItineraryOverlayError(null);
+      setItineraryOverlayLoading(false);
+      return;
+    }
+    if (shouldWaitForMirror) return;
+    const requestId = itineraryOverlayRequestRef.current + 1;
+    itineraryOverlayRequestRef.current = requestId;
+    let cancelled = false;
+    setItineraryOverlayLoading(true);
+    setItineraryOverlayError(null);
+    safeApi
+      .get(API_ROUTES.itineraryOverlayById(selectedItineraryId), {
+        headers: mirrorHeaders,
+        suppressForbidden: true,
+        forbiddenFallbackData: null,
+      })
+      .then(({ data, error }) => {
+        if (cancelled || itineraryOverlayRequestRef.current !== requestId) return;
+        if (error) {
+          setItineraryOverlay(null);
+          setItineraryOverlayError(error);
+          return;
+        }
+        const payload = data?.data ?? data ?? null;
+        setItineraryOverlay(payload);
+      })
+      .catch((requestError) => {
+        if (cancelled || itineraryOverlayRequestRef.current !== requestId) return;
+        setItineraryOverlay(null);
+        setItineraryOverlayError(requestError);
+      })
+      .finally(() => {
+        if (cancelled || itineraryOverlayRequestRef.current !== requestId) return;
+        setItineraryOverlayLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mirrorHeaders, selectedItineraryId, shouldWaitForMirror]);
+
+  const itineraryOptions = useMemo(
+    () => buildTripItineraryOptions(tripItineraryHistory),
+    [tripItineraryHistory],
+  );
+
+  useEffect(() => {
+    setItineraryList(itineraryOptions);
+  }, [itineraryOptions]);
+
+  useEffect(() => {
+    if (!selectedItineraryId) return;
+    const exists = itineraryList.some((item) => String(item?.id ?? "") === String(selectedItineraryId));
+    if (!exists) {
+      setSelectedItineraryId("");
+    }
+  }, [itineraryList, selectedItineraryId]);
+
+  const selectedItineraryMeta = useMemo(
+    () => itineraryList.find((item) => String(item?.id ?? "") === String(selectedItineraryId)) || null,
+    [itineraryList, selectedItineraryId],
+  );
+  const itinerarySelectOptions = useMemo(
+    () =>
+      itineraryList.map((item) => ({
+        value: String(item.id),
+        label: item.name || item.id,
+        description: item.statusLabel ? `Status: ${item.statusLabel}` : "",
+      })),
+    [itineraryList],
+  );
+  const itineraryConfirmed = Boolean(selectedItineraryMeta?.confirmed);
+  const itineraryBufferLabel = useMemo(() => {
+    const raw = Number(itineraryOverlay?.bufferMeters);
+    if (!Number.isFinite(raw) || raw <= 0) return "—";
+    return `${Math.round(raw)} m`;
+  }, [itineraryOverlay?.bufferMeters]);
+  const shouldShowItinerarySelector =
+    itineraryListLoading || Boolean(itineraryListError) || itineraryList.length > 0;
 
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
@@ -1333,6 +1985,33 @@ export default function Trips() {
     () => (Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : []),
     [data],
   );
+
+  const filteredTrips = useMemo(() => {
+    const query = tripSearch.trim().toLowerCase();
+    if (!query) return trips;
+    return trips.filter((trip) => {
+      const startValue = resolveTripTimeValue(trip, "start");
+      const endValue = resolveTripTimeValue(trip, "end");
+      const haystack = [
+        trip.startAddress,
+        trip.startShortAddress,
+        trip.start?.address,
+        trip.endAddress,
+        trip.endShortAddress,
+        trip.end?.address,
+        startValue,
+        endValue,
+        resolveTripDistanceMeters(trip),
+        resolveTripDurationSeconds(trip),
+        resolveTripAverageSpeed(trip),
+        resolveTripMaxSpeed(trip),
+      ]
+        .filter((value) => value !== null && value !== undefined)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [tripSearch, trips]);
 
   const rawRoutePoints = useMemo(() => {
     const positions = Array.isArray(routeData?.positions)
@@ -1555,6 +2234,100 @@ export default function Trips() {
   }, [routePoints]);
 
   useEffect(() => {
+    if (!selectedTrip) return;
+    if (!routePoints.length) return;
+    const tripKey = resolveTripKey(selectedTrip);
+    if (!tripKey || lastCenteredTripKeyRef.current === tripKey) return;
+    if (selectedTripRange?.from && selectedTripRange?.to) {
+      const startMs = new Date(selectedTripRange.from).getTime();
+      const endMs = new Date(selectedTripRange.to).getTime();
+      const firstTime = routePoints[0]?.t;
+      if (Number.isFinite(firstTime)) {
+        const margin = 5 * 60 * 1000;
+        if (firstTime < startMs - margin || firstTime > endMs + margin) return;
+      }
+    }
+    const firstPoint = routePoints[0];
+    if (!firstPoint || !Number.isFinite(firstPoint.lat) || !Number.isFinite(firstPoint.lng)) return;
+    lastCenteredTripKeyRef.current = tripKey;
+    setManualCenter({ lat: firstPoint.lat, lng: firstPoint.lng, ts: Date.now(), zoom: DEFAULT_ZOOM });
+  }, [routePoints, selectedTrip, selectedTripRange]);
+
+  useEffect(() => {
+    if (shouldWaitForMirror) {
+      setTripEventsRaw([]);
+      setTripEventsLoading(false);
+      setTripEventsError(null);
+      setTripEventsLoaded(false);
+      return;
+    }
+    if (!tripDeviceId || !selectedTripRange?.from || !selectedTripRange?.to) {
+      setTripEventsRaw([]);
+      setTripEventsLoading(false);
+      setTripEventsError(null);
+      setTripEventsLoaded(false);
+      return;
+    }
+    let isActive = true;
+    setTripEventsLoading(true);
+    setTripEventsError(null);
+    setTripEventsLoaded(false);
+    setTripEventsRaw([]);
+    const params = buildEventParams({
+      deviceId: tripDeviceId,
+      from: selectedTripRange.from,
+      to: selectedTripRange.to,
+      limit: 2000,
+    });
+    params.reportEventScope = "all";
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug("[trips] fetch events", params);
+    }
+    safeApi
+      .get(API_ROUTES.traccar.events, { params, headers: mirrorHeaders })
+      .then(({ data, error }) => {
+        if (!isActive) return;
+        if (error) throw error;
+        const list = Array.isArray(data?.events)
+          ? data.events
+          : Array.isArray(data?.data?.events)
+            ? data.data.events
+            : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data)
+                ? data
+                : [];
+        setTripEventsRaw(list);
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.debug("[trips] events loaded", list.length);
+        }
+      })
+      .catch((requestError) => {
+        if (!isActive) return;
+        setTripEventsError(requestError?.message || "Erro ao carregar eventos do trajeto.");
+        setTripEventsRaw([]);
+      })
+      .finally(() => {
+        if (isActive) {
+          setTripEventsLoading(false);
+          setTripEventsLoaded(true);
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [
+    eventsReloadToken,
+    mirrorHeaders,
+    selectedTripRange?.from,
+    selectedTripRange?.to,
+    shouldWaitForMirror,
+    tripDeviceId,
+  ]);
+
+  useEffect(() => {
     if (!mapMatchingEnabled) {
       setMapMatchedPath(null);
       setMapMatchingResult(null);
@@ -1610,7 +2383,12 @@ export default function Trips() {
           minDistanceMeters: 20,
           bearingDeltaThreshold: 35,
         },
-        { timeout: 25_000, signal: abortController.signal },
+        {
+          timeout: 25_000,
+          signal: abortController.signal,
+          skipMirrorClient: true,
+          headers: { "X-Mirror-Mode": "self" },
+        },
       )
       .then(({ data, error }) => {
         if (abortController.signal.aborted) return;
@@ -1737,30 +2515,8 @@ export default function Trips() {
     () => ENABLED_MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYER_FALLBACK,
     [mapLayerKey],
   );
-  const mapLayerOptions = useMemo(
-    () =>
-      MAP_LAYER_SECTIONS.map((section) => ({
-        ...section,
-        layers: section.layers.filter((layer) => layer.available !== false && layer.url),
-      })),
-    [],
-  );
-
   const totalPoints = routePoints.length;
   const timelineMax = Math.max(totalPoints - 1, 0);
-
-  const summary = useMemo(() => {
-    if (!routePoints.length) return null;
-    const validPoints = routePoints.filter((point) => point.__time instanceof Date);
-    if (!validPoints.length) return null;
-    const speeds = routePoints.map((point) => point.__speed).filter((value) => value !== null && Number.isFinite(value));
-    return {
-      start: validPoints[0]?.__time ?? null,
-      end: validPoints[validPoints.length - 1]?.__time ?? null,
-      averageSpeed: speeds.length ? Math.round(speeds.reduce((acc, value) => acc + value, 0) / speeds.length) : null,
-      maxSpeed: speeds.length ? Math.max(...speeds) : null,
-    };
-  }, [routePoints]);
 
   const timelineEntries = useMemo(
     () =>
@@ -1795,18 +2551,179 @@ export default function Trips() {
     [timelineEntries, timelineFilter],
   );
 
+  const filteredPositions = useMemo(() => {
+    const query = positionsSearch.trim().toLowerCase();
+    if (!query) return timelineEntries;
+    return timelineEntries.filter((entry) => {
+      const address = normalizeAddressCandidate(entry.backendAddress) || "";
+      const timeLabel = entry.time instanceof Date ? entry.time.toLocaleString() : entry.time || "";
+      const haystack = [
+        timeLabel,
+        entry.speed,
+        entry.lat,
+        entry.lng,
+        address,
+        entry.label,
+      ]
+        .filter((value) => value !== null && value !== undefined)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [positionsSearch, timelineEntries]);
 
-  const tripEvents = useMemo(
+  const filteredAuditEntries = useMemo(() => {
+    const query = auditSearch.trim().toLowerCase();
+    if (!query) return filteredTimelineEntries;
+    return filteredTimelineEntries.filter((entry) => {
+      const address = normalizeAddressCandidate(entry.backendAddress) || "";
+      const timeLabel = entry.time instanceof Date ? entry.time.toLocaleString() : entry.time || "";
+      const haystack = [
+        timeLabel,
+        entry.label,
+        entry.eventType,
+        entry.speed,
+        entry.lat,
+        entry.lng,
+        address,
+      ]
+        .filter((value) => value !== null && value !== undefined)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [auditSearch, filteredTimelineEntries]);
+
+  const timelineEntryByIndex = useMemo(() => {
+    const map = new Map();
+    timelineEntries.forEach((entry) => {
+      map.set(entry.index, entry);
+    });
+    return map;
+  }, [timelineEntries]);
+
+  const limitedPositions = useMemo(
+    () => (filteredPositions.length > MAX_DRAWER_ROWS ? filteredPositions.slice(0, MAX_DRAWER_ROWS) : filteredPositions),
+    [filteredPositions],
+  );
+  const limitedAuditEntries = useMemo(
     () =>
-      routePoints
-        .filter((point) => isHandlingTripEvent(point))
-        .map((point, index) => {
-          const normalized = point.__event || normalizeTripEvent(point, { locale, t });
-          if (!normalized) return null;
-          return { index, ...normalized, time: point.__time, lat: point.lat, lng: point.lng };
-        })
-        .filter(Boolean),
-    [routePoints],
+      filteredAuditEntries.length > MAX_DRAWER_ROWS
+        ? filteredAuditEntries.slice(0, MAX_DRAWER_ROWS)
+        : filteredAuditEntries,
+    [filteredAuditEntries],
+  );
+
+  const fallbackTripEvents = useMemo(() => {
+    const entries = timelineEntries.filter((entry) => {
+      if (!entry.eventType) return false;
+      const normalizedType = String(entry.eventType).trim().toLowerCase();
+      if (!normalizedType) return false;
+      if (["position", "posicao", "posição", "generic"].includes(normalizedType)) return false;
+      return true;
+    });
+    if (!entries.length) return [];
+    return entries.map((entry) => {
+      const type = String(entry.eventType || "event").toLowerCase();
+      const label = entry.label || translateTripEvent(entry.eventType) || "Evento";
+      const time = entry.time instanceof Date ? entry.time : entry.time ? new Date(entry.time) : null;
+      const severity = resolveEventSeverityLabel(entry.severity, entry.eventType) || "Informativa";
+      return {
+        index: entry.index,
+        type,
+        label,
+        icon: null,
+        ignition: entry.ignition,
+        time,
+        lat: entry.lat,
+        lng: entry.lng,
+        __address: entry.backendAddress,
+        __category: inferEventCategory(type, label),
+        __severityLabel: severity,
+        __raw: entry,
+      };
+    });
+  }, [timelineEntries]);
+
+  const tripEvents = useMemo(() => {
+    if (!tripEventsLoaded) return [];
+    if (!tripEventsRaw.length) return fallbackTripEvents;
+    return tripEventsRaw
+      .map((event) => {
+        const definition = resolveEventDefinitionFromPayload(event, locale, t);
+        const rawType =
+          event?.type ||
+          event?.attributes?.type ||
+          event?.event ||
+          event?.attributes?.event ||
+          event?.alarm ||
+          event?.attributes?.alarm ||
+          event?.name;
+        const type = definition?.type || (rawType ? String(rawType).toLowerCase() : "event");
+        const protocol =
+          event?.protocol ||
+          event?.attributes?.protocol ||
+          event?.device?.protocol ||
+          event?.position?.protocol ||
+          event?.position?.attributes?.protocol ||
+          null;
+        const label =
+          translateEventType(rawType || type, locale, t, protocol, event) ||
+          definition?.label ||
+          translateTripEvent(rawType) ||
+          "Evento";
+        const severity =
+          resolveEventSeverityLabel(
+            event?.severity ??
+              event?.attributes?.severity ??
+              event?.criticality ??
+              event?.attributes?.criticality ??
+              null,
+            rawType || type,
+          ) || "Informativa";
+        const time = resolveEventTimestamp(event);
+        const coords = resolveEventCoordinates(event);
+        const address = resolveEventAddress(event);
+        const index = findClosestIndexByTime(routePoints, time ? time.getTime() : null);
+        return {
+          index,
+          type,
+          label,
+          icon: definition?.icon || null,
+          ignition: definition?.ignition,
+          time,
+          lat: coords.lat,
+          lng: coords.lng,
+          __address: address,
+          __category: inferEventCategory(type, label),
+          __severityLabel: severity,
+          __raw: event,
+        };
+      })
+      .filter(Boolean);
+  }, [fallbackTripEvents, locale, routePoints, t, tripEventsLoaded, tripEventsRaw]);
+
+  const filteredEventEntries = useMemo(() => {
+    const query = eventSearch.trim().toLowerCase();
+    if (!query) return tripEvents;
+    return tripEvents.filter((event) => {
+      const timeLabel = event.time instanceof Date ? event.time.toLocaleString() : event.time || "";
+      const entry = timelineEntryByIndex.get(event.index);
+      const address = (entry ? normalizeAddressCandidate(entry.backendAddress) : null) || event.__address || "";
+      const haystack = [timeLabel, event.label, event.type, event.__category, event.__severityLabel, event.lat, event.lng, address]
+        .filter((value) => value !== null && value !== undefined)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [eventSearch, timelineEntryByIndex, tripEvents]);
+
+  const limitedEventEntries = useMemo(
+    () =>
+      filteredEventEntries.length > MAX_DRAWER_ROWS
+        ? filteredEventEntries.slice(0, MAX_DRAWER_ROWS)
+        : filteredEventEntries,
+    [filteredEventEntries],
   );
 
   const eventSummaries = useMemo(() => {
@@ -1869,6 +2786,39 @@ export default function Trips() {
       return <AddressStatus address={null} loading={false} />;
     },
     [],
+  );
+  const resolveTripAddressValue = useCallback((trip, type) => {
+    if (!trip) return "";
+    const isStart = type === "start";
+    const backend = isStart
+      ? trip.startShortAddress || trip.startAddress
+      : trip.endShortAddress || trip.endAddress;
+    const normalizedBackend = normalizeAddressCandidate(backend);
+    return normalizedBackend || "";
+  }, []);
+  const formatShortAddress = useCallback((rawAddress) => {
+    if (!rawAddress) return "—";
+    const normalized = String(rawAddress).replace(/\s+/g, " ").trim();
+    if (!normalized) return "—";
+    const parts = normalized
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1];
+      const secondLast = parts[parts.length - 2];
+      if (secondLast && last && secondLast !== last) {
+        return `${secondLast} • ${last}`;
+      }
+    }
+    return parts[0] || normalized;
+  }, []);
+  const resolveTripShortAddress = useCallback(
+    (trip, type) => {
+      const full = resolveTripAddressValue(trip, type);
+      return formatShortAddress(full);
+    },
+    [formatShortAddress, resolveTripAddressValue],
   );
 
   const dynamicAttributeKeys = useMemo(() => {
@@ -2087,7 +3037,20 @@ export default function Trips() {
     [eventSummaries, selectedEventType],
   );
   const totalEvents = tripEvents.length;
-  const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
+  const showTripEventsError = Boolean(tripEventsError) && !fallbackTripEvents.length;
+  const currentEventLabel = tripEventsLoading
+    ? "Carregando eventos..."
+    : selectedEventSummary?.label || activeEvent?.label || (tripEventsLoaded ? "Nenhum evento" : "—");
+  const activeEventPosition = useMemo(
+    () => tripEvents.findIndex((event) => event.index === activeIndex),
+    [activeIndex, tripEvents],
+  );
+  const eventNavTotal = selectedEventType ? selectedEventSummary?.count || 0 : totalEvents;
+  const eventNavIndex = selectedEventType
+    ? Math.min(eventCursor + 1, Math.max(eventNavTotal, 0))
+    : activeEventPosition >= 0
+      ? activeEventPosition + 1
+      : 0;
 
   const cancelAnimation = useCallback(() => {
     if (rafRef.current) {
@@ -2115,12 +3078,6 @@ export default function Trips() {
   }, [location.search]);
 
   useEffect(() => {
-    if (!vehicleId && vehicleOptions.length === 1) {
-      setVehicleSelection(String(vehicleOptions[0].value));
-    }
-  }, [vehicleId, vehicleOptions, setVehicleSelection]);
-
-  useEffect(() => {
     const search = new URLSearchParams(location.search || "");
     const pendingVehicleParam = search.get("vehicleId");
     const pendingDeviceParam = search.get("deviceId") || search.get("device");
@@ -2128,6 +3085,10 @@ export default function Trips() {
     const currentDeviceId = normalizeQueryId(deviceIdFromStore);
 
     if (pendingVehicleParam) {
+      return;
+    }
+
+    if (!vehicleId && !deviceIdFromStore) {
       return;
     }
 
@@ -2418,6 +3379,22 @@ export default function Trips() {
   );
 
   useEffect(() => {
+    if (drawerTab !== "audit" && columnPickerOpen) {
+      setColumnPickerOpen(false);
+    }
+  }, [columnPickerOpen, drawerTab]);
+
+  useEffect(() => {
+    if (activeTab === "audit") {
+      setDrawerTab("audit");
+      return;
+    }
+    if (drawerTab === "audit") {
+      setDrawerTab("events");
+    }
+  }, [activeTab, drawerTab]);
+
+  useEffect(() => {
     if (autoGenerateRef.current) return;
     const search = new URLSearchParams(location.search || "");
     const queryFrom = search.get("from");
@@ -2449,17 +3426,6 @@ export default function Trips() {
       setDownloading(false);
     }
   }, [deviceId, from, to, downloadTripsCsv, vehicleByDeviceId, vehicleId]);
-
-  const handleSelectTrip = useCallback(
-    async (trip) => {
-      setSelectedTrip(trip);
-      setActiveIndex(0);
-      activeIndexRef.current = 0;
-      stopPlayback();
-      await loadRouteForTrip(trip);
-    },
-    [loadRouteForTrip, stopPlayback],
-  );
 
   const handleSelectPoint = useCallback(
     (nextIndex, options = {}) => {
@@ -2533,11 +3499,56 @@ export default function Trips() {
     setMapLayerKey(getValidMapLayer(nextKey));
   }, []);
 
+  const mapTypeKey = useMemo(() => {
+    const key = String(mapLayerKey || "").toLowerCase();
+    if (key.includes("hybrid")) return "hybrid";
+    if (key.includes("sat")) return "sat";
+    return "road";
+  }, [mapLayerKey]);
+
+  const resolveLayerForType = useCallback((type) => {
+    const candidates = ENABLED_MAP_LAYERS.filter((layer) => layer?.url);
+    const match = (needle) => candidates.find((layer) => String(layer.key || "").toLowerCase().includes(needle));
+    if (type === "sat") {
+      return match("satellite") || match("sat") || match("hybrid") || MAP_LAYER_FALLBACK;
+    }
+    if (type === "hybrid") {
+      return match("hybrid") || match("satellite") || MAP_LAYER_FALLBACK;
+    }
+    return match("road") || match("street") || match("osm") || MAP_LAYER_FALLBACK;
+  }, []);
+
+  const handleMapTypeChange = useCallback(
+    (type) => {
+      const layer = resolveLayerForType(type);
+      if (layer?.key) {
+        handleMapLayerChange(layer.key);
+      }
+    },
+    [handleMapLayerChange, resolveLayerForType],
+  );
+
   const handleClearFilters = useCallback(() => {
     setSelectedEventType(null);
     setTimelineFilter("all");
     setEventCursor(0);
   }, []);
+
+  const handleSelectTrip = useCallback(
+    async (trip) => {
+      setSelectedTrip(trip);
+      setActiveIndex(0);
+      activeIndexRef.current = 0;
+      stopPlayback();
+      setEventSearch("");
+      setPositionsSearch("");
+      setAuditSearch("");
+      handleClearFilters();
+      setDrawerTab("events");
+      await loadRouteForTrip(trip);
+    },
+    [handleClearFilters, loadRouteForTrip, stopPlayback],
+  );
 
   const handleSelectEventType = useCallback(
     (eventType) => {
@@ -2594,498 +3605,976 @@ export default function Trips() {
   const statusText = `${visibleCount} registro${visibleCount === 1 ? "" : "s"} — ${
     hasActiveFilter ? `filtrando: ${activeFilterLabel}` : "mostrando todos"
   }`;
+  const generatedAtLabel = data?.__meta?.generatedAt
+    ? formatDateTime(new Date(data.__meta.generatedAt), locale)
+    : null;
+  const statusTone = feedback?.type === "error" || formError || deviceUnavailable || error
+    ? "error"
+    : feedback?.type === "success" || loading || generatedAtLabel
+      ? "success"
+      : "idle";
+  const statusMessage =
+    formError ||
+    (deviceUnavailable ? "Selecione um veículo com equipamento vinculado para gerar trajetos." : null) ||
+    (feedback?.type === "error" ? feedback.message : null) ||
+    (error?.message || null) ||
+    (loading ? "Gerando relatório..." : null) ||
+    (feedback?.type === "success" ? feedback.message : null) ||
+    (generatedAtLabel ? `Relatório gerado • Última geração: ${generatedAtLabel}` : "Relatório não gerado.");
+
+  const drawerCountLabel = useMemo(() => {
+    if (drawerTab === "events" && tripEventsLoading) return "Carregando...";
+    if (drawerTab === "audit") return `${filteredAuditEntries.length} registros`;
+    if (drawerTab === "positions") return `${filteredPositions.length} posições`;
+    return `${filteredEventEntries.length} ocorrências`;
+  }, [drawerTab, filteredAuditEntries.length, filteredEventEntries.length, filteredPositions.length, tripEventsLoading]);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Trajetos"
-      />
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0B0F16] text-white/90"
+      style={{ "--trips-header-h": "124px", "--trips-replay-offset": "72px" }}
+    >
+      <header className="shrink-0 border-b border-white/10 bg-white/5 px-3 py-2 sm:px-4 lg:px-4 2xl:px-6 backdrop-blur">
+        <PageHeader />
 
-      <form
-        onSubmit={handleSubmit}
-        className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 sm:grid-cols-2 lg:grid-cols-4"
-      >
-        <VehicleSelector className="space-y-1 text-sm text-white/80" />
+        <form onSubmit={handleSubmit} className="mt-1 flex w-full flex-wrap items-center gap-2 min-[1200px]:flex-nowrap">
+          <div className="min-w-[240px] flex-1">
+            <AutocompleteSelect
+              label={null}
+              placeholder={loadingVehicles ? "Carregando veículos..." : "Digite placa ou nome"}
+              value={vehicleId || ""}
+              options={vehicleOptions}
+              onChange={(nextVehicleId, option) => {
+                if (!nextVehicleId) {
+                  setVehicleSelection(null, null);
+                  return;
+                }
+                setVehicleSelection(nextVehicleId, option?.deviceId ?? null);
+              }}
+              className="w-full"
+              inputClassName="h-9 rounded-full px-3 text-sm"
+              allowClear
+              emptyText={loadingVehicles ? "Carregando veículos..." : "Nenhum veículo encontrado."}
+              disabled={loadingVehicles}
+            />
+          </div>
 
-        <label className="space-y-1 text-sm text-white/80">
-          <span className="text-white/60">De</span>
-          <input
-            type="datetime-local"
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-primary/40 focus:outline-none"
-          />
-        </label>
+          <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs">
+            <span className="text-white/60">De</span>
+            <input
+              type="datetime-local"
+              value={from}
+              onChange={(event) => {
+                setFrom(event.target.value);
+              }}
+              className="h-full min-w-[170px] bg-transparent text-sm text-white outline-none"
+            />
+          </div>
 
-        <label className="space-y-1 text-sm text-white/80">
-          <span className="text-white/60">Até</span>
-          <input
-            type="datetime-local"
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-primary/40 focus:outline-none"
-          />
-        </label>
+          <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs">
+            <span className="text-white/60">Até</span>
+            <input
+              type="datetime-local"
+              value={to}
+              onChange={(event) => {
+                setTo(event.target.value);
+              }}
+              className="h-full min-w-[170px] bg-transparent text-sm text-white outline-none"
+            />
+          </div>
 
-        <div className="flex items-end justify-end gap-2">
-          <button type="submit" className="btn" disabled={loading || !deviceId}>
+          <Button
+            type="submit"
+            variant={loading ? "danger" : "primary"}
+            className="h-9 whitespace-nowrap rounded-full px-4 text-xs font-semibold"
+            disabled={loading || !deviceId}
+          >
             {loading ? "Gerando..." : "Gerar"}
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={handleDownload} disabled={downloading || !deviceId}>
+          </Button>
+          <button
+            type="button"
+            className="h-9 whitespace-nowrap rounded-full border border-white/10 bg-transparent px-4 text-xs font-semibold text-white/80 hover:border-white/20"
+            onClick={handleDownload}
+            disabled={downloading || !deviceId}
+          >
             {downloading ? "Exportando..." : "Exportar CSV"}
           </button>
-        </div>
-      </form>
+        </form>
 
-      {deviceUnavailable && (
-        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-100">
-          Selecione um veículo com equipamento vinculado para gerar trajetos.
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-white/60">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              statusTone === "error"
+                ? "bg-red-400"
+                : statusTone === "success"
+                  ? "bg-emerald-300"
+                  : "bg-white/30"
+            }`}
+          />
+          <span>{statusMessage}</span>
         </div>
-      )}
-      {formError ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{formError}</div> : null}
-      {feedback && feedback.type === "success" && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-          {feedback.message}
-        </div>
-      )}
-      {(feedback?.type === "error" || error) && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-          {feedback?.type === "error" ? feedback.message : error?.message}
-        </div>
-      )}
+        {loadingVehicles && <p className="mt-2 text-xs text-white/50">Carregando veículos...</p>}
+        {vehiclesError && <p className="mt-2 text-xs text-red-300">{vehiclesError.message}</p>}
+      </header>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <div className="flex items-center justify-between gap-2 pb-3">
-          <div>
-            <div className="text-sm font-semibold text-white">Viagens encontradas</div>
-            <div className="text-xs text-white/60">{trips.length} registros</div>
+      <main className="relative isolate grid flex-1 min-h-0 h-[calc(100vh-var(--e-header-h)-var(--trips-header-h))] grid-rows-[minmax(0,1fr)] overflow-hidden grid-cols-[clamp(380px,32vw,520px)_minmax(0,1fr)] gap-[14px] px-3 py-4 sm:px-4 lg:px-4 2xl:px-6 max-[1100px]:grid-cols-1 max-[1100px]:h-auto">
+        <aside className="relative isolate z-10 flex h-full min-h-0 w-[clamp(380px,32vw,520px)] min-w-0 shrink-0 flex-col gap-2 overflow-hidden border-r border-white/10 bg-[#0B0F16] max-[1100px]:w-full">
+          <div className="flex flex-wrap items-center gap-3 border-b border-white/10 pb-2">
+            <div className="shrink-0 whitespace-nowrap text-sm font-semibold text-white">
+              Viagens encontradas <span className="text-white/50">({filteredTrips.length})</span>
+            </div>
+            <div className="flex h-9 flex-1 min-w-[220px] items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-sm">
+              <span className="text-white/40">🔎</span>
+              <input
+                value={tripSearch}
+                onChange={(event) => setTripSearch(event.target.value)}
+                placeholder="Buscar por origem, destino..."
+                className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none"
+              />
+            </div>
           </div>
-          {data?.__meta?.generatedAt ? (
-            <div className="text-xs text-white/60">
-              Última geração: {formatDateTime(new Date(data.__meta.generatedAt), locale)}
-            </div>
-          ) : null}
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-white/50">
-              <tr className="border-b border-white/10 text-left">
-                <th className="py-2 pr-4">Início</th>
-                <th className="py-2 pr-4">Fim</th>
-                <th className="py-2 pr-4">Duração</th>
-                <th className="py-2 pr-4">Distância</th>
-                <th className="py-2 pr-4">Vel. média</th>
-                <th className="py-2 pr-4">Origem</th>
-                <th className="py-2 pr-4">Destino</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={7} className="py-4 text-center text-white/60">
-                    Processando relatório...
-                  </td>
-                </tr>
-              )}
-              {!loading && trips.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-4 text-center text-white/60">
-                    Gere um relatório para visualizar os trajetos.
-                  </td>
-                </tr>
-              )}
-              {trips.map((trip) => {
-                const isSelected = selectedTrip?.id === trip.id && selectedTrip?.startTime === trip.startTime;
-                return (
-                  <tr
-                    key={`${trip.deviceId || trip.device_id}-${trip.startTime}-${trip.endTime}`}
-                    className={`border-b border-white/5 cursor-pointer transition hover:bg-white/5 ${
-                      isSelected ? "bg-primary/5 border-l-4 border-primary" : ""
-                    }`}
-                    onClick={() => handleSelectTrip(trip)}
-                  >
-                    <td className="py-2 pr-4 text-white">{formatDateTime(parseDate(trip.startTime), locale)}</td>
-                    <td className="py-2 pr-4 text-white/80">{formatDateTime(parseDate(trip.endTime), locale)}</td>
-                    <td className="py-2 pr-4 text-white/70">{formatDuration(trip.duration)}</td>
-                    <td className="py-2 pr-4 text-white/70">{formatDistance(trip.distance)}</td>
-                    <td className="py-2 pr-4 text-white/70">{formatSpeed(trip.averageSpeed)}</td>
-                    <td className="py-2 pr-4 text-white/70">{resolveTripAddress(trip, "start")}</td>
-                    <td className="py-2 pr-4 text-white/70">{resolveTripAddress(trip, "end")}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          <div className="flex flex-1 min-h-0 flex-col items-stretch justify-start gap-2 overflow-y-auto overflow-x-hidden pr-1">
+            {loading && (
+              <div className="rounded-[14px] border border-white/10 bg-white/5 p-3 text-xs text-white/60">
+                Processando relatório...
+              </div>
+            )}
+            {filteredTrips.map((trip, index) => {
+              const tripKey = resolveTripKey(trip);
+              const selectedKey = selectedTrip ? resolveTripKey(selectedTrip) : "";
+              const isSelected = selectedKey ? selectedKey === tripKey : selectedTrip === trip;
+              const itemKey = tripKey || `trip-${index}`;
+              const isExpanded = expandedTripKey === itemKey;
+              const startValue = resolveTripTimeValue(trip, "start");
+              const endValue = resolveTripTimeValue(trip, "end");
+              const startLabel = formatDateTime(parseDate(startValue), locale);
+              const endLabel = formatDateTime(parseDate(endValue), locale);
+              const distanceLabel = formatDistance(resolveTripDistanceMeters(trip));
+              const durationLabel = formatDuration(resolveTripDurationSeconds(trip));
+              const maxSpeed = resolveTripMaxSpeed(trip);
+              const stopCountValue = resolveTripStopCount(trip);
+              const fullStartAddress = resolveTripAddressValue(trip, "start");
+              const fullEndAddress = resolveTripAddressValue(trip, "end");
+              const shortStartAddress = resolveTripShortAddress(trip, "start");
+              const shortEndAddress = resolveTripShortAddress(trip, "end");
+              const signalBadge = resolveTripSignalBadge(trip);
+              const badgeBase = "rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-wide";
+              const chipItems = [
+                signalBadge
+                  ? {
+                      key: "signal",
+                      label: signalBadge.label,
+                      tone: signalBadge.tone,
+                    }
+                  : null,
+                distanceLabel
+                  ? {
+                      key: "distance",
+                      label: distanceLabel,
+                    }
+                  : null,
+                durationLabel
+                  ? {
+                      key: "duration",
+                      label: durationLabel,
+                    }
+                  : null,
+              ].filter(Boolean);
+              const chipVisible = chipItems.slice(0, 3);
+              const chipExtra = chipItems.length - chipVisible.length;
+              return (
+                <div
+                  key={itemKey}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleSelectTrip(trip)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleSelectTrip(trip);
+                    }
+                  }}
+                  className={`relative flex-none shrink-0 w-full max-w-full cursor-pointer overflow-hidden rounded-[12px] border px-3 py-2.5 text-left transition focus:outline-none focus-visible:outline-none ${
+                    isSelected
+                      ? "border-primary/60 bg-primary/10"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/20"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[11px] font-semibold text-white" title={`${startLabel} → ${endLabel}`}>
+                        {startLabel} → {endLabel}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <div className="flex items-center gap-1 whitespace-nowrap">
+                        {chipVisible.map((chip) => (
+                          <span
+                            key={chip.key}
+                            className={`${badgeBase} ${
+                              chip.tone === "good"
+                                ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+                                : chip.tone === "warn"
+                                  ? "border-amber-300/40 bg-amber-300/10 text-amber-100"
+                                  : chip.tone === "bad"
+                                    ? "border-red-400/40 bg-red-400/10 text-red-100"
+                                    : "border-white/10 bg-white/5 text-white/70"
+                            }`}
+                          >
+                            {chip.label}
+                          </span>
+                        ))}
+                        {chipExtra > 0 ? (
+                          <span className={`${badgeBase} border-white/10 bg-white/5 text-white/70`}>+{chipExtra}</span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] text-white/70 hover:border-primary/50"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedTripKey((prev) => (prev === itemKey ? null : itemKey));
+                        }}
+                      >
+                        {isExpanded ? "Ocultar" : "Detalhes"}
+                      </button>
+                    </div>
+                  </div>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-white">Reprodução do trajeto selecionado</div>
-            <div className="text-xs text-white/60">{totalPoints ? `${totalPoints} pontos carregados` : "Selecione um trajeto para visualizar."}</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="btn"
-              onClick={handlePlayToggle}
-              disabled={!totalPoints || routeLoading}
-            >
-              {isPlaying ? "Pausar" : "Reproduzir"}
-            </button>
-            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
-              <span className="text-white/50">Velocidade</span>
-              <select
-                value={speed}
-                onChange={(event) => setSpeed(Number(event.target.value))}
-                className="rounded-md border border-white/10 bg-transparent px-2 py-1 text-sm focus:border-primary/40 focus:outline-none"
-              >
-                {REPLAY_SPEEDS.map((value) => (
-                  <option key={value} value={value}>
-                    {value}x
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
-              <span className="text-white/50">Mapa</span>
-              <select
-                value={mapLayerKey}
-                onChange={(event) => handleMapLayerChange(event.target.value)}
-                className="rounded-md border border-white/10 bg-transparent px-2 py-1 text-sm focus:border-primary/40 focus:outline-none"
-              >
-                {mapLayerOptions.map((section) =>
-                  section.layers?.length ? (
-                    <optgroup key={section.key} label={section.label}>
-                      {section.layers.map((layer) => (
-                        <option key={layer.key} value={layer.key}>
-                          {layer.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null,
-                )}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
-              <div className="flex flex-col gap-1 leading-tight">
-                <span className="text-white/50">Rota</span>
-                <label className="flex items-center gap-2 text-xs text-white/80">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-white/20 bg-transparent"
-                    checked={mapMatchingEnabled}
-                    onChange={(event) => {
-                      setMapMatchingEnabled(event.target.checked);
-                      if (!event.target.checked) {
-                        setMapMatchingError(null);
-                        setMapMatchingNotice(null);
-                      }
-                    }}
-                  />
-                  <span>Rota por ruas (Map Matching)</span>
-                  {mapMatchingLoading ? <span className="text-primary">⋯</span> : null}
-                </label>
-                <label className="flex items-center gap-2 text-xs text-white/80">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-white/20 bg-transparent"
-                    checked={logicalRouteEnabled}
-                    onChange={(event) => setLogicalRouteEnabled(event.target.checked)}
-                  />
-                  <span>Rota lógica (estilo MyMaps)</span>
-                  {logicalRouteLoading ? <span className="text-primary">⋯</span> : null}
-                </label>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/70">
-                  {mapMatchingProvider ? (
-                    <span>
-                      Match: <span className="font-semibold text-white">{mapMatchingProvider}</span>
-                    </span>
+                  <div className="mt-1 space-y-1 text-[10px] text-white/60">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex h-2 w-2 items-center justify-center rounded-full border border-white/20 bg-white/10">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
+                      </span>
+                      <span className="text-white/40">Origem:</span>
+                      <div className="min-w-0 flex-1 line-clamp-2 break-words" title={fullStartAddress || "—"}>
+                        {shortStartAddress}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex h-2 w-2 items-center justify-center rounded-full border border-white/20 bg-white/10">
+                        <span className="h-1.5 w-1.5 rounded-full bg-purple-300/80" />
+                      </span>
+                      <span className="text-white/40">Destino:</span>
+                      <div className="min-w-0 flex-1 line-clamp-2 break-words" title={fullEndAddress || "—"}>
+                        {shortEndAddress}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-1 space-y-1 text-[10px] text-white/60">
+                      <div className="line-clamp-2">
+                        <span className="text-white/40">Origem completa:</span>{" "}
+                        <span>{fullStartAddress || "—"}</span>
+                      </div>
+                      <div className="line-clamp-2">
+                        <span className="text-white/40">Destino completo:</span>{" "}
+                        <span>{fullEndAddress || "—"}</span>
+                      </div>
+                      {Number.isFinite(stopCountValue) ? (
+                        <div>
+                          <span className="text-white/40">Paradas:</span> {stopCountValue}
+                        </div>
+                      ) : null}
+                      {Number.isFinite(maxSpeed) ? (
+                        <div>
+                          <span className="text-white/40">Vel máx:</span> {Math.round(maxSpeed)} km/h
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
-                  {logicalRouteProvider ? (
-                    <span>
-                      Lógica: <span className="font-semibold text-white">{logicalRouteProvider}</span>
-                    </span>
-                  ) : null}
-                  <span className="text-white/60">
-                    Renderizando:
-                    <span className="ml-1 font-semibold text-white">
-                      {mapMatchingEnabled && mapMatchedPath?.length
-                        ? "Map matching"
-                        : logicalRouteEnabled && logicalRoutePath?.length
-                          ? "Rota lógica"
-                          : "Rota original"}
-                    </span>
-                  </span>
                 </div>
-                {mapMatchingNotice ? (
-                  <span
-                    className={`text-[11px] ${
-                      mapMatchingProvider === "osrm" ? "text-emerald-200" : "text-amber-200"
-                    }`}
-                  >
-                    {mapMatchingNotice}
-                  </span>
-                ) : null}
+              );
+            })}
+          </div>
+        </aside>
+
+        <section className="relative z-0 flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-2 min-[1200px]:flex-nowrap">
+            <div className="flex items-center gap-3">
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold tracking-[0.12em]" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                {selectedVehicle?.plate || "—"}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-extrabold text-white">
+                  {selectedTrip
+                    ? `${formatDistance(resolveTripDistanceMeters(selectedTrip))} • ${formatDuration(
+                        resolveTripDurationSeconds(selectedTrip),
+                      )}`
+                    : "Trajeto selecionado"}
+                </div>
+                <div className="truncate text-xs text-white/60">
+                  {selectedTrip
+                    ? `${formatDateTime(parseDate(resolveTripTimeValue(selectedTrip, "start")), locale)} → ${formatDateTime(
+                        parseDate(resolveTripTimeValue(selectedTrip, "end")),
+                        locale,
+                      )}`
+                    : "Selecione uma viagem para visualizar."}
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
-              <span className="text-white/50">Foco</span>
-              <div className="flex overflow-hidden rounded-md border border-white/10">
-                {[
-                  { key: "map", label: "Mapa" },
-                  { key: "table", label: "Tabela" },
-                  { key: "none", label: "Nenhum" },
-                ].map((option) => {
-                  const isActive = focusMode === option.key;
-                  return (
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { key: "replay", label: "Replay" },
+                { key: "audit", label: "Auditoria" },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`h-9 rounded-full border px-4 text-xs font-semibold transition ${
+                    activeTab === tab.key
+                      ? "border-primary/60 bg-primary/20 text-white"
+                      : "border-white/10 bg-white/5 text-white/60 hover:border-white/20 hover:text-white"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            {activeTab === "replay" ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 pb-2 text-xs min-[1200px]:flex-nowrap">
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    className="h-9 whitespace-nowrap rounded-full border border-primary/60 bg-primary/20 px-4 text-xs font-semibold text-white"
+                    onClick={handlePlayToggle}
+                    disabled={!totalPoints || routeLoading}
+                  >
+                    {isPlaying ? "Pausar" : "Reproduzir"}
+                  </button>
+                  {shouldShowItinerarySelector ? (
+                    <div className="flex flex-col gap-1 text-[10px] text-white/60">
+                      <label className="flex flex-col gap-1">
+                        <span className="uppercase tracking-[0.14em]">Rota/Itinerário do trajeto</span>
+                        <AutocompleteSelect
+                          value={selectedItineraryId}
+                          options={itinerarySelectOptions}
+                          onChange={(value) => setSelectedItineraryId(String(value || ""))}
+                          disabled={!selectedVehicle || itineraryListLoading || shouldWaitForMirror}
+                          placeholder="Buscar itinerário"
+                          className="min-w-[240px]"
+                          inputClassName="h-8 rounded-full px-3 text-xs"
+                          allowClear
+                          emptyText="Nenhum itinerário encontrado."
+                        />
+                      </label>
+                      <div className="min-h-[32px] space-y-1 text-[10px] text-white/60">
+                        {selectedItineraryMeta ? (
+                          <>
+                            <span
+                              className={`block text-[10px] uppercase tracking-[0.12em] ${
+                                itineraryConfirmed ? "text-sky-200" : "text-red-200"
+                              }`}
+                            >
+                              Status: {selectedItineraryMeta.statusLabel || (itineraryConfirmed ? "Confirmado" : "Pendente")}
+                            </span>
+                            <span className="block text-[10px] text-white/60">
+                              Tolerância pra Desvio de Rota embarcada: {itineraryBufferLabel}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-[10px] text-white/40">
+                            Selecione um itinerário para ver a tolerância.
+                          </span>
+                        )}
+                      </div>
+                      {itineraryListLoading ? (
+                        <span className="text-[10px] text-white/40">Carregando itinerários...</span>
+                      ) : itineraryListError ? (
+                        <span className="text-[10px] text-red-300">Falha ao carregar itinerários</span>
+                      ) : itineraryOverlayLoading ? (
+                        <span className="text-[10px] text-white/40">Carregando mapa do itinerário...</span>
+                      ) : itineraryOverlayError ? (
+                        <span className="text-[10px] text-red-300">Falha ao carregar itinerário</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs">
+                  <span className="text-white/60">Velocidade</span>
+                  <select
+                    value={speed}
+                    onChange={(event) => setSpeed(Number(event.target.value))}
+                    className="h-full bg-transparent text-xs text-white outline-none"
+                  >
+                    {REPLAY_SPEEDS.map((value) => (
+                      <option key={value} value={value}>
+                        {value}x
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex shrink-0 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                  {[
+                    { key: "sat", label: "Satélite" },
+                    { key: "road", label: "Ruas" },
+                    { key: "hybrid", label: "Híbrido" },
+                  ].map((option) => (
                     <button
                       key={option.key}
                       type="button"
-                      className={`px-3 py-1 text-xs font-semibold transition ${
-                        isActive ? "bg-primary/20 text-white" : "text-white/80 hover:bg-white/5"
+                      onClick={() => handleMapTypeChange(option.key)}
+                      className={`px-3 py-2 text-xs transition ${
+                        mapTypeKey === option.key ? "bg-white/10 text-white" : "text-white/60 hover:text-white"
                       }`}
-                      onClick={() => setFocusMode(option.key)}
                     >
                       {option.label}
                     </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
+                  ))}
+                </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-white/70">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-white/50">Evento atual:</span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-white">
-              {currentEventLabel}
-            </span>
-            {selectedEventSummary ? (
-              <span className="text-white/50">
-                ({eventCursor + 1} de {selectedEventSummary.count})
-              </span>
+                <div className="flex w-full flex-wrap items-center justify-end gap-4 text-xs text-white/60 sm:ml-auto sm:w-auto">
+                  <div className="flex items-center gap-2">
+                    <span>Map Matching</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !mapMatchingEnabled;
+                        setMapMatchingEnabled(next);
+                        if (!next) {
+                          setMapMatchingError(null);
+                          setMapMatchingNotice(null);
+                        }
+                      }}
+                      className={`h-6 w-12 rounded-full border transition ${
+                        mapMatchingEnabled ? "border-emerald-400/40 bg-emerald-400/20" : "border-white/10 bg-white/5"
+                      }`}
+                    >
+                      <span
+                        className={`block h-4 w-4 rounded-full bg-white transition ${
+                          mapMatchingEnabled ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>Rota lógica</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !logicalRouteEnabled;
+                        setLogicalRouteEnabled(next);
+                        if (!next) {
+                          setLogicalRouteError(null);
+                          setLogicalRouteProvider(null);
+                        }
+                      }}
+                      className={`h-6 w-12 rounded-full border transition ${
+                        logicalRouteEnabled ? "border-emerald-400/40 bg-emerald-400/20" : "border-white/10 bg-white/5"
+                      }`}
+                    >
+                      <span
+                        className={`block h-4 w-4 rounded-full bg-white transition ${
+                          logicalRouteEnabled ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white transition hover:border-primary/40 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/30"
-              onClick={() => handleJumpToEvent(-1)}
-              disabled={!totalEvents}
-            >
-              Evento anterior
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white transition hover:border-primary/40 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/30"
-              onClick={() => handleJumpToEvent(1)}
-              disabled={!totalEvents}
-            >
-              Próximo evento
-            </button>
-          </div>
-        </div>
 
-        {routeLoading && <div className="mt-3 text-sm text-white/60">Carregando trajeto...</div>}
-        {routeError && (
-          <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-            {routeError.message}
-          </div>
-        )}
-        {(mapMatchingError || logicalRouteError) && (
-          <div className="mt-3 space-y-1 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">
-            {mapMatchingError ? <div>{mapMatchingError}</div> : null}
-            {logicalRouteError ? <div>{logicalRouteError}</div> : null}
-          </div>
-        )}
-
-        {totalPoints ? (
-          <>
-            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
-              <ReplayMap
-                points={routePoints}
-                activeIndex={activeIndex}
-                animatedPoint={animatedPoint}
-                animatedLivePointRef={animatedLivePointRef}
-                mapLayer={mapLayer}
-                pathToRender={pathToRender}
-                focusMode={focusMode}
-                isPlaying={isPlaying}
-                manualCenter={manualCenter}
-                selectedVehicle={selectedVehicle}
-              />
-              <EventPanel
-                events={eventSummaries}
-                selectedType={selectedEventType}
-                onSelectType={handleSelectEventType}
-                totalTimeline={timelineEntries.length}
-              />
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap items-center gap-3 text-sm text-white/70">
-                  <div>
-                    <span className="text-white/50">Ponto atual:</span>
-                    <span className="ml-1 text-white">{activeIndex + 1} / {Math.max(totalPoints, 1)}</span>
+            {activeTab === "replay" ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <div className="shrink-0 overflow-hidden rounded-[16px] border border-white/10 bg-[#0f141c]/60">
+                  <div className="flex items-center justify-between border-b border-white/10 bg-black/30 px-4 py-2 text-xs">
+                    <span className="font-semibold text-white">Mapa do trajeto</span>
+                    <span className="text-white/50">{selectedVehicle?.plate || "—"}</span>
                   </div>
-                  {activePoint?.__speed !== undefined && activePoint?.__speed !== null ? (
-                    <div>
-                      <span className="text-white/50">Velocidade:</span>
-                      <span className="ml-1 text-white">{Math.round(activePoint.__speed)} km/h</span>
-                    </div>
-                  ) : null}
-                  {playbackDate ? (
-                    <div>
-                      <span className="text-white/50">Horário:</span>
-                      <span className="ml-1 text-white">{formatDateTime(playbackDate, locale)}</span>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white hover:border-white/30"
-                    onClick={() => handleSelectPoint(Math.max(0, activeIndex - 1))}
-                    disabled={activeIndex <= 0}
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white hover:border-white/30"
-                    onClick={() => handleSelectPoint(Math.min(timelineMax, activeIndex + 1))}
-                    disabled={activeIndex >= timelineMax}
-                  >
-                    Próximo
-                  </button>
-                </div>
-              </div>
-             
-              <input
-                type="range"
-                min={0}
-                max={REPLAY_SLIDER_RESOLUTION}
-                value={sliderValue}
-                onChange={(event) => handleSliderChange(Number(event.target.value))}
-                disabled={!routePoints.length}
-                className="w-full accent-primary"
-              />
-            </div>
-
-            <div className="mt-6 space-y-3">
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="text-sm font-semibold text-white">Linha do tempo de auditoria</div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Início</div>
-                    <div className="font-semibold text-white">{summary?.start ? formatDateTime(summary.start, locale) : "—"}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Fim</div>
-                    <div className="font-semibold text-white">{summary?.end ? formatDateTime(summary.end, locale) : "—"}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Vel. média</div>
-                    <div className="font-semibold text-white">
-                      {summary?.averageSpeed !== null && summary?.averageSpeed !== undefined ? `${summary.averageSpeed} km/h` : "—"}
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Vel. máxima</div>
-                    <div className="font-semibold text-white">
-                      {summary?.maxSpeed !== null && summary?.maxSpeed !== undefined ? `${summary.maxSpeed} km/h` : "—"}
-                    </div>
+                  <div className="h-[clamp(320px,46vh,520px)] overflow-hidden">
+                    <ReplayMap
+                      points={routePoints}
+                      activeIndex={activeIndex}
+                      animatedPoint={animatedPoint}
+                      animatedLivePointRef={animatedLivePointRef}
+                      mapLayer={mapLayer}
+                      pathToRender={pathToRender}
+                      focusMode="map"
+                      isPlaying={isPlaying}
+                      manualCenter={manualCenter}
+                      tripKey={selectedTrip ? resolveTripKey(selectedTrip) : ""}
+                      selectedVehicle={selectedVehicle}
+                      isActive={activeTab === "replay"}
+                      itineraryOverlay={itineraryOverlay}
+                      itineraryConfirmed={itineraryConfirmed}
+                      layoutToken={`${drawerTab}-${activeTab}`}
+                    />
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div className="text-sm text-white/70">{statusText}</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {hasActiveFilter ? (
+                <div className="shrink-0 rounded-[16px] border border-white/10 bg-black/40 px-4 py-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-4 text-white/60">
+                      <span>
+                        <span className="font-semibold text-white">Ponto:</span> {activeIndex + 1} / {Math.max(totalPoints, 1)}
+                      </span>
+                      <span>
+                        <span className="font-semibold text-white">Vel.:</span>{" "}
+                        {activePoint?.__speed != null ? `${Math.round(activePoint.__speed)} km/h` : "—"}
+                      </span>
+                      <span>
+                        <span className="font-semibold text-white">Horário:</span>{" "}
+                        {playbackDate ? formatDateTime(playbackDate, locale) : "—"}
+                      </span>
+                    </div>
+                    <div className="flex min-w-[220px] flex-1 items-center gap-2">
                       <button
                         type="button"
-                        className="rounded-md border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
-                        onClick={handleClearFilters}
+                        className="h-8 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-white hover:border-white/20"
+                        onClick={() => handleSelectPoint(Math.max(0, activeIndex - 1))}
+                        disabled={activeIndex <= 0}
                       >
-                        Limpar filtro
+                        ◀
                       </button>
+                      <input
+                        type="range"
+                        min={0}
+                        max={REPLAY_SLIDER_RESOLUTION}
+                        value={sliderValue}
+                        onChange={(event) => handleSliderChange(Number(event.target.value))}
+                        disabled={!routePoints.length}
+                        className="w-full accent-primary"
+                      />
+                      <button
+                        type="button"
+                        className="h-8 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-white hover:border-white/20"
+                        onClick={() => handleSelectPoint(Math.min(timelineMax, activeIndex + 1))}
+                        disabled={activeIndex >= timelineMax}
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex min-w-0 flex-1 min-h-0 flex-col rounded-[16px] border border-white/10 bg-white/[0.02]">
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-2 text-xs">
+                    <div className="flex items-center gap-3 text-white/70">
+                      <span className="font-semibold text-white">
+                        {drawerTab === "audit" ? "Auditoria" : drawerTab === "positions" ? "Posições" : "Eventos"}
+                      </span>
+                      <span className="text-[11px] text-white/50">{drawerCountLabel}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[
+                        { key: "events", label: "Eventos" },
+                        { key: "audit", label: "Auditoria" },
+                        { key: "positions", label: "Posições" },
+                      ].map((tab) => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setDrawerTab(tab.key)}
+                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                            drawerTab === tab.key
+                              ? "border-primary/60 bg-primary/20 text-white"
+                              : "border-white/10 bg-white/5 text-white/60 hover:border-white/20 hover:text-white"
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-4 text-xs text-white/70">
+                    {drawerTab === "events" ? (
+                      <div className="flex min-h-0 flex-1 flex-col gap-3">
+                        <div className="shrink-0 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-xs text-white/60">
+                              <span>Evento atual:</span>
+                              <span className="font-semibold text-white">{currentEventLabel}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                onClick={() => handleJumpToEvent(-1)}
+                              >
+                                ◀
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                onClick={() => handleJumpToEvent(1)}
+                              >
+                                ▶
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                            <span className="text-white/40">🔎</span>
+                            <input
+                              value={eventSearch}
+                              onChange={(event) => setEventSearch(event.target.value)}
+                              placeholder="Filtrar eventos..."
+                              className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
+                            />
+                          </div>
+                        </div>
+                        <div className="min-w-0 pr-1">
+                          <div className="min-w-0 space-y-2">
+                          {tripEventsLoading ? (
+                            <div className="rounded-[12px] border border-white/10 bg-white/5 p-3 text-[11px] text-white/60">
+                              Carregando eventos do trajeto...
+                            </div>
+                          ) : null}
+                          {showTripEventsError ? (
+                            <div className="rounded-[12px] border border-red-400/40 bg-red-400/10 p-3 text-[11px] text-red-100">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>{tripEventsError}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-red-300/60 bg-red-400/10 px-3 py-1 text-[11px] text-red-100 hover:border-red-200"
+                                  onClick={() => setEventsReloadToken((prev) => prev + 1)}
+                                >
+                                  Tentar novamente
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                          {limitedEventEntries.length ? (
+                            limitedEventEntries.map((event) => (
+                              <div
+                                key={`event-${event.index}-${event.time?.toISOString?.() ?? event.index}`}
+                                className="rounded-[12px] border border-white/10 bg-white/5 px-3 py-2"
+                              >
+                                {timelineEntryByIndex.get(event.index) || event.__address ? (
+                                  <div className="text-[11px] text-white/50">
+                                    {timelineEntryByIndex.get(event.index)
+                                      ? resolveEntryAddress(timelineEntryByIndex.get(event.index))
+                                      : event.__address}
+                                  </div>
+                                ) : null}
+                                <div className="flex items-center justify-between gap-2 text-[11px] text-white/60">
+                                  <span className="font-semibold text-white">{event.label || "Evento"}</span>
+                                  <span style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                                    {event.time instanceof Date ? event.time.toLocaleTimeString() : "—"}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-[11px] text-white/50">
+                                  {event.lat && event.lng ? `${event.lat.toFixed?.(5) ?? event.lat}, ${event.lng.toFixed?.(5) ?? event.lng}` : "—"}
+                                </div>
+                                <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-white/60">
+                                  <span>
+                                    {event.label}
+                                    {event.__category === "security" ? " • Segurança" : ""}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    {event.__severityLabel ? (
+                                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] text-white/70">
+                                        {event.__severityLabel}
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white hover:border-primary/50"
+                                      onClick={() => handleSelectPoint(event.index, { centerMap: true })}
+                                    >
+                                      Ver/Ir
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-[12px] border border-white/10 bg-white/5 p-3 text-[11px] text-white/60">
+                              Nenhum evento para este filtro.
+                            </div>
+                          )}
+                          </div>
+                        </div>
+                        {filteredEventEntries.length > MAX_DRAWER_ROWS ? (
+                          <div className="shrink-0 text-[11px] text-white/50">
+                            Mostrando {MAX_DRAWER_ROWS} de {filteredEventEntries.length} eventos.
+                          </div>
+                        ) : null}
+                      </div>
                     ) : null}
+                    {drawerTab === "audit" ? (
+                      <div className="flex min-h-0 flex-1 flex-col gap-3">
+                        <div className="shrink-0">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-white">Linha do tempo</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="flex h-8 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                                <span className="text-white/40">🔎</span>
+                                <input
+                                  value={auditSearch}
+                                  onChange={(event) => setAuditSearch(event.target.value)}
+                                  placeholder="Filtrar eventos..."
+                                  className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
+                                />
+                              </div>
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  className="h-8 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] font-semibold text-white/80 hover:border-white/20"
+                                  onClick={() => setColumnPickerOpen((prev) => !prev)}
+                                >
+                                  Colunas
+                                </button>
+                                {columnPickerOpen ? (
+                                  <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-white/10 bg-[#111E36] p-3 text-xs shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
+                                    <div className="flex items-center justify-between text-[11px] text-white/60">
+                                      <span>Colunas visíveis</span>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                          onClick={() => applyColumnPreset("default")}
+                                        >
+                                          Padrão
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                          onClick={() => applyColumnPreset("all")}
+                                        >
+                                          Tudo
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
+                                      {availableColumnDefs.map((column) => {
+                                        const isSelected = selectedColumns.includes(column.key);
+                                        const index = selectedColumns.indexOf(column.key);
+                                        return (
+                                          <div
+                                            key={column.key}
+                                            className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-2 ${
+                                              isSelected ? "border-primary/50 bg-primary/10" : "border-white/10 bg-white/5"
+                                            }`}
+                                          >
+                                            <label className="flex items-center gap-2 text-[11px] text-white/80">
+                                              <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => handleToggleColumn(column.key)}
+                                                className="accent-primary"
+                                              />
+                                              <span>{column.label}</span>
+                                            </label>
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                                onClick={() => handleMoveColumn(column.key, -1)}
+                                                disabled={!isSelected || index <= 0}
+                                                title="Mover para cima"
+                                              >
+                                                ↑
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                                onClick={() => handleMoveColumn(column.key, 1)}
+                                                disabled={!isSelected || index < 0 || index >= selectedColumns.length - 1}
+                                                title="Mover para baixo"
+                                              >
+                                                ↓
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 text-[11px] text-white/50">
+                          <span>{statusText}</span>
+                        </div>
+
+                        <div className="min-w-0 pr-1">
+                          <TimelineTable
+                            entries={limitedAuditEntries}
+                            activeIndex={activeIndex}
+                            onSelect={handleSelectPoint}
+                            locale={locale}
+                            columns={visibleColumns}
+                            resolveAddress={resolveEntryAddress}
+                            focusMode="table"
+                            isPlaying={isPlaying}
+                          />
+                          {filteredAuditEntries.length > MAX_DRAWER_ROWS ? (
+                            <div className="mt-2 text-[11px] text-white/50">
+                              Mostrando {MAX_DRAWER_ROWS} de {filteredAuditEntries.length} registros.
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                    {drawerTab === "positions" ? (
+                      <div className="flex min-h-0 flex-1 flex-col gap-3">
+                        <div className="shrink-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-white">Posições</div>
+                            <div className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                              <span className="text-white/40">🔎</span>
+                              <input
+                                value={positionsSearch}
+                                onChange={(event) => setPositionsSearch(event.target.value)}
+                                placeholder="Filtrar posições..."
+                                className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="min-w-0 pr-1">
+                          {limitedPositions.length ? (
+                            <table className="min-w-full text-[11px] text-white/80">
+                              <thead className="sticky top-0 bg-slate-900/80 backdrop-blur">
+                                <tr>
+                                  <th className="px-3 py-2 text-left font-semibold text-white/70">Hora</th>
+                                  <th className="px-3 py-2 text-left font-semibold text-white/70">Vel.</th>
+                                  <th className="px-3 py-2 text-left font-semibold text-white/70">Lat</th>
+                                  <th className="px-3 py-2 text-left font-semibold text-white/70">Lon</th>
+                                  <th className="px-3 py-2 text-left font-semibold text-white/70">Endereço</th>
+                                  <th className="px-3 py-2 text-right font-semibold text-white/70">Ação</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {limitedPositions.map((entry) => (
+                                  <tr key={`pos-${entry.index}`} className="border-b border-white/5 hover:bg-white/5">
+                                    <td className="px-3 py-2 text-white/80" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                                      {entry.time instanceof Date ? entry.time.toLocaleTimeString() : "—"}
+                                    </td>
+                                    <td className="px-3 py-2 text-white/80" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                                      {entry.speed !== null && entry.speed !== undefined ? `${Math.round(entry.speed)} km/h` : "—"}
+                                    </td>
+                                    <td className="px-3 py-2 text-white/70" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                                      {Number.isFinite(entry.lat) ? entry.lat.toFixed(5) : "—"}
+                                    </td>
+                                    <td className="px-3 py-2 text-white/70" style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                                      {Number.isFinite(entry.lng) ? entry.lng.toFixed(5) : "—"}
+                                    </td>
+                                    <td className="px-3 py-2 text-white/70">{resolveEntryAddress(entry)}</td>
+                                    <td className="px-3 py-2 text-right">
+                                      <button
+                                        type="button"
+                                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white hover:border-primary/50"
+                                        onClick={() => handleSelectPoint(entry.index, { centerMap: true })}
+                                      >
+                                        Ver/Ir
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div className="flex h-[160px] items-center justify-center text-sm text-white/60">
+                              Nenhuma posição para este filtro.
+                            </div>
+                          )}
+                        </div>
+                        {filteredPositions.length > MAX_DRAWER_ROWS ? (
+                          <div className="text-[11px] text-white/50">
+                            Mostrando {MAX_DRAWER_ROWS} de {filteredPositions.length} posições.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-[16px] border border-white/10 bg-white/[0.02] px-4 py-4 text-xs text-white/70">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-white">Linha do tempo</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-[11px]">
+                      <span className="text-white/40">🔎</span>
+                      <input
+                        value={auditSearch}
+                        onChange={(event) => setAuditSearch(event.target.value)}
+                        placeholder="Filtrar eventos..."
+                        className="w-full max-w-[14rem] bg-transparent text-[11px] text-white outline-none"
+                      />
+                    </div>
                     <div className="relative">
                       <button
                         type="button"
-                        className="rounded-md border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
-                        onClick={() => setColumnPickerOpen((value) => !value)}
+                        className="h-8 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] font-semibold text-white/80 hover:border-white/20"
+                        onClick={() => setColumnPickerOpen((prev) => !prev)}
                       >
-                        ⚙ Colunas
+                        Colunas
                       </button>
                       {columnPickerOpen ? (
-                        <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-white/10 bg-slate-900/90 p-3 shadow-xl backdrop-blur">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold text-white">Colunas</div>
-                            <button
-                              type="button"
-                              className="text-xs text-white/60"
-                              onClick={() => setColumnPickerOpen(false)}
-                            >
-                              Fechar
-                            </button>
+                        <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-white/10 bg-[#111E36] p-3 text-xs shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
+                          <div className="flex items-center justify-between text-[11px] text-white/60">
+                            <span>Colunas visíveis</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                onClick={() => applyColumnPreset("default")}
+                              >
+                                Padrão
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                onClick={() => applyColumnPreset("all")}
+                              >
+                                Tudo
+                              </button>
+                            </div>
                           </div>
-                          <div className="mt-2 flex items-center gap-2 text-xs text-white/80">
-                            <button
-                              type="button"
-                              className="rounded border border-white/15 bg-white/10 px-2 py-1 font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
-                              onClick={() => applyColumnPreset("default")}
-                            >
-                              Padrão
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded border border-white/15 bg-white/10 px-2 py-1 font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
-                              onClick={() => applyColumnPreset("all")}
-                            >
-                              Todas
-                            </button>
-                          </div>
-                          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                          <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
                             {availableColumnDefs.map((column) => {
-                              const checked = selectedColumns.includes(column.key);
+                              const isSelected = selectedColumns.includes(column.key);
+                              const index = selectedColumns.indexOf(column.key);
                               return (
                                 <div
                                   key={column.key}
-                                  className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1"
+                                  className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-2 ${
+                                    isSelected ? "border-primary/50 bg-primary/10" : "border-white/10 bg-white/5"
+                                  }`}
                                 >
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded border-white/20 bg-transparent"
-                                    checked={checked}
-                                    onChange={() => handleToggleColumn(column.key)}
-                                  />
-                                  <span className="flex-1 text-sm text-white">{column.label}</span>
-                                  {checked ? (
-                                    <div className="flex items-center gap-1 text-white/60">
-                                      <button
-                                        type="button"
-                                        className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
-                                        onClick={() => handleMoveColumn(column.key, -1)}
-                                      >
-                                        ↑
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
-                                        onClick={() => handleMoveColumn(column.key, 1)}
-                                      >
-                                        ↓
-                                      </button>
-                                    </div>
-                                  ) : null}
+                                  <label className="flex items-center gap-2 text-[11px] text-white/80">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => handleToggleColumn(column.key)}
+                                      className="accent-primary"
+                                    />
+                                    <span>{column.label}</span>
+                                  </label>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                      onClick={() => handleMoveColumn(column.key, -1)}
+                                      disabled={!isSelected || index <= 0}
+                                      title="Mover para cima"
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:border-primary/50"
+                                      onClick={() => handleMoveColumn(column.key, 1)}
+                                      disabled={!isSelected || index < 0 || index >= selectedColumns.length - 1}
+                                      title="Mover para baixo"
+                                    >
+                                      ↓
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -3096,25 +4585,32 @@ export default function Trips() {
                   </div>
                 </div>
 
-                <TimelineTable
-                  entries={filteredTimelineEntries}
-                  activeIndex={activeIndex}
-                  onSelect={handleSelectPoint}
-                  locale={locale}
-                  columns={visibleColumns}
-                  resolveAddress={resolveEntryAddress}
-                  focusMode={focusMode}
-                  isPlaying={isPlaying}
-                />
+                <div className="mt-3 text-[11px] text-white/50">
+                  <span>{statusText}</span>
+                </div>
+
+                <div className="mt-3">
+                  <TimelineTable
+                    entries={limitedAuditEntries}
+                    activeIndex={activeIndex}
+                    onSelect={handleSelectPoint}
+                    locale={locale}
+                    columns={visibleColumns}
+                    resolveAddress={resolveEntryAddress}
+                    focusMode="table"
+                    isPlaying={isPlaying}
+                  />
+                  {filteredAuditEntries.length > MAX_DRAWER_ROWS ? (
+                    <div className="mt-2 text-[11px] text-white/50">
+                      Mostrando {MAX_DRAWER_ROWS} de {filteredAuditEntries.length} registros.
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </>
-        ) : (
-          <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-            Selecione um trajeto para visualizar o mapa.
+            )}
           </div>
-        )}
-      </div>
+        </section>
+      </main>
     </div>
   );
 }

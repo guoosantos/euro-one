@@ -34,6 +34,11 @@ const EVENT_TABS = [
     label: "Severidade",
     permission: { menuKey: "primary", pageKey: "events", subKey: "severity" },
   },
+  {
+    id: "treatment",
+    label: "Tratativa",
+    permission: { menuKey: "primary", pageKey: "events", subKey: "report" },
+  },
 ];
 const EVENT_TYPES = [
   "all",
@@ -211,9 +216,14 @@ export default function Events() {
   const t = translateFn || ((value) => value);
   const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
-  const { vehicles } = useVehicles();
+  const { vehicles } = useVehicles({ includeTelemetry: false });
   const { accessibleVehicles, isRestricted, loading: accessLoading } = useVehicleAccess();
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
+  const reportFilterPermission = usePermissionGate({
+    menuKey: "primary",
+    pageKey: "events",
+    subKey: "report-active-filter",
+  });
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0].id);
   const [activeCategoryTab, setActiveCategoryTab] = useState("Segurança");
@@ -250,6 +260,15 @@ export default function Events() {
   const [reportError, setReportError] = useState(null);
   const [reportMeta, setReportMeta] = useState(null);
   const [reportGenerated, setReportGenerated] = useState(false);
+  const [treatmentRows, setTreatmentRows] = useState([]);
+  const [treatmentLoading, setTreatmentLoading] = useState(false);
+  const [treatmentError, setTreatmentError] = useState(null);
+  const [treatmentMeta, setTreatmentMeta] = useState(null);
+  const [treatmentGenerated, setTreatmentGenerated] = useState(false);
+  const [treatmentEventFilter, setTreatmentEventFilter] = useState("");
+  const [treatmentVehicleId, setTreatmentVehicleId] = useState("");
+  const [treatmentPage, setTreatmentPage] = useState(1);
+  const [treatmentPageSize, setTreatmentPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [reportEventScope, setReportEventScope] = useState("active");
@@ -307,9 +326,16 @@ export default function Events() {
     return map;
   }, [vehicles]);
 
+  const resolveTraccarId = useCallback((device) => {
+    const candidate = Number(device?.traccarId ?? device?.traccar_id);
+    return Number.isFinite(candidate) && candidate > 0 ? candidate : null;
+  }, []);
+
   const deviceIdByKey = useMemo(() => {
     const map = new Map();
     (Array.isArray(devices) ? devices : []).forEach((device) => {
+      const traccarId = resolveTraccarId(device);
+      if (!traccarId) return;
       const candidates = [
         device?.traccarId,
         device?.id,
@@ -318,17 +344,13 @@ export default function Events() {
         device?.uniqueId,
         device?.unique_id,
       ];
-      const numericId = candidates
-        .map((value) => Number(value))
-        .find((value) => Number.isFinite(value) && value > 0);
-      if (!numericId) return;
       candidates.forEach((value) => {
         const key = toDeviceKey(value);
-        if (key) map.set(key, numericId);
+        if (key) map.set(key, traccarId);
       });
     });
     return map;
-  }, [devices]);
+  }, [devices, resolveTraccarId]);
 
   useEffect(() => {
     if (showColumns) {
@@ -356,19 +378,18 @@ export default function Events() {
         const plate = vehicle?.plate ? String(vehicle.plate).trim() : "";
         const deviceIds = normalizeVehicleDevices(vehicle)
           .map((device) => {
-            const candidates = [
-              device?.traccarId,
+            const traccarId = resolveTraccarId(device);
+            if (traccarId) return traccarId;
+            const lookupKeys = [
               device?.id,
               device?.deviceId,
               device?.device_id,
               device?.uniqueId,
               device?.unique_id,
-            ];
-            const numericId = candidates
-              .map((value) => Number(value))
-              .find((value) => Number.isFinite(value) && value > 0);
-            if (numericId) return numericId;
-            const lookupKeys = candidates.map((value) => toDeviceKey(value)).filter(Boolean);
+              device?.traccarId,
+            ]
+              .map((value) => toDeviceKey(value))
+              .filter(Boolean);
             const mappedId = lookupKeys.map((key) => deviceIdByKey.get(key)).find((value) => value);
             return mappedId || null;
           })
@@ -380,7 +401,7 @@ export default function Events() {
           deviceIds: Array.from(new Set(deviceIds)),
         };
       }),
-    [deviceIdByKey, vehicles],
+    [deviceIdByKey, resolveTraccarId, vehicles],
   );
 
   const vehicleSelectOptions = useMemo(
@@ -433,29 +454,49 @@ export default function Events() {
 
   useEffect(() => {
     if (loadingPreferences) return;
+    if (!reportFilterPermission.canShow) {
+      setReportEventScope("all");
+      reportScopeInitializedRef.current = true;
+      return;
+    }
     if (reportScopeInitializedRef.current) return;
     setReportEventScope(preferences?.reportEventScope || "active");
     reportScopeInitializedRef.current = true;
-  }, [loadingPreferences, preferences?.reportEventScope]);
+  }, [loadingPreferences, preferences?.reportEventScope, reportFilterPermission.canShow]);
 
   const handleReportEventScopeChange = useCallback(
     (nextScope) => {
+      if (!reportFilterPermission.canShow) {
+        setReportEventScope("all");
+        reportScopeInitializedRef.current = true;
+        return;
+      }
       setReportEventScope(nextScope);
       reportScopeInitializedRef.current = true;
       if (!loadingPreferences) {
         savePreferences({ reportEventScope: nextScope }).catch(() => {});
       }
     },
-    [loadingPreferences, savePreferences],
+    [loadingPreferences, reportFilterPermission.canShow, savePreferences],
   );
 
   const fetchReport = useCallback(async (pageOverride = page) => {
     setReportLoading(true);
     setReportError(null);
     try {
-      const deviceIdsToQuery = selectedVehicle?.deviceIds?.length
-        ? selectedVehicle.deviceIds
-        : allDeviceIds;
+      const deviceIdsToQuery = selectedVehicle?.deviceIds?.length ? selectedVehicle.deviceIds : allDeviceIds;
+      if (selectedVehicle && deviceIdsToQuery.length === 0) {
+        setReportEvents([]);
+        setReportMeta({ page: 1, pageSize, totalItems: 0, totalPages: 1 });
+        setReportGenerated(true);
+        return;
+      }
+      if (!selectedVehicle && deviceIdsToQuery.length === 0) {
+        setReportEvents([]);
+        setReportMeta({ page: 1, pageSize, totalItems: 0, totalPages: 1 });
+        setReportGenerated(true);
+        return;
+      }
       const shouldFilterPowerDisconnected = eventType === "powerDisconnected";
       const params = {
         from: from ? new Date(from).toISOString() : undefined,
@@ -478,7 +519,13 @@ export default function Events() {
         eventType === "all"
           ? list
           : list.filter((event) => {
-              const eventTypeValue = event?.type || event?.attributes?.type || event?.event;
+              const eventTypeValue =
+                event?.normalizedEvent?.typeKey ||
+                event?.normalizedEvent?.eventType ||
+                event?.eventType ||
+                event?.type ||
+                event?.attributes?.type ||
+                event?.event;
               if (shouldFilterPowerDisconnected) {
                 return isPowerDisconnectedType(eventTypeValue);
               }
@@ -494,6 +541,37 @@ export default function Events() {
       setReportLoading(false);
     }
   }, [allDeviceIds, eventType, from, page, pageSize, reportEventScope, selectedVehicle, to]);
+
+  const fetchTreatments = useCallback(async (pageOverride = treatmentPage) => {
+    setTreatmentLoading(true);
+    setTreatmentError(null);
+    try {
+      const params = {
+        from: from ? new Date(from).toISOString() : undefined,
+        to: to ? new Date(to).toISOString() : undefined,
+        event: treatmentEventFilter?.trim() || undefined,
+        vehicleId: treatmentVehicleId || undefined,
+        page: pageOverride,
+        limit: treatmentPageSize,
+      };
+      const response = await api.get(API_ROUTES.eventTreatments, { params });
+      const list = Array.isArray(response?.data?.data) ? response.data.data : [];
+      setTreatmentRows(list);
+      setTreatmentMeta({
+        page: response?.data?.page ?? pageOverride,
+        pageSize: response?.data?.pageSize ?? treatmentPageSize,
+        totalItems: response?.data?.total ?? list.length,
+        totalPages: response?.data?.totalPages ?? 1,
+      });
+      setTreatmentGenerated(true);
+    } catch (error) {
+      setTreatmentError(error instanceof Error ? error : new Error("Erro ao carregar tratativas"));
+      setTreatmentRows([]);
+      setTreatmentMeta(null);
+    } finally {
+      setTreatmentLoading(false);
+    }
+  }, [from, to, treatmentEventFilter, treatmentPage, treatmentPageSize, treatmentVehicleId]);
 
   useEffect(() => {
     if (activeTab !== "severity" || !selectedProtocol) return;
@@ -523,7 +601,7 @@ export default function Events() {
             severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
             active: configEntry.active ?? true,
             category: configEntry.category ?? "",
-            requiresHandling: configEntry.requiresHandling ?? false,
+            requiresHandling: configEntry.requiresHandling ?? event.requiresHandling ?? false,
           };
         });
         const unmappedRows = Object.entries(configMap)
@@ -603,19 +681,52 @@ export default function Events() {
         positionFromId?.protocol ||
         positionFromId?.attributes?.protocol ||
         null;
+      const normalized = event?.normalizedEvent || {};
+      const normalizedMetrics = Array.isArray(normalized?.metrics) ? normalized.metrics : [];
+      const metricsByKey = new Map(normalizedMetrics.map((metric) => [metric.key, metric]));
+      const speedMetric = metricsByKey.get("speed");
+      const batteryMetric =
+        metricsByKey.get("batteryLevel") ||
+        metricsByKey.get("battery") ||
+        metricsByKey.get("power") ||
+        metricsByKey.get("vcc") ||
+        metricsByKey.get("vbat");
+      const ignitionMetric =
+        metricsByKey.get("ignitionState") ||
+        metricsByKey.get("engineWorking");
       const rawSeverity =
+        normalized?.severity ??
         event?.severity ??
         event?.attributes?.severity ??
         event?.criticality ??
         event?.attributes?.criticality ??
         null;
-      const severity = resolveEventSeverity(rawSeverity, event?.type || event?.attributes?.type || event?.event);
+      const severity = resolveEventSeverity(
+        rawSeverity,
+        event?.normalizedEvent?.rawType ||
+          event?.type ||
+          event?.attributes?.type ||
+          event?.event,
+      );
+      const typeLabel =
+        normalized?.title ||
+        event?.eventLabel ||
+        translateEventType(event?.type || event?.event || event?.attributes?.type, locale) ||
+        event?.type ||
+        event?.event ||
+        "Evento";
+      const description =
+        normalized?.description ||
+        event?.attributes?.message ||
+        event?.attributes?.description ||
+        event?.attributes?.type ||
+        "—";
       return {
         id: event?.id ?? `${event?.deviceId}-${event?.serverTime || event?.eventTime || event?.time}`,
         time: event?.serverTime || event?.deviceTime || event?.eventTime || event?.time,
         device: vehicleLabel,
-        type: event?.type || event?.attributes?.type || event?.event,
-        description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
+        type: typeLabel,
+        description,
         severity,
         protocol,
         address: cleanAddress(
@@ -628,8 +739,11 @@ export default function Events() {
             null,
         ),
         speed: position?.speed ?? event?.speed ?? null,
+        speedText: speedMetric?.text || null,
         ignition: event?.ignition ?? position?.ignition ?? null,
+        ignitionText: ignitionMetric?.text || null,
         battery: event?.batteryLevel ?? position?.batteryLevel ?? null,
+        batteryText: batteryMetric?.text || null,
         latitude,
         longitude,
       };
@@ -644,6 +758,18 @@ export default function Events() {
     if (!reportGenerated) return;
     fetchReport(page);
   }, [fetchReport, page, reportGenerated]);
+
+  useEffect(() => {
+    if (!treatmentGenerated) return;
+    fetchTreatments(treatmentPage);
+  }, [fetchTreatments, treatmentGenerated, treatmentPage]);
+
+  useEffect(() => {
+    if (activeTab !== "treatment") return;
+    if (treatmentGenerated) return;
+    setTreatmentPage(1);
+    fetchTreatments(1);
+  }, [activeTab, fetchTreatments, treatmentGenerated]);
 
   const visibleColumns = useMemo(
     () => DEFAULT_COLUMNS.filter((column) => columnsVisibility[column.id]),
@@ -817,12 +943,9 @@ export default function Events() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
+    <div className="flex min-h-[calc(100vh-72px)] w-full flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-4">
         <PageHeader
-          overline="Central de eventos"
-          title="Eventos"
-          subtitle="Monitore protocolos, personalize severidades e extraia relatórios."
           actions={
             activeTab === "report" ? (
               <>
@@ -887,6 +1010,29 @@ export default function Events() {
                   )}
                 </div>
               </>
+            ) : activeTab === "treatment" ? (
+              <>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setTreatmentPage(1);
+                    fetchTreatments(1);
+                  }}
+                >
+                  Mostrar
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setTreatmentVehicleId("");
+                    setTreatmentEventFilter("");
+                    setTreatmentPage(1);
+                  }}
+                >
+                  Limpar filtros
+                </Button>
+              </>
             ) : null
           }
         />
@@ -943,33 +1089,35 @@ export default function Events() {
                   ))}
                 </Select>
               </label>
-              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                Eventos no relatório
-                <div className="mt-2 inline-flex h-10 w-full overflow-hidden rounded-xl border border-border bg-layer text-sm font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => handleReportEventScopeChange("all")}
-                    className={`flex-1 px-3 transition ${
-                      reportEventScope === "all"
-                        ? "bg-primary/20 text-white"
-                        : "text-white/60 hover:text-white"
-                    }`}
-                  >
-                    Todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleReportEventScopeChange("active")}
-                    className={`flex-1 px-3 transition ${
-                      reportEventScope === "active"
-                        ? "bg-primary/20 text-white"
-                        : "text-white/60 hover:text-white"
-                    }`}
-                  >
-                    Somente ativos
-                  </button>
-                </div>
-              </label>
+              {reportFilterPermission.canShow && (
+                <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                  Eventos no relatório
+                  <div className="mt-2 inline-flex h-10 w-full overflow-hidden rounded-xl border border-border bg-layer text-sm font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleReportEventScopeChange("all")}
+                      className={`flex-1 px-3 transition ${
+                        reportEventScope === "all"
+                          ? "bg-primary/20 text-white"
+                          : "text-white/60 hover:text-white"
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReportEventScopeChange("active")}
+                      className={`flex-1 px-3 transition ${
+                        reportEventScope === "active"
+                          ? "bg-primary/20 text-white"
+                          : "text-white/60 hover:text-white"
+                      }`}
+                    >
+                      Somente ativos
+                    </button>
+                  </div>
+                </label>
+              )}
               <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 De
                 <input
@@ -993,7 +1141,7 @@ export default function Events() {
               )}
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pb-4">
               <div className="min-h-0 flex-1 overflow-auto border border-white/10">
                 <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
                   <colgroup>
@@ -1066,6 +1214,7 @@ export default function Events() {
                 </table>
               </div>
               <DataTablePagination
+                className="mt-auto"
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZE_OPTIONS}
                 onPageSizeChange={(value) => {
@@ -1081,6 +1230,122 @@ export default function Events() {
                 totalItems={totalItems}
                 onPageChange={(nextPage) => setPage(nextPage)}
                 disabled={reportLoading}
+              />
+            </div>
+          </div>
+        )}
+
+        {availableTabs.length > 0 && activeTab === "treatment" && (
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
+              <AutocompleteSelect
+                label="Veículo"
+                placeholder="Todos os veículos"
+                value={treatmentVehicleId}
+                onChange={(value) => setTreatmentVehicleId(value)}
+                options={vehicleSelectOptions}
+                loadOptions={loadVehicleOptions}
+                allowClear
+                className="min-w-[240px] flex-1"
+              />
+              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Evento
+                <Input
+                  value={treatmentEventFilter}
+                  onChange={(event) => setTreatmentEventFilter(event.target.value)}
+                  placeholder="Tipo, descrição ou ID do evento"
+                  className="mt-2"
+                />
+              </label>
+              <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                De
+                <input
+                  type="datetime-local"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Até
+                <input
+                  type="datetime-local"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pb-4">
+              <div className="min-h-0 flex-1 overflow-auto border border-white/10">
+                <table className="w-full min-w-full border-collapse text-left text-sm">
+                  <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
+                    <tr>
+                      <th className="px-3 py-2">Data/Hora</th>
+                      <th className="px-3 py-2">Evento</th>
+                      <th className="px-3 py-2">Veículo</th>
+                      <th className="px-3 py-2">Usuário</th>
+                      <th className="px-3 py-2">Ação</th>
+                      <th className="px-3 py-2">Tratativa</th>
+                      <th className="px-3 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40 text-xs">
+                    {treatmentLoading && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-white/60">
+                          Carregando tratativas…
+                        </td>
+                      </tr>
+                    )}
+                    {!treatmentLoading && treatmentError && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-red-300">
+                          Não foi possível carregar as tratativas. {treatmentError.message}
+                        </td>
+                      </tr>
+                    )}
+                    {!treatmentLoading && !treatmentError && treatmentRows.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-white/60">
+                          Nenhuma tratativa encontrada para os filtros selecionados.
+                        </td>
+                      </tr>
+                    )}
+                    {treatmentRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-white/5">
+                        <td className="px-3 py-2 text-white/80">
+                          {row.handledAt ? new Date(row.handledAt).toLocaleString("pt-BR") : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-white/80">{row.eventLabel || row.eventType || row.eventId || "—"}</td>
+                        <td className="px-3 py-2 text-white/80">{row.vehicleLabel || row.vehicleId || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.handledByName || row.handledBy || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.action || row.source || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.notes || "—"}</td>
+                        <td className="px-3 py-2 text-white/70">{row.status || "Concluído"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <DataTablePagination
+                className="mt-auto"
+                pageSize={treatmentPageSize}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(value) => {
+                  const nextValue = Number(value) || DEFAULT_PAGE_SIZE;
+                  setTreatmentPageSize(nextValue);
+                  setTreatmentPage(1);
+                  if (treatmentGenerated) {
+                    fetchTreatments(1);
+                  }
+                }}
+                currentPage={treatmentMeta?.page ?? treatmentPage}
+                totalPages={treatmentMeta?.totalPages ?? 1}
+                totalItems={treatmentMeta?.totalItems ?? treatmentRows.length}
+                onPageChange={(nextPage) => setTreatmentPage(nextPage)}
+                disabled={treatmentLoading}
               />
             </div>
           </div>
@@ -1311,7 +1576,7 @@ function renderColumnValue(columnId, row, locale, t) {
     case "device":
       return row.device || "—";
     case "type":
-      return translateEventType(row.type || "", locale, t, row.protocol, row) || "—";
+      return row.type || translateEventType(row.type || "", locale, t, row.protocol, row) || "—";
     case "description":
       return row.description || "—";
     case "severity":
@@ -1322,11 +1587,11 @@ function renderColumnValue(columnId, row, locale, t) {
       }
       return "—";
     case "speed":
-      return row.speed != null ? `${Number(row.speed).toFixed(1)} km/h` : "—";
+      return row.speedText || (row.speed != null ? `${Number(row.speed).toFixed(1)} km/h` : "—");
     case "ignition":
-      return row.ignition == null ? "—" : row.ignition ? "Ligada" : "Desligada";
+      return row.ignitionText || (row.ignition == null ? "—" : row.ignition ? "Ligada" : "Desligada");
     case "battery":
-      return row.battery != null ? `${Number(row.battery).toFixed(0)}%` : "—";
+      return row.batteryText || (row.battery != null ? `${Number(row.battery).toFixed(0)}%` : "—");
     case "latitude":
       return row.latitude != null ? Number(row.latitude).toFixed(5) : "—";
     case "longitude":

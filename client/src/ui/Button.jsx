@@ -4,6 +4,8 @@ export default function Button({ children, className = "", variant = "primary", 
   let baseClass = "btn";
   if (variant === "outline") {
     baseClass = "btn btn-outline";
+  } else if (variant === "danger") {
+    baseClass = "btn btn-danger";
   } else if (variant === "ghost") {
     baseClass = "btn btn-ghost";
   } else if (variant === "secondary") {

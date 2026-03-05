@@ -66,17 +66,19 @@ export function recordAuditEvent(payload = {}) {
   return clone(record);
 }
 
-export function listAuditEvents({ clientId, vehicleId, from, to, categories } = {}) {
+export function listAuditEvents({ clientId, vehicleId, userId, from, to, categories } = {}) {
   const fromMs = from ? new Date(from).getTime() : null;
   const toMs = to ? new Date(to).getTime() : null;
   const categorySet = Array.isArray(categories) && categories.length
     ? new Set(categories.map((item) => String(item)))
     : null;
+  const targetUserId = userId != null ? String(userId) : null;
 
   return Array.from(auditLogs.values())
     .filter((record) => {
       if (clientId && String(record.clientId) !== String(clientId)) return false;
       if (vehicleId && String(record.vehicleId) !== String(vehicleId)) return false;
+      if (targetUserId && String(record.user?.id || "") !== targetUserId) return false;
       if (categorySet && !categorySet.has(String(record.category))) return false;
       const timeValue = record.sentAt || record.respondedAt || record.createdAt;
       const timeMs = timeValue ? new Date(timeValue).getTime() : null;

@@ -1,7 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
-import { Clock3, Download, Link2, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, Unlink, Wifi, X } from "lucide-react";
+import {
+  Clock3,
+  Download,
+  Globe,
+  Link2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  SignalMedium,
+  SlidersHorizontal,
+  Trash2,
+  Unlink,
+  Wifi,
+  X,
+} from "lucide-react";
 import { latLngBounds } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -13,6 +28,7 @@ import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
@@ -26,9 +42,117 @@ import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { leafletDefaultIcon } from "../lib/map/leaflet-default-icon.js";
+import { createVehicleMarkerIcon } from "../lib/map/vehicleMarkerIcon.js";
+import { DEFAULT_MAP_LAYER } from "../lib/mapLayers.js";
 import { formatAddress } from "../lib/format-address.js";
+import { buildPortList, normalizePortCounts } from "../lib/device-ports.js";
+import { resolveEquipmentMovementMeta } from "../lib/equipment-movement.js";
+import { EQUIPMENT_STATUS_OPTIONS, normalizeEquipmentStatusValue } from "../lib/equipment-status.js";
+import { isServiceStockGlobalPermissionGroup } from "../lib/permissions/profile-groups.js";
 
 const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
+const DEVICE_EDITOR_TABS = ["geral", "vinculos", "status", "telemetria", "portas", "garantia", "condicoes", "historico", "massa", "acoes"];
+const EQUIPMENT_CONDITION_OPTIONS = [
+  "Novo",
+  "Usado funcionando",
+  "Usado com defeito",
+  "Manutenção",
+  "Com defeito",
+  "Retirado",
+];
+
+const DEVICE_TABLE_COLUMNS = [
+  { key: "id", label: "ID / IMEI" },
+  { key: "model", label: "Modelo" },
+  { key: "status", label: "Status" },
+  { key: "lastCommunication", label: "Última comunicação" },
+  { key: "lastPosition", label: "Última posição" },
+  { key: "link", label: "Vínculo" },
+  { key: "client", label: "Cliente" },
+  { key: "warranty", label: "Garantia" },
+  { key: "actions", label: "Ações" },
+];
+
+const DEFAULT_DEVICE_COLUMN_VISIBILITY = Object.fromEntries(DEVICE_TABLE_COLUMNS.map((column) => [column.key, true]));
+const NON_TOGGLABLE_DEVICE_COLUMNS = new Set(["id", "actions"]);
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MONGO_OBJECT_ID_REGEX = /^[0-9a-f]{24}$/i;
+
+function normalizeDeviceColumnVisibility(value) {
+  const base = { ...DEFAULT_DEVICE_COLUMN_VISIBILITY };
+  if (!value || typeof value !== "object") return base;
+  DEVICE_TABLE_COLUMNS.forEach((column) => {
+    if (Object.prototype.hasOwnProperty.call(value, column.key)) {
+      base[column.key] = Boolean(value[column.key]);
+    }
+  });
+  const hasAnyVisible = DEVICE_TABLE_COLUMNS.some((column) => base[column.key]);
+  if (!hasAnyVisible) {
+    base.id = true;
+  }
+  NON_TOGGLABLE_DEVICE_COLUMNS.forEach((columnKey) => {
+    base[columnKey] = true;
+  });
+  return base;
+}
+
+function toLocalInputDateTime(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}`;
+}
+
+function resolveDeviceEditorRoute(pathname = "") {
+  const normalized = String(pathname || "");
+  const newMatch = normalized.match(/^\/(devices|equipamentos)\/new$/i);
+  if (newMatch) {
+    return {
+      isEditorRoute: true,
+      isNewRoute: true,
+      pathBase: `/${String(newMatch[1]).toLowerCase()}`,
+      routeDeviceId: null,
+    };
+  }
+  const editMatch = normalized.match(/^\/(devices|equipamentos)\/([^/]+)\/(edit|editar)$/i);
+  if (editMatch) {
+    return {
+      isEditorRoute: true,
+      isNewRoute: false,
+      pathBase: `/${String(editMatch[1]).toLowerCase()}`,
+      routeDeviceId: String(editMatch[2] || ""),
+    };
+  }
+  const listMatch = normalized.match(/^\/(devices|equipamentos)(?:\/)?$/i);
+  return {
+    isEditorRoute: false,
+    isNewRoute: false,
+    pathBase: `/${String(listMatch?.[1] || "devices").toLowerCase()}`,
+    routeDeviceId: null,
+  };
+}
+
+function normalizeEditorTab(rawValue) {
+  const value = String(rawValue || "").trim().toLowerCase();
+  return DEVICE_EDITOR_TABS.includes(value) ? value : "geral";
+}
+
+function getDeviceTabLabel(key) {
+  if (key === "geral") return "Geral";
+  if (key === "vinculos") return "Vínculos";
+  if (key === "status") return "Status";
+  if (key === "telemetria") return "Telemetria";
+  if (key === "portas") return "Portas";
+  if (key === "garantia") return "Garantia";
+  if (key === "condicoes") return "Condições";
+  if (key === "historico") return "Histórico";
+  if (key === "massa") return "Massa";
+  if (key === "acoes") return "Ações";
+  return key;
+}
 
 function parsePositionTime(position) {
   if (!position) return null;
@@ -42,6 +166,35 @@ function formatDate(value) {
   const parsed = Date.parse(value || 0);
   if (!value || Number.isNaN(parsed)) return null;
   return new Date(parsed).toLocaleString();
+}
+
+function formatTransferDate(value) {
+  const parsed = Date.parse(value || 0);
+  if (!value || Number.isNaN(parsed)) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(parsed));
+}
+
+function isTechnicalIdentifier(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  return UUID_REGEX.test(normalized) || MONGO_OBJECT_ID_REGEX.test(normalized);
+}
+
+function sanitizeHistoryDisplayValue(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  if (isTechnicalIdentifier(normalized)) return null;
+  return normalized;
+}
+
+function sanitizeHistoryResponsible(value) {
+  const normalized = sanitizeHistoryDisplayValue(value);
+  if (!normalized) return null;
+  if (normalized.toLowerCase() === "system") return "Sistema";
+  return normalized;
 }
 
 function formatPositionTimestamps(position) {
@@ -77,103 +230,165 @@ function DeviceRow({
   canDelete,
   positionLabel,
   lastCommunication,
+  visibleColumns = DEFAULT_DEVICE_COLUMN_VISIBILITY,
 }) {
+  const showId = Boolean(visibleColumns.id);
+  const showModel = Boolean(visibleColumns.model);
+  const showStatus = Boolean(visibleColumns.status);
+  const showLastCommunication = Boolean(visibleColumns.lastCommunication);
+  const showLastPosition = Boolean(visibleColumns.lastPosition);
+  const showLink = Boolean(visibleColumns.link);
+  const showClient = Boolean(visibleColumns.client);
+  const showWarranty = Boolean(visibleColumns.warranty);
+  const showActions = Boolean(visibleColumns.actions);
   const imei = device.uniqueId || traccarDevice?.uniqueId || "—";
   const internalCode = device?.attributes?.internalCode || device?.internalCode || "—";
+  const equipmentDisplayId = device?.displayId || imei || device?.id || "—";
   const modelLabel = model?.name || device?.modelName || "—";
   const modelDetail = model?.version || model?.protocol || device?.modelProtocol || "";
+  const linkedVehicleId = vehicle?.id || device?.vehicleId || device?.vehicle?.id || null;
+  const isLinked = Boolean(vehicle || linkedVehicleId);
+  const vehicleLabel = vehicle?.plate || vehicle?.name || (linkedVehicleId ? "Vinculado" : "Não vinculado");
+  const vehicleSubtitle =
+    vehicle?.clientName ||
+    vehicle?.client?.name ||
+    (linkedVehicleId ? `ID ${linkedVehicleId}` : "Sem vínculo");
+  const clientLabel =
+    device?.clientName ||
+    device?.client?.name ||
+    vehicle?.clientName ||
+    vehicle?.client?.name ||
+    "—";
   return (
-    <tr className="hover:bg-white/5">
-      <td className="px-3 py-3">
-        <div className="font-semibold text-white">{imei}</div>
-        <div className="text-xs text-white/50">ID interno {internalCode}</div>
-      </td>
-      <td className="px-3 py-3">
-        <div className="text-white">{modelLabel}</div>
-        <div className="text-xs text-white/50">{modelDetail}</div>
-      </td>
-      <td className="px-3 py-3">
-        <StatusPill meta={status} />
-      </td>
-      <td className="px-3 py-3">
-        <div className="text-white">{lastCommunication}</div>
-      </td>
-      <td className="px-3 py-3">
-        <div
-          className="text-xs text-white/70 leading-snug break-words"
-          title={positionLabel || ""}
-        >
-          {positionLabel}
-        </div>
-      </td>
-      <td className="px-3 py-3">
-        {vehicle ? (
-          <button
-            type="button"
-            onClick={onNavigateToMonitoring}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white hover:border-primary"
+    <tr className="group h-[72px] align-middle hover:bg-white/5">
+      {showId && (
+        <td className="w-[220px] min-w-[220px] px-3 py-2 align-middle">
+          <div className="max-w-[200px] truncate font-semibold text-white" title={imei}>
+            {imei}
+          </div>
+          <div className="max-w-[200px] truncate text-xs text-white/50" title={`ID interno ${internalCode}`}>
+            ID interno {internalCode}
+          </div>
+        </td>
+      )}
+      {showModel && (
+        <td className="w-[240px] min-w-[220px] px-3 py-2 align-middle">
+          <div className="max-w-[220px] truncate text-white" title={modelLabel}>
+            {modelLabel}
+          </div>
+          <div className="max-w-[220px] truncate text-xs text-white/50" title={modelDetail}>
+            {modelDetail}
+          </div>
+        </td>
+      )}
+      {showStatus && (
+        <td className="w-[180px] min-w-[170px] px-3 py-2 align-middle">
+          <StatusPill meta={status} />
+        </td>
+      )}
+      {showLastCommunication && (
+        <td className="w-[190px] min-w-[180px] px-3 py-2 align-middle">
+          <div className="max-w-[180px] truncate text-white" title={lastCommunication}>
+            {lastCommunication}
+          </div>
+        </td>
+      )}
+      {showLastPosition && (
+        <td className="w-[340px] min-w-[280px] px-3 py-2 align-middle">
+          <div
+            className="max-w-[320px] truncate whitespace-nowrap text-xs leading-snug text-white/70"
+            title={positionLabel || ""}
           >
-            <Link2 className="h-3 w-3" />
-            <div className="text-left">
-              <div className="font-medium">{vehicle.plate || vehicle.name || "Veículo"}</div>
-              <div className="text-[11px] text-white/60">{vehicle.clientName || "Vinculado"}</div>
-            </div>
-          </button>
-        ) : (
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
-            <X className="h-3 w-3" />
-            <span>Não vinculado</span>
+            {positionLabel}
+          </div>
+        </td>
+      )}
+      {showLink && (
+        <td className="w-[280px] min-w-[240px] px-3 py-2 align-middle">
+          {isLinked ? (
             <button
               type="button"
-              onClick={onLink}
-              className="ml-2 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[11px] font-medium text-white"
+              onClick={onNavigateToMonitoring}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white hover:border-primary"
             >
-              Vincular
+              <Link2 className="h-3 w-3" />
+              <div className="text-left">
+                <div className="max-w-[160px] truncate font-medium">{vehicleLabel}</div>
+                <div className="max-w-[160px] truncate text-[11px] text-white/60">{vehicleSubtitle}</div>
+                <div className="max-w-[160px] truncate text-[10px] text-white/45">Equip.: {equipmentDisplayId}</div>
+              </div>
             </button>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
+              <X className="h-3 w-3" />
+              <span>Não vinculado</span>
+              <button
+                type="button"
+                onClick={onLink}
+                className="ml-2 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[11px] font-medium text-white"
+              >
+                Vincular
+              </button>
+            </div>
+          )}
+        </td>
+      )}
+      {showClient && (
+        <td className="w-[220px] min-w-[180px] px-3 py-2 align-middle">
+          <div className="max-w-[200px] truncate text-white/70" title={clientLabel}>
+            {clientLabel}
           </div>
-        )}
-      </td>
-      <td className="px-3 py-3 text-white/70">{warrantyLabel}</td>
-      <td className="px-3 py-3 text-right">
-        <div className="inline-flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-            onClick={onEdit}
-            aria-label="Editar equipamento"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          {vehicle && (
+        </td>
+      )}
+      {showWarranty && (
+        <td className="w-[250px] min-w-[220px] px-3 py-2 align-middle text-white/70">
+          <span className="inline-block max-w-[220px] truncate whitespace-nowrap" title={warrantyLabel}>
+            {warrantyLabel}
+          </span>
+        </td>
+      )}
+      {showActions && (
+        <td className="sticky right-0 z-10 w-[170px] min-w-[170px] bg-[#111722] px-3 py-2 text-right align-middle group-hover:bg-[#192233]">
+          <div className="inline-flex items-center gap-2">
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-              onClick={onUnlink}
-              aria-label="Desvincular"
+              onClick={onEdit}
+              aria-label="Editar equipamento"
             >
-              <Unlink className="h-4 w-4" />
+              <Pencil className="h-4 w-4" />
             </button>
-          )}
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-            onClick={onMap}
-            aria-label="Ver no mapa"
-          >
-            <MapPin className="h-4 w-4" />
-          </button>
-          {canDelete && (
+            {isLinked && (
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+                onClick={onUnlink}
+                aria-label="Desvincular"
+              >
+                <Unlink className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 text-red-200 hover:border-red-300"
-              onClick={onDelete}
-              aria-label="Remover"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+              onClick={onMap}
+              aria-label="Ver no mapa"
             >
-              <Trash2 className="h-4 w-4" />
+              <Globe className="h-4 w-4" />
             </button>
-          )}
-        </div>
-      </td>
+            {canDelete && (
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 text-red-200 hover:border-red-300"
+                onClick={onDelete}
+                aria-label="Remover"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </td>
+      )}
     </tr>
   );
 }
@@ -195,17 +410,18 @@ function StatusPill({ meta }) {
   );
 }
 
-function Drawer({ open, onClose, title, description, children }) {
+function Drawer({ open, onClose, title, description, children, panelClassName = "" }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[9998] flex">
       <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
+      <div
+        className={`relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl ${panelClassName}`.trim()}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do equipamento</p>
             <h2 className="text-xl font-semibold text-white">{title}</h2>
-            {description && <p className="text-sm text-white/60">{description}</p>}
+            {description ? <p className="text-sm text-white/60">{description}</p> : null}
           </div>
           <button
             type="button"
@@ -216,17 +432,61 @@ function Drawer({ open, onClose, title, description, children }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="h-[calc(100%-80px)] overflow-y-auto px-6 py-4">{children}</div>
+        <div className="h-[calc(100%-80px)] overflow-y-auto overflow-x-hidden px-6 py-4">{children}</div>
       </div>
     </div>
   );
 }
 
+function DeviceEditorContainer({ isEditorRoute, open, onClose, title, description, children }) {
+  if (isEditorRoute) {
+    return (
+      <DataCard className="space-y-4">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            {title ? <h2 className="text-xl font-semibold text-white">{title}</h2> : null}
+            {description ? <p className="text-sm text-white/60">{description}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+            aria-label="Fechar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="overflow-x-hidden">{children}</div>
+      </DataCard>
+    );
+  }
+
+  return (
+    <Drawer open={open} onClose={onClose} title={title} description={description}>
+      {children}
+    </Drawer>
+  );
+}
+
 export default function Devices() {
-  const { tenantId, user } = useTenant();
+  const { tenantId, tenantScope, user, permissionContext } = useTenant();
+  const isTechnician = user?.role === "technician";
+  const isServiceStockGlobalProfile = isServiceStockGlobalPermissionGroup(permissionContext);
+  const serviceStockColumnsCount = 7;
   const devicesPermission = usePermissionGate({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" });
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const location = useLocation();
   const navigate = useNavigate();
+  const editorRoute = useMemo(() => resolveDeviceEditorRoute(location.pathname), [location.pathname]);
+  const isEditorRoute = editorRoute.isEditorRoute;
+  const isNewRoute = editorRoute.isNewRoute;
+  const routeDeviceId = editorRoute.routeDeviceId;
+  const listPath = editorRoute.pathBase || "/devices";
   const { positions } = useLivePositions();
   const { byId: traccarById, byUniqueId: traccarByUniqueId, loading: traccarLoading } = useTraccarDevices({
     enabled: devicesPermission.hasAccess,
@@ -238,6 +498,7 @@ export default function Devices() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [savingDevice, setSavingDevice] = useState(false);
+  const [savingPorts, setSavingPorts] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [showDeviceDrawer, setShowDeviceDrawer] = useState(false);
   const [conflictDevice, setConflictDevice] = useState(null);
@@ -245,16 +506,32 @@ export default function Devices() {
   const [linkVehicleId, setLinkVehicleId] = useState("");
   const [linkQuery, setLinkQuery] = useState("");
   const { confirmDelete } = useConfirmDialog();
-  const { isAdminGeneral } = useAdminGeneralAccess();
+  const { isAdminGeneral, sessionClient } = useAdminGeneralAccess();
   const [filters, setFilters] = useState({
     status: "all",
     link: "all",
     model: "",
   });
   const [modelDraft, setModelDraft] = useState("");
-  const resolvedClientId = tenantId || user?.clientId || null;
+  const resolvedClientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
+  const adminGeneralClientId = isAdminGeneral ? String(sessionClient?.id || "").trim() : "";
+  const resolveWriteClientId = useCallback(
+    (...candidates) => {
+      for (const candidate of candidates) {
+        const value = candidate === undefined || candidate === null ? "" : String(candidate).trim();
+        if (value) return value;
+      }
+      return adminGeneralClientId || "";
+    },
+    [adminGeneralClientId],
+  );
   const [syncing, setSyncing] = useState(false);
   const [drawerTab, setDrawerTab] = useState("geral");
+  const [internalCodePreviewLoading, setInternalCodePreviewLoading] = useState(false);
+  const [internalCodePreviewError, setInternalCodePreviewError] = useState(null);
+  const [internalCodePreviewRetryKey, setInternalCodePreviewRetryKey] = useState(0);
+  const internalCodeTouchedRef = useRef(false);
+  const editorRouteInitRef = useRef("");
   const [initializedFromSearch, setInitializedFromSearch] = useState(false);
   const [creatingVehicle, setCreatingVehicle] = useState(false);
   const [vehicleForm, setVehicleForm] = useState({ plate: "", name: "" });
@@ -265,16 +542,25 @@ export default function Devices() {
     modelId: "",
     internalCode: "",
     gprsCommunication: true,
-    condition: "",
+    equipmentStatus: "ESTOQUE NOVO",
     chipId: "",
     vehicleId: "",
+    portLabels: {},
     productionDate: "",
     installationDate: "",
     warrantyOrigin: "production",
     warrantyDays: "",
     warrantyEndDate: "",
   });
+  const [conditionDraft, setConditionDraft] = useState({
+    condition: "Novo",
+    date: toLocalInputDateTime(new Date()),
+    note: "",
+  });
   const [query, setQuery] = useState("");
+  const [columnVisibility, setColumnVisibility] = useState(() => ({ ...DEFAULT_DEVICE_COLUMN_VISIBILITY }));
+  const [columnVisibilityDraft, setColumnVisibilityDraft] = useState(() => ({ ...DEFAULT_DEVICE_COLUMN_VISIBILITY }));
+  const [showColumnsMenu, setShowColumnsMenu] = useState(false);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [bulkRows, setBulkRows] = useState([{ imei: "", internalCode: "", gprsCommunication: null }]);
@@ -286,8 +572,33 @@ export default function Devices() {
   const [savingBulk, setSavingBulk] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
   const [forbidden, setForbidden] = useState(false);
+  const [deviceHistoryRows, setDeviceHistoryRows] = useState([]);
+  const [deviceHistoryLoading, setDeviceHistoryLoading] = useState(false);
+  const [deviceHistoryError, setDeviceHistoryError] = useState("");
   const mapRef = useRef(null);
+  const columnMenuRef = useRef(null);
+  const columnPrefsInitializedRef = useRef(false);
+  const pendingQueryNavigateRef = useRef(null);
+  const syncingTabFromQueryRef = useRef(false);
   const { onMapReady } = useMapLifecycle({ mapRef });
+  const columnStorageKey = useMemo(
+    () => `devices.table.columns:${user?.id || user?.email || user?.username || "default"}`,
+    [user?.email, user?.id, user?.username],
+  );
+  const mapMarkerIcon = useMemo(() => {
+    if (!mapTarget?.position) return leafletDefaultIcon;
+    const device = mapTarget?.device || {};
+    const position = mapTarget?.position || {};
+    const attrs = device.attributes || {};
+    return (
+      createVehicleMarkerIcon({
+        bearing: Number(position.course ?? position.heading ?? 0),
+        iconType: attrs.iconType || device.iconType,
+        label: device.name || device.uniqueId,
+        plate: device.uniqueId,
+      }) || leafletDefaultIcon
+    );
+  }, [mapTarget]);
   const toastTimeoutRef = useRef(null);
   const [toast, setToast] = useState(null);
   const conflictMatch = useMemo(() => {
@@ -320,6 +631,50 @@ export default function Devices() {
     }
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage?.getItem(columnStorageKey);
+      const parsed = raw ? JSON.parse(raw) : null;
+      const normalized = normalizeDeviceColumnVisibility(parsed);
+      setColumnVisibility(normalized);
+      setColumnVisibilityDraft(normalized);
+    } catch (_error) {
+      const fallback = normalizeDeviceColumnVisibility(DEFAULT_DEVICE_COLUMN_VISIBILITY);
+      setColumnVisibility(fallback);
+      setColumnVisibilityDraft(fallback);
+    } finally {
+      columnPrefsInitializedRef.current = true;
+    }
+  }, [columnStorageKey]);
+
+  useEffect(() => {
+    if (!columnPrefsInitializedRef.current) return;
+    try {
+      window.localStorage?.setItem(columnStorageKey, JSON.stringify(columnVisibility));
+    } catch (_error) {
+      // armazenamento indisponível no navegador
+    }
+  }, [columnStorageKey, columnVisibility]);
+
+  useEffect(() => {
+    if (!showColumnsMenu) return undefined;
+    setColumnVisibilityDraft(columnVisibility);
+    const handlePointerDown = (event) => {
+      if (!columnMenuRef.current) return;
+      if (!columnMenuRef.current.contains(event.target)) {
+        setShowColumnsMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [columnVisibility, showColumnsMenu]);
+
+  useEffect(() => {
+    if (!isTechnician) return;
+    setFilters({ status: "all", link: "all", model: "" });
+    setModelDraft("");
+  }, [isTechnician]);
+
   function showToast(message, type = "info") {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
@@ -348,13 +703,18 @@ export default function Devices() {
     setError(null);
     setForbidden(false);
     try {
-      const clientId = tenantId || user?.clientId;
+      const clientId = resolvedClientId;
       const vehiclesParams = clientId ? { clientId } : {};
+      const modelParams = clientId ? { clientId, includeGlobal: true } : {};
+      if (isServiceStockGlobalProfile) {
+        modelParams.scope = "both";
+      }
       vehiclesParams.accessible = true;
       vehiclesParams.includeUnlinked = true;
+      vehiclesParams.skipPositions = true;
       const [deviceResult, modelResult, chipResult, vehicleResult] = await Promise.allSettled([
         CoreApi.listDevices(clientId ? { clientId } : undefined),
-        CoreApi.models(clientId ? { clientId, includeGlobal: true } : undefined),
+        CoreApi.models(modelParams),
         CoreApi.listChips(clientId ? { clientId } : undefined),
         CoreApi.listVehicles(vehiclesParams),
       ]);
@@ -440,18 +800,57 @@ export default function Devices() {
   }, [initializedFromSearch, location.search]);
 
   useEffect(() => {
+    if (!isEditorRoute) {
+      syncingTabFromQueryRef.current = false;
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    const queryTab = normalizeEditorTab(params.get("tab"));
+    setDrawerTab((current) => {
+      if (current === queryTab) {
+        syncingTabFromQueryRef.current = false;
+        return current;
+      }
+      syncingTabFromQueryRef.current = true;
+      return queryTab;
+    });
+  }, [isEditorRoute, location.search]);
+
+  useEffect(() => {
     if (!initializedFromSearch) return;
+    const currentPath = `${location.pathname}${location.search}`;
+    if (pendingQueryNavigateRef.current && pendingQueryNavigateRef.current === currentPath) {
+      pendingQueryNavigateRef.current = null;
+    }
+  }, [initializedFromSearch, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!initializedFromSearch) return;
+    if (isEditorRoute && syncingTabFromQueryRef.current) return;
     const params = new URLSearchParams(location.search);
     if (filters.link === "all") {
       params.delete("link");
     } else {
       params.set("link", filters.link);
     }
-    const nextSearch = params.toString() ? `?${params.toString()}` : "";
-    if (nextSearch !== location.search) {
-      navigate({ search: nextSearch }, { replace: true });
+    if (isEditorRoute) {
+      const nextTab = normalizeEditorTab(drawerTab);
+      if (nextTab === "geral") {
+        params.delete("tab");
+      } else {
+        params.set("tab", nextTab);
+      }
+    } else {
+      params.delete("tab");
     }
-  }, [filters.link, initializedFromSearch, location.search, navigate]);
+    const nextSearch = params.toString() ? `?${params.toString()}` : "";
+    const currentPath = `${location.pathname}${location.search}`;
+    const nextPath = `${location.pathname}${nextSearch}`;
+    if (nextPath === currentPath) return;
+    if (pendingQueryNavigateRef.current === nextPath) return;
+    pendingQueryNavigateRef.current = nextPath;
+    navigate({ pathname: location.pathname, search: nextSearch }, { replace: true });
+  }, [drawerTab, filters.link, initializedFromSearch, isEditorRoute, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -575,6 +974,118 @@ export default function Devices() {
     },
     [resolvedClientId],
   );
+  const editingDevice = useMemo(
+    () => (editingId ? devices.find((item) => String(item.id) === String(editingId)) : null),
+    [devices, editingId],
+  );
+
+  const selectedModel = deviceForm.modelId ? modeloById.get(String(deviceForm.modelId)) : null;
+  const internalCodePreview = useMemo(() => {
+    if (deviceForm.internalCode) return String(deviceForm.internalCode).trim();
+    return selectedModel?.nextInternalCode || "";
+  }, [deviceForm.internalCode, selectedModel]);
+
+  useEffect(() => {
+    const modelId = String(deviceForm.modelId || "").trim();
+    const shouldHydrateInternalCodeField = Boolean(editingId);
+    const persistedCode = editingDevice?.attributes?.internalCode || editingDevice?.internalCode || "";
+    const currentCode = String(deviceForm.internalCode || "").trim();
+    const shouldSkipAutofill =
+      shouldHydrateInternalCodeField && Boolean(currentCode || persistedCode || internalCodeTouchedRef.current);
+    if (!modelId || shouldSkipAutofill) {
+      setInternalCodePreviewLoading(false);
+      setInternalCodePreviewError(null);
+      return;
+    }
+
+    const previewFromModel = String(selectedModel?.nextInternalCode || "").trim();
+    if (previewFromModel) {
+      setInternalCodePreviewLoading(false);
+      setInternalCodePreviewError(null);
+      if (shouldHydrateInternalCodeField) {
+        setDeviceForm((current) => {
+          if (String(current.internalCode || "").trim()) return current;
+          return { ...current, internalCode: previewFromModel };
+        });
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setInternalCodePreviewLoading(true);
+    setInternalCodePreviewError(null);
+
+    CoreApi.getModel(modelId, resolvedClientId ? { clientId: resolvedClientId } : undefined)
+      .then((response) => {
+        if (cancelled) return;
+        const modelData = response?.model || null;
+        if (modelData?.id) {
+          setModels((current) => {
+            const list = Array.isArray(current) ? [...current] : [];
+            const index = list.findIndex((item) => String(item?.id) === String(modelData.id));
+            if (index >= 0) {
+              list[index] = { ...list[index], ...modelData };
+            } else {
+              list.push(modelData);
+            }
+            return list;
+          });
+        }
+        const generated = String(modelData?.nextInternalCode || "").trim();
+        if (!generated) {
+          setInternalCodePreviewError("Não foi possível gerar o código interno.");
+          return;
+        }
+        if (shouldHydrateInternalCodeField) {
+          setDeviceForm((current) => {
+            if (String(current.internalCode || "").trim() || internalCodeTouchedRef.current) return current;
+            return { ...current, internalCode: generated };
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInternalCodePreviewError("Não foi possível gerar o código interno.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setInternalCodePreviewLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    deviceForm.internalCode,
+    deviceForm.modelId,
+    editingDevice?.attributes?.internalCode,
+    editingDevice?.internalCode,
+    editingId,
+    internalCodePreviewRetryKey,
+    resolvedClientId,
+    selectedModel?.nextInternalCode,
+  ]);
+  const portSummary = useMemo(() => {
+    if (!selectedModel) return "—";
+    const counts = normalizePortCounts(selectedModel?.portCounts, selectedModel?.ports);
+    const entries = Object.entries(counts).filter(([, value]) => Number(value) > 0);
+    if (!entries.length) return "—";
+    const labelMap = {
+      di: "DI",
+      do: "DO",
+      rs232: "RS232",
+      rs485: "RS485",
+      can: "CAN",
+      lora: "LoRa",
+      wifi: "Wi-Fi",
+      bluetooth: "BT",
+    };
+    return entries
+      .map(([key, value]) => `${labelMap[key] || key.toUpperCase()}: ${value}`)
+      .join(" · ");
+  }, [selectedModel]);
 
   const chipOptions = useMemo(() => {
     return chips.map((chip) => ({
@@ -603,10 +1114,62 @@ export default function Devices() {
   const vehicleById = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
-      if (vehicle?.id) map.set(vehicle.id, vehicle);
+      if (vehicle?.id) map.set(String(vehicle.id), vehicle);
     });
     return map;
   }, [vehicles]);
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    const register = (vehicle, device) => {
+      if (!vehicle || !device) return;
+      const candidates = [
+        device.id,
+        device.deviceId,
+        device.uniqueId,
+        device.internalId,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value));
+      candidates.forEach((key) => {
+        if (!map.has(key)) map.set(key, vehicle);
+      });
+    };
+    vehicles.forEach((vehicle) => {
+      if (vehicle?.deviceId) {
+        const key = String(vehicle.deviceId);
+        if (!map.has(key)) map.set(key, vehicle);
+      }
+      if (vehicle?.device) register(vehicle, vehicle.device);
+      if (Array.isArray(vehicle?.devices)) {
+        vehicle.devices.forEach((device) => register(vehicle, device));
+      }
+    });
+    return map;
+  }, [vehicles]);
+
+  const resolveLinkedVehicle = useCallback(
+    (device) => {
+      if (!device) return null;
+      const directId = device.vehicleId || device.vehicle?.id || device.vehicle_id || null;
+      if (directId && vehicleById.has(String(directId))) {
+        return vehicleById.get(String(directId));
+      }
+      const candidates = [
+        device.id,
+        device.deviceId,
+        device.uniqueId,
+        device.internalId,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value));
+      for (const key of candidates) {
+        const linked = vehicleByDeviceId.get(key);
+        if (linked) return linked;
+      }
+      return device.vehicle || null;
+    },
+    [vehicleByDeviceId, vehicleById],
+  );
   const loadChipOptions = useCallback(
     async ({ query, page, pageSize }) => {
       const response = await CoreApi.searchChips({
@@ -659,6 +1222,110 @@ export default function Devices() {
     });
     return map;
   }, [devices, positionMap]);
+  const editingPosition = useMemo(() => {
+    if (!editingDevice) return null;
+    return latestPositionByDevice.get(deviceKey(editingDevice)) || null;
+  }, [editingDevice, latestPositionByDevice]);
+  const portList = useMemo(
+    () =>
+      buildPortList({
+        model: selectedModel,
+        telemetry: editingPosition?.attributes || {},
+        deviceLabels: deviceForm.portLabels || {},
+      }),
+    [deviceForm.portLabels, editingPosition?.attributes, selectedModel],
+  );
+  const deviceConditionHistory = useMemo(() => {
+    const list = Array.isArray(editingDevice?.attributes?.conditions) ? editingDevice.attributes.conditions : [];
+    return [...list].sort((left, right) => {
+      const leftTime = Date.parse(left?.createdAt || left?.date || left?.at || 0) || 0;
+      const rightTime = Date.parse(right?.createdAt || right?.date || right?.at || 0) || 0;
+      return rightTime - leftTime;
+    });
+  }, [editingDevice?.attributes?.conditions]);
+
+  const normalizedDeviceHistoryRows = useMemo(
+    () =>
+      (Array.isArray(deviceHistoryRows) ? deviceHistoryRows : []).map((entry, index) => {
+        const movementMeta = resolveEquipmentMovementMeta(entry?.type);
+        const fallbackTitle = movementMeta.known ? movementMeta.label : "Movimentação";
+        const rawTitle = String(entry?.title || "").trim();
+        const title = rawTitle && rawTitle.toLowerCase() !== String(entry?.type || "").toLowerCase() ? rawTitle : fallbackTitle;
+        return {
+          id: entry?.id || `history-${index}`,
+          date: entry?.date || null,
+          title,
+          movementCode: movementMeta.code,
+          movementKnown: movementMeta.known,
+          movementLabel: movementMeta.label,
+          responsible: sanitizeHistoryResponsible(entry?.responsible),
+          origin: sanitizeHistoryDisplayValue(entry?.origin),
+          destination: sanitizeHistoryDisplayValue(entry?.destination),
+          reference: sanitizeHistoryDisplayValue(entry?.reference),
+          status: sanitizeHistoryDisplayValue(entry?.status),
+          vehicle: sanitizeHistoryDisplayValue(entry?.vehicle),
+          notes: sanitizeHistoryDisplayValue(entry?.notes),
+        };
+      }),
+    [deviceHistoryRows],
+  );
+
+  useEffect(() => {
+    if (!isEditorRoute) {
+      editorRouteInitRef.current = "";
+      return;
+    }
+    const routeKey = isNewRoute ? "new" : `edit:${routeDeviceId || ""}`;
+    if (editorRouteInitRef.current === routeKey) return;
+
+    const queryTab = normalizeEditorTab(new URLSearchParams(location.search).get("tab"));
+
+    if (isNewRoute) {
+      resetDeviceForm();
+      setDrawerTab(queryTab);
+      setShowDeviceDrawer(false);
+      editorRouteInitRef.current = routeKey;
+      return;
+    }
+
+    if (loading) return;
+    const match = devices.find((item) => String(item.id) === String(routeDeviceId || ""));
+    if (!match) {
+      showToast("Equipamento não encontrado.", "error");
+      navigate(listPath, { replace: true });
+      return;
+    }
+    fillDeviceForm(match);
+    setDrawerTab(queryTab);
+    setShowDeviceDrawer(false);
+    editorRouteInitRef.current = routeKey;
+  }, [devices, isEditorRoute, isNewRoute, listPath, loading, location.search, navigate, routeDeviceId]);
+
+  const loadDeviceHistory = useCallback(async () => {
+    if (!editingId) return;
+    setDeviceHistoryLoading(true);
+    setDeviceHistoryError("");
+    try {
+      const scopedClientId = resolveWriteClientId(editingDevice?.clientId, resolvedClientId) || undefined;
+      const response = await CoreApi.getDeviceHistory(editingId, scopedClientId ? { clientId: scopedClientId } : undefined);
+      setDeviceHistoryRows(Array.isArray(response?.items) ? response.items : []);
+    } catch (historyError) {
+      setDeviceHistoryRows([]);
+      setDeviceHistoryError(historyError?.message || "Falha ao carregar histórico do equipamento.");
+    } finally {
+      setDeviceHistoryLoading(false);
+    }
+  }, [editingDevice?.clientId, editingId, resolveWriteClientId, resolvedClientId]);
+
+  useEffect(() => {
+    if (!editingId || drawerTab !== "historico") {
+      setDeviceHistoryRows([]);
+      setDeviceHistoryError("");
+      setDeviceHistoryLoading(false);
+      return;
+    }
+    void loadDeviceHistory();
+  }, [drawerTab, editingId, loadDeviceHistory]);
 
 
   function relativeTimeFromNow(timestamp) {
@@ -688,12 +1355,12 @@ export default function Devices() {
   function formatWarranty(device) {
     const attrs = device?.attributes || {};
     let warrantyEnd = attrs.warrantyEndDate || attrs.warrantyUntil || attrs.warrantyDate || null;
+    const origin = attrs.warrantyOrigin || "production";
+    const start =
+      origin === "installation"
+        ? attrs.installationDate || attrs.warrantyStartDate || null
+        : attrs.productionDate || attrs.warrantyStartDate || null;
     if (!warrantyEnd) {
-      const origin = attrs.warrantyOrigin || "production";
-      const start =
-        origin === "installation"
-          ? attrs.installationDate || attrs.warrantyStartDate || null
-          : attrs.productionDate || attrs.warrantyStartDate || null;
       const days = Number(attrs.warrantyDays);
       if (start && Number.isFinite(days) && days > 0) {
         const parsed = new Date(start);
@@ -704,10 +1371,32 @@ export default function Devices() {
         }
       }
     }
-    if (!warrantyEnd) return "—";
-    const parsed = new Date(warrantyEnd);
-    if (Number.isNaN(parsed.getTime())) return String(warrantyEnd);
-    return parsed.toLocaleDateString("pt-BR");
+    const startLabel = origin === "installation" ? "Instalação" : "Produção";
+    const startValue = start ? formatDate(start) : null;
+    const endValue = warrantyEnd ? formatDate(warrantyEnd) : null;
+    if (startValue && endValue) {
+      return `${startLabel}: ${startValue} · Fim: ${endValue}`;
+    }
+    if (startValue) return `${startLabel}: ${startValue}`;
+    if (endValue) return `Fim: ${endValue}`;
+    return "—";
+  }
+
+  function formatLastServiceDate(value) {
+    if (!value) return "—";
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed) || Number.isNaN(parsed)) return "—";
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(parsed));
+  }
+
+  function formatOwnershipType(device) {
+    const raw = String(device?.ownershipType || device?.attributes?.ownershipType || "COMODATO")
+      .trim()
+      .toUpperCase();
+    return raw === "VENDA" ? "Venda" : "Comodato";
   }
 
   function latestTelemetry(device) {
@@ -753,7 +1442,7 @@ export default function Devices() {
     const term = query.trim().toLowerCase();
     return devices.filter((device) => {
       const chip = chipById.get(device.chipId) || device.chip;
-      const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
+      const vehicle = resolveLinkedVehicle(device);
       const deviceModelId = device.modelId || device.attributes?.modelId;
       const model = deviceModelId ? modeloById.get(String(deviceModelId)) : null;
 
@@ -776,8 +1465,9 @@ export default function Devices() {
         if (!matches) return false;
       }
 
-      if (filters.link === "linked" && !device.vehicleId && !device.vehicle) return false;
-      if (filters.link === "unlinked" && (device.vehicleId || device.vehicle)) return false;
+      const isLinked = Boolean(vehicle || device.vehicleId || device.vehicle);
+      if (filters.link === "linked" && !isLinked) return false;
+      if (filters.link === "unlinked" && isLinked) return false;
 
     if (filters.model && String(deviceModelId || "") !== String(filters.model)) return false;
 
@@ -788,7 +1478,7 @@ export default function Devices() {
 
       return true;
     });
-  }, [chipById, devices, filters.link, filters.model, filters.status, modeloById, query, vehicleById]);
+  }, [chipById, devices, filters.link, filters.model, filters.status, modeloById, query, resolveLinkedVehicle]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -973,36 +1663,44 @@ export default function Devices() {
   }
 
   function resetDeviceForm() {
+    internalCodeTouchedRef.current = false;
+    setInternalCodePreviewError(null);
+    setInternalCodePreviewLoading(false);
+    setInternalCodePreviewRetryKey(0);
     setDeviceForm({
       name: "",
       uniqueId: "",
       modelId: "",
       internalCode: "",
       gprsCommunication: true,
-      condition: "",
+      equipmentStatus: "ESTOQUE NOVO",
       chipId: "",
       vehicleId: "",
+      portLabels: {},
       productionDate: "",
       installationDate: "",
       warrantyOrigin: "production",
       warrantyDays: "",
       warrantyEndDate: "",
     });
+    setConditionDraft({
+      condition: "Novo",
+      date: toLocalInputDateTime(new Date()),
+      note: "",
+    });
     setEditingId(null);
   }
 
   async function handleSaveDevice(event) {
-    event.preventDefault();
+    event?.preventDefault?.();
     if (!deviceForm.uniqueId.trim()) {
       showToast("Informe o IMEI / uniqueId", "error");
       return;
     }
-    const warrantyOrigin = deviceForm.warrantyOrigin || "production";
-    const hasWarrantyDates = Boolean(deviceForm.productionDate || deviceForm.installationDate);
+    const hasManualWarrantyBase = Boolean(deviceForm.productionDate);
     const warrantyDaysValue = deviceForm.warrantyDays === "" ? null : Number(deviceForm.warrantyDays);
-    const startDate =
-      warrantyOrigin === "installation" ? deviceForm.installationDate : deviceForm.productionDate;
-    if (hasWarrantyDates && (!Number.isFinite(warrantyDaysValue) || warrantyDaysValue <= 0)) {
+    const startDate = deviceForm.productionDate || deviceForm.installationDate;
+    if (hasManualWarrantyBase && (!Number.isFinite(warrantyDaysValue) || warrantyDaysValue <= 0)) {
       showToast("Informe os dias de garantia para calcular o fim da garantia.", "error");
       return;
     }
@@ -1014,22 +1712,32 @@ export default function Devices() {
       showToast("Data fim da garantia não pode ficar vazia.", "error");
       return;
     }
+    if (deviceForm.warrantyEndDate && startDate) {
+      const startMs = Date.parse(startDate);
+      const endMs = Date.parse(deviceForm.warrantyEndDate);
+      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs < startMs) {
+        showToast("Data fim da garantia deve ser igual ou posterior à data base.", "error");
+        return;
+      }
+    }
     const currentDevice = editingId ? devices.find((item) => String(item.id) === String(editingId)) : null;
-    const clientId = tenantId || user?.clientId || currentDevice?.clientId || "";
+    const clientId = resolveWriteClientId(currentDevice?.clientId, resolvedClientId);
     if (!clientId) {
       showToast("Selecione um cliente para salvar o equipamento", "error");
       return;
     }
     setSavingDevice(true);
     try {
+      let createdResponse = null;
       const warrantyPayload = {};
       if (deviceForm.productionDate) warrantyPayload.productionDate = deviceForm.productionDate;
-      if (deviceForm.installationDate) warrantyPayload.installationDate = deviceForm.installationDate;
-      if (deviceForm.warrantyOrigin) warrantyPayload.warrantyOrigin = deviceForm.warrantyOrigin;
       if (deviceForm.warrantyDays !== "") warrantyPayload.warrantyDays = Number(deviceForm.warrantyDays) || 0;
       if (deviceForm.warrantyEndDate) warrantyPayload.warrantyEndDate = deviceForm.warrantyEndDate;
-      if (deviceForm.internalCode) warrantyPayload.internalCode = deviceForm.internalCode;
-      if (deviceForm.condition) warrantyPayload.condition = deviceForm.condition;
+      const resolvedInternalCode = String(deviceForm.internalCode || "").trim();
+      if (editingId && resolvedInternalCode) warrantyPayload.internalCode = resolvedInternalCode;
+      if (deviceForm.portLabels && Object.keys(deviceForm.portLabels).length) {
+        warrantyPayload.portLabels = deviceForm.portLabels;
+      }
       warrantyPayload.gprsCommunication = Boolean(deviceForm.gprsCommunication);
       const payload = {
         name: deviceForm.name?.trim() || undefined,
@@ -1037,9 +1745,9 @@ export default function Devices() {
         modelId: deviceForm.modelId || undefined,
         chipId: deviceForm.chipId || undefined,
         vehicleId: deviceForm.vehicleId || undefined,
+        equipmentStatus: normalizeEquipmentStatusValue(deviceForm.equipmentStatus),
         gprsCommunication: deviceForm.gprsCommunication,
-        condition: deviceForm.condition || undefined,
-        internalCode: deviceForm.internalCode || undefined,
+        internalCode: editingId ? resolvedInternalCode || undefined : undefined,
         clientId,
         attributes: Object.keys(warrantyPayload).length ? warrantyPayload : undefined,
       };
@@ -1047,8 +1755,8 @@ export default function Devices() {
         await CoreApi.updateDevice(editingId, payload);
         showToast("Equipamento atualizado com sucesso", "success");
       } else {
-        const response = await CoreApi.createDevice(payload);
-        const upserted = response?.device && response?.upserted;
+        createdResponse = await CoreApi.createDevice(payload);
+        const upserted = createdResponse?.device && createdResponse?.upserted;
         if (upserted) {
           showToast("Equipamento já existia e foi sincronizado com sucesso.", "success");
         } else {
@@ -1056,9 +1764,20 @@ export default function Devices() {
         }
       }
       await load();
-      resetDeviceForm();
-      setShowDeviceDrawer(false);
-      setDrawerTab("geral");
+      if (isEditorRoute) {
+        if (!editingId) {
+          const createdId = createdResponse?.device?.id || createdResponse?.id || null;
+          if (createdId) {
+            navigate(`${listPath}/${createdId}/edit`, { replace: true });
+          } else {
+            navigate(listPath, { replace: true });
+          }
+        }
+      } else {
+        resetDeviceForm();
+        setShowDeviceDrawer(false);
+        setDrawerTab("geral");
+      }
     } catch (requestError) {
       const isConflict = requestError?.response?.status === 409;
       const code = requestError?.response?.data?.code;
@@ -1070,7 +1789,9 @@ export default function Devices() {
             item.id === existingId ||
             (item.uniqueId && uniqueId && String(item.uniqueId).toLowerCase() === uniqueId.toLowerCase()),
         );
-        setShowDeviceDrawer(false);
+        if (!isEditorRoute) {
+          setShowDeviceDrawer(false);
+        }
         setConflictDevice({
           uniqueId,
           deviceId: match?.id || existingId || null,
@@ -1080,6 +1801,73 @@ export default function Devices() {
       }
 
       showToast(requestError?.message || "Falha ao salvar equipamento", "error");
+    } finally {
+      setSavingDevice(false);
+    }
+  }
+
+  async function handleSavePortLabels() {
+    if (!editingId) return;
+    const currentDevice = devices.find((item) => String(item.id) === String(editingId));
+    const clientId = resolveWriteClientId(currentDevice?.clientId, resolvedClientId);
+    if (!clientId) {
+      showToast("Selecione um cliente para salvar as portas", "error");
+      return;
+    }
+    setSavingPorts(true);
+    try {
+      await CoreApi.updateDevice(editingId, {
+        clientId,
+        attributes: { portLabels: deviceForm.portLabels || {} },
+      });
+      await load();
+      showToast("Portas atualizadas com sucesso", "success");
+    } catch (requestError) {
+      showToast("Falha ao salvar portas", "error");
+    } finally {
+      setSavingPorts(false);
+    }
+  }
+
+  async function handleAddDeviceCondition() {
+    if (!editingId) return;
+    const currentDevice = devices.find((item) => String(item.id) === String(editingId));
+    const clientId = resolveWriteClientId(currentDevice?.clientId, resolvedClientId);
+    if (!clientId) {
+      showToast("Selecione um cliente para salvar a condição", "error");
+      return;
+    }
+    const conditionValue = String(conditionDraft.condition || "").trim();
+    if (!conditionValue) {
+      showToast("Selecione uma condição válida", "error");
+      return;
+    }
+    const createdAt = conditionDraft.date ? new Date(conditionDraft.date).toISOString() : new Date().toISOString();
+    const nextEntry = {
+      id: crypto.randomUUID(),
+      condition: conditionValue,
+      note: String(conditionDraft.note || "").trim(),
+      createdAt,
+      source: "manual",
+    };
+    const existing = Array.isArray(currentDevice?.attributes?.conditions) ? currentDevice.attributes.conditions : [];
+    const nextConditions = [nextEntry, ...existing];
+
+    setSavingDevice(true);
+    try {
+      await CoreApi.updateDevice(editingId, {
+        clientId,
+        attributes: { conditions: nextConditions },
+      });
+      await load();
+      setConditionDraft({
+        condition: conditionValue,
+        date: toLocalInputDateTime(new Date()),
+        note: "",
+      });
+      showToast("Condição registrada com sucesso", "success");
+    } catch (requestError) {
+      showToast(requestError?.message || "Falha ao registrar condição", "error");
     } finally {
       setSavingDevice(false);
     }
@@ -1205,7 +1993,7 @@ export default function Devices() {
       showToast("Selecione um modelo para o cadastro em massa.", "error");
       return;
     }
-    const clientId = tenantId || user?.clientId || "";
+    const clientId = resolveWriteClientId(resolvedClientId);
     if (!clientId) {
       showToast("Selecione um cliente para salvar os equipamentos", "error");
       return;
@@ -1241,7 +2029,7 @@ export default function Devices() {
   async function handleDeleteDevice(id) {
     if (!id) return;
     if (!isAdminGeneral) return;
-    const clientId = tenantId || user?.clientId || "";
+    const clientId = resolveWriteClientId(resolvedClientId);
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
       return;
@@ -1266,7 +2054,7 @@ export default function Devices() {
   async function handleDeleteConflictDevice() {
     if (!conflictDevice?.deviceId) return;
     if (!isAdminGeneral) return;
-    const clientId = tenantId || user?.clientId || "";
+    const clientId = resolveWriteClientId(resolvedClientId);
     if (!clientId) {
       showToast("Selecione um cliente para remover o equipamento", "error");
       return;
@@ -1290,9 +2078,15 @@ export default function Devices() {
     });
   }
 
-  function openEditDevice(device) {
+  function fillDeviceForm(device) {
     const installationDate = device.attributes?.installationDate || device.attributes?.warrantyStartDate || "";
     const warrantyOrigin = device.attributes?.warrantyOrigin || "production";
+    const history = Array.isArray(device?.attributes?.conditions) ? device.attributes.conditions : [];
+    const latestCondition = [...history].sort((left, right) => {
+      const leftTime = Date.parse(left?.createdAt || left?.date || left?.at || 0) || 0;
+      const rightTime = Date.parse(right?.createdAt || right?.date || right?.at || 0) || 0;
+      return rightTime - leftTime;
+    })[0];
     setEditingId(device.id);
     setDeviceForm({
       name: device.name || "",
@@ -1300,17 +2094,33 @@ export default function Devices() {
       modelId: device.modelId || device.attributes?.modelId ? String(device.modelId || device.attributes?.modelId) : "",
       internalCode: device.attributes?.internalCode || "",
       gprsCommunication: device.attributes?.gprsCommunication !== false,
-      condition: device.attributes?.condition || "",
+      equipmentStatus: normalizeEquipmentStatusValue(
+        device.equipmentStatus || device.status || device.attributes?.equipmentStatus,
+      ),
       chipId: device.chipId || "",
       vehicleId: device.vehicleId || "",
+      portLabels: device.attributes?.portLabels || {},
       productionDate: device.attributes?.productionDate || "",
       installationDate,
       warrantyOrigin,
       warrantyDays: device.attributes?.warrantyDays ?? "",
       warrantyEndDate: device.attributes?.warrantyEndDate || "",
     });
+    setConditionDraft({
+      condition: latestCondition?.condition || device.attributes?.condition || "Novo",
+      date: toLocalInputDateTime(new Date()),
+      note: "",
+    });
     setDrawerTab("geral");
-    setShowDeviceDrawer(true);
+    setInternalCodePreviewError(null);
+    setInternalCodePreviewLoading(false);
+    setInternalCodePreviewRetryKey(0);
+    internalCodeTouchedRef.current = false;
+  }
+
+  function openEditDevice(device) {
+    if (!device?.id) return;
+    navigate(`${listPath}/${device.id}/edit`);
   }
 
   function handleGoToExistingDevice() {
@@ -1322,7 +2132,7 @@ export default function Devices() {
           String(item.uniqueId).toLowerCase() === conflictDevice.uniqueId.toLowerCase()),
     );
     if (match) {
-      openEditDevice(match);
+      navigate(`${listPath}/${match.id}/edit`);
     } else {
       void load();
     }
@@ -1364,7 +2174,12 @@ export default function Devices() {
     }
     try {
       const vehicle = vehicles.find((item) => String(item.id) === String(linkVehicleId));
-      const targetClientId = vehicle?.clientId || targetDevice?.clientId || tenantId || user?.clientId || "";
+      const alreadyLinked = resolveLinkedVehicle(targetDevice);
+      if (alreadyLinked && String(alreadyLinked.id) === String(linkVehicleId)) {
+        showToast("Equipamento já está vinculado a este veículo.", "info");
+        return;
+      }
+      const targetClientId = resolveWriteClientId(vehicle?.clientId, targetDevice?.clientId, resolvedClientId);
       if (!targetClientId) {
         showToast("Selecione um cliente antes de vincular", "error");
         return;
@@ -1380,6 +2195,13 @@ export default function Devices() {
         });
       }
       await CoreApi.linkDeviceToVehicle(linkVehicleId, targetDevice.id, { clientId: targetClientId });
+      setDevices((current) =>
+        current.map((item) =>
+          String(item.id) === String(targetDevice.id)
+            ? { ...item, vehicleId: linkVehicleId, vehicle }
+            : item,
+        ),
+      );
       await load();
       setLinkTarget(null);
       setLinkVehicleId("");
@@ -1397,7 +2219,7 @@ export default function Devices() {
       return;
     }
     try {
-      const clientId = tenantId || user?.clientId || linkTarget?.clientId || null;
+      const clientId = resolveWriteClientId(resolvedClientId, linkTarget?.clientId);
       if (!clientId) {
         showToast("Selecione um cliente para criar veículo", "error");
         return;
@@ -1421,16 +2243,27 @@ export default function Devices() {
     }
   }
 
-  async function handleUnlinkFromVehicle(device) {
-    if (!device?.vehicleId) return;
+  async function handleUnlinkFromVehicle(device, linkedVehicle = null) {
+    const resolvedVehicleId = device?.vehicleId || linkedVehicle?.id || device?.vehicle?.id || null;
+    if (!resolvedVehicleId) return;
     try {
-      const vehicle = vehicles.find((item) => String(item.id) === String(device.vehicleId)) || device.vehicle;
-      const targetClientId = vehicle?.clientId || device?.clientId || tenantId || user?.clientId || "";
+      const vehicle =
+        linkedVehicle ||
+        vehicles.find((item) => String(item.id) === String(resolvedVehicleId)) ||
+        device.vehicle;
+      const targetClientId = resolveWriteClientId(vehicle?.clientId, device?.clientId, resolvedClientId);
       if (!targetClientId) {
         showToast("Selecione um cliente antes de desvincular", "error");
         return;
       }
-      await CoreApi.unlinkDeviceFromVehicle(device.vehicleId, device.id, { clientId: targetClientId });
+      await CoreApi.unlinkDeviceFromVehicle(resolvedVehicleId, device.id, { clientId: targetClientId });
+      setDevices((current) =>
+        current.map((item) =>
+          String(item.id) === String(device.id)
+            ? { ...item, vehicleId: null, vehicle: null }
+            : item,
+        ),
+      );
       await load();
       showToast("Equipamento desvinculado do veículo", "success");
     } catch (requestError) {
@@ -1445,7 +2278,7 @@ export default function Devices() {
       message: "Desvincular chip deste equipamento?",
       confirmLabel: "Desvincular",
       onConfirm: async () => {
-        const clientId = device?.clientId || tenantId || user?.clientId || "";
+        const clientId = resolveWriteClientId(device?.clientId, resolvedClientId);
         if (!clientId) {
           showToast("Selecione um cliente antes de desvincular", "error");
           return;
@@ -1457,15 +2290,13 @@ export default function Devices() {
     });
   }
 
-  async function handleSyncDevices() {
-    const clientId = tenantId || user?.clientId || null;
+  async function handleRefreshDevices() {
     setSyncing(true);
     try {
-      await CoreApi.syncDevicesFromTraccar(clientId ? { clientId } : undefined);
       await load();
-      showToast("Sincronização com o Traccar iniciada", "success");
+      showToast("Lista atualizada com sucesso", "success");
     } catch (requestError) {
-      showToast(requestError?.message || "Falha ao sincronizar com o Traccar", "error");
+      showToast(requestError?.message || "Falha ao atualizar lista", "error");
     } finally {
       setSyncing(false);
     }
@@ -1476,6 +2307,8 @@ export default function Devices() {
     const headers = [
       "Nome",
       "IMEI",
+      "Código interno",
+      "Cliente",
       "Status",
       "Última comunicação",
       "Última posição",
@@ -1488,12 +2321,20 @@ export default function Devices() {
     const rows = filteredDevices.map((device) => {
       const meta = statusMeta(device);
       const chip = chipById.get(device.chipId) || device.chip;
-      const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
+      const vehicle = vehicleById.get(String(device.vehicleId)) || device.vehicle;
+      const clientLabel =
+        device?.clientName ||
+        device?.client?.name ||
+        vehicle?.clientName ||
+        vehicle?.client?.name ||
+        "";
       const deviceModelId = device.modelId || device.attributes?.modelId;
       const model = deviceModelId ? modeloById.get(String(deviceModelId)) || {} : {};
       return [
         device.name || "",
         device.uniqueId || "",
+        device.attributes?.internalCode || device.internalCode || "",
+        clientLabel,
         meta.label,
         formatLastCommunication(device),
         formatPosition(device),
@@ -1524,10 +2365,47 @@ export default function Devices() {
     navigate("/monitoring", { state: { focusDeviceId } });
   }
 
-  const tableColCount = 8;
+  const closeDeviceEditor = useCallback(() => {
+    if (isEditorRoute) {
+      navigate(listPath);
+      return;
+    }
+    setShowDeviceDrawer(false);
+  }, [isEditorRoute, listPath, navigate]);
+
+  const openNewDeviceEditor = useCallback(() => {
+    resetDeviceForm();
+    setDrawerTab("geral");
+    navigate(`${listPath}/new`);
+  }, [listPath, navigate]);
+
+  const visibleColumns = useMemo(
+    () => DEVICE_TABLE_COLUMNS.filter((column) => columnVisibility[column.key]),
+    [columnVisibility],
+  );
+  const tableColCount = Math.max(1, visibleColumns.length);
+
+  const toggleColumnVisibilityDraft = useCallback((columnKey) => {
+    if (NON_TOGGLABLE_DEVICE_COLUMNS.has(columnKey)) return;
+    setColumnVisibilityDraft((current) => {
+      const enabledCount = DEVICE_TABLE_COLUMNS.reduce((count, column) => count + (current[column.key] ? 1 : 0), 0);
+      if (current[columnKey] && enabledCount <= 1) return current;
+      return normalizeDeviceColumnVisibility({ ...current, [columnKey]: !current[columnKey] });
+    });
+  }, []);
+
+  const restoreDefaultColumns = useCallback(() => {
+    const defaults = normalizeDeviceColumnVisibility(DEFAULT_DEVICE_COLUMN_VISIBILITY);
+    setColumnVisibilityDraft(defaults);
+  }, []);
+
+  const applyColumnVisibility = useCallback(() => {
+    setColumnVisibility(normalizeDeviceColumnVisibility(columnVisibilityDraft));
+    setShowColumnsMenu(false);
+  }, [columnVisibilityDraft]);
 
   const toastClassName =
-    "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
+    "fixed right-4 top-20 z-[12000] rounded-lg border px-4 py-3 text-sm shadow-lg " +
     (toast?.type === "error"
       ? "border-red-500/40 bg-red-500/20 text-red-50"
       : toast?.type === "warning"
@@ -1536,270 +2414,444 @@ export default function Devices() {
 
   if ((forbidden || (!devicesPermission.loading && !devicesPermission.hasAccess)) && !devicesPermission.loading) {
     return (
-      <div className="flex min-h-[calc(100vh-180px)] items-center justify-center">
+      <div className="flex min-h-[320px] items-center justify-center">
         <DataState state="info" tone="muted" title="Sem permissão para acessar equipamentos" />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+    <div className="flex min-h-0 flex-col gap-6">
       {toast && <div className={toastClassName}>{toast.message}</div>}
 
       <PageHeader
-        overline="Central de equipamentos"
-        title="Equipamentos"
-        subtitle="Gestão, vínculo e status dos equipamentos."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleSyncDevices}
-              disabled={syncing}
-              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
-            >
-              <span className="inline-flex items-center gap-2">
-                <RefreshCw className="h-4 w-4" />
-                {syncing ? "Atualizando…" : "Atualizar"}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                resetDeviceForm();
-                setEditingId(null);
-                setDrawerTab("geral");
-                setShowDeviceDrawer(true);
-              }}
-              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Novo equipamento
-              </span>
-            </button>
-          </div>
+          isEditorRoute ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={closeDeviceEditor}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+              >
+                {isNewRoute ? "Cancelar" : "Voltar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSaveDevice();
+                }}
+                disabled={savingDevice || drawerTab === "massa" || drawerTab === "acoes" || drawerTab === "historico"}
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-60"
+              >
+                {savingDevice ? "Salvando..." : editingId ? "Atualizar" : "Salvar"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRefreshDevices}
+                disabled={syncing}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  {syncing ? "Atualizando…" : "Atualizar"}
+                </span>
+              </button>
+              {!isTechnician ? (
+                <>
+                  {!isServiceStockGlobalProfile ? (
+                    <div ref={columnMenuRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowColumnsMenu((current) => !current)}
+                        className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white transition hover:border-white/30 hover:bg-white/15"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <SlidersHorizontal className="h-4 w-4" />
+                          Colunas
+                        </span>
+                      </button>
+                      {showColumnsMenu && (
+                        <div className="absolute right-0 top-full z-30 mt-2 w-72 rounded-none border border-white/10 bg-[#121926] p-3 shadow-2xl">
+                          <div className="mb-2 text-xs uppercase tracking-[0.1em] text-white/60">Mostrar/Ocultar</div>
+                          <div className="space-y-2">
+                            {DEVICE_TABLE_COLUMNS.map((column) => {
+                              const checked = Boolean(columnVisibilityDraft[column.key]);
+                              const enabledCount = DEVICE_TABLE_COLUMNS.reduce((count, item) => {
+                                return count + (columnVisibilityDraft[item.key] ? 1 : 0);
+                              }, 0);
+                              const locked = NON_TOGGLABLE_DEVICE_COLUMNS.has(column.key);
+                              return (
+                                <label key={column.key} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={locked || (checked && enabledCount <= 1)}
+                                    onChange={() => toggleColumnVisibilityDraft(column.key)}
+                                    className="h-4 w-4 rounded border-white/30 bg-transparent"
+                                  />
+                                  <span>
+                                    {column.label}
+                                    {locked ? " (fixa)" : ""}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-3 flex items-center justify-end gap-2 border-t border-white/10 pt-3">
+                            <button
+                              type="button"
+                              onClick={restoreDefaultColumns}
+                              className="rounded-none border border-white/20 px-3 py-1.5 text-xs text-white/80 transition hover:border-white/40 hover:text-white"
+                            >
+                              Restaurar padrão
+                            </button>
+                            <button
+                              type="button"
+                              onClick={applyColumnVisibility}
+                              className="rounded-none border border-sky-400/50 bg-sky-400/15 px-3 py-1.5 text-xs font-semibold text-sky-100 transition hover:bg-sky-400/25"
+                            >
+                              Aplicar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={openNewDeviceEditor}
+                    className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      Novo equipamento
+                    </span>
+                  </button>
+                </>
+              ) : null}
+            </div>
+          )
         }
       />
 
-      <FilterBar
-        left={
-          <div className="flex w-full flex-wrap items-center gap-3">
-            <div className="relative min-w-[240px] flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar por nome, IMEI, placa"
-                className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-              />
-            </div>
-            <select
-              value={filters.link}
-              onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            >
-              <option value="all">Vínculo: Todos</option>
-              <option value="linked">Vínculo: Vinculado</option>
-              <option value="unlinked">Vínculo: Sem vínculo</option>
-            </select>
-            <select
-              value={filters.status}
-              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            >
-              <option value="all">Status: Todos</option>
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-              <option value="1-6h">Sem transmissão 1–6h</option>
-              <option value="6-24h">Sem transmissão 6–24h</option>
-              <option value=">24h">&gt;24h</option>
-            </select>
-            <div className="min-w-[240px] flex-1">
-              <AutocompleteSelect
-                value={modelDraft}
-                onChange={(nextValue) => setModelDraft(String(nextValue || ""))}
-                placeholder="Buscar modelo"
-                options={modelOptions}
-                loadOptions={loadModelOptions}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => setFilters((current) => ({ ...current, model: modelDraft }))}
-              disabled={modelDraft === filters.model}
-              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-white transition hover:border-white/30 hover:bg-white/15 disabled:opacity-60"
-            >
-              Aplicar
-            </button>
-          </div>
-        }
-        right={
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-white/60">
-              {filteredDevices.length} de {devices.length} equipamentos
-            </span>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              disabled={!filteredDevices.length}
-              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Download className="h-4 w-4" />
-                Exportar CSV
-              </span>
-            </button>
-          </div>
-        }
-      />
-
-      {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
+      {isEditorRoute && error && (
+        <div className="rounded-none border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          {error.message}
+        </div>
       )}
 
-      <div className="flex flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10" tableClassName="text-white/80 table-auto w-full">
-            <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
-              <tr>
-                <th className="px-3 py-3 text-left">ID / IMEI</th>
-                <th className="px-3 py-3 text-left">Modelo</th>
-                <th className="px-3 py-3 text-left">Status</th>
-                <th className="px-3 py-3 text-left">Última comunicação</th>
-                <th className="px-3 py-3 text-left">Última posição</th>
-                <th className="px-3 py-3 text-left">Vínculo</th>
-                <th className="px-3 py-3 text-left">Garantia</th>
-                <th className="px-3 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/10">
-              {(loading || traccarLoading) && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-6">
-                    <SkeletonTable rows={6} columns={tableColCount} />
-                  </td>
-                </tr>
-              )}
-              {!loading && !traccarLoading && filteredDevices.length === 0 && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-8">
-                    <EmptyState
-                      title="Nenhum equipamento encontrado com os filtros atuais."
-                      subtitle="Ajuste filtros ou cadastre um novo equipamento."
-                      action={
-                        <div className="flex flex-wrap justify-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilters({ status: "all", link: "all", model: "" });
-                              setQuery("");
-                            }}
-                            className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
-                          >
-                            <span className="inline-flex items-center gap-2">
-                              <RefreshCw className="h-4 w-4" />
-                              Limpar filtros
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              resetDeviceForm();
-                              setEditingId(null);
-                              setDrawerTab("geral");
-                              setShowDeviceDrawer(true);
-                            }}
-                            className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                          >
-                            <span className="inline-flex items-center gap-2">
-                              <Plus className="h-4 w-4" />
-                              Cadastrar equipamento
-                            </span>
-                          </button>
-                        </div>
-                      }
-                    />
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                !traccarLoading &&
-                paginatedDevices.map((device) => {
-                  const deviceModelId = device.modelId || device.attributes?.modelId || null;
-                  const modelo = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
-                  const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
-                  const position = latestPositionByDevice.get(deviceKey(device));
-                  const meta = statusMeta(device);
-                  const traccarDevice = traccarDeviceFor(device);
-                  const warrantyLabel = formatWarranty(device);
-                  return (
-                    <DeviceRow
-                      key={device.internalId || device.id || device.uniqueId}
-                      device={device}
-                      traccarDevice={traccarDevice}
-                      model={modelo}
-                      vehicle={vehicle}
-                      position={position}
-                      status={meta}
-                      warrantyLabel={warrantyLabel}
-                      onMap={() => position && setMapTarget({ device, position })}
-                      onLink={() => {
-                        setLinkTarget(device);
-                        setLinkVehicleId(device.vehicleId || "");
-                      }}
-                      onUnlink={() => handleUnlinkFromVehicle(device)}
-                      onNavigateToMonitoring={() => handleNavigateToMonitoring(device)}
-                      onEdit={() => openEditDevice(device)}
-                      onDelete={() => handleDeleteDevice(device.id)}
-                      canDelete={isAdminGeneral}
-                      positionLabel={formatPositionSummary(position)}
-                      lastCommunication={formatLastCommunication(device)}
-                    />
-                  );
-                })}
-            </tbody>
-          </DataTable>
-          <DataTablePagination
-            pageSize={pageSize}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            onPageSizeChange={(value) => {
-              setPageSize(value === "all" ? "all" : Number(value));
-              setCurrentPage(1);
-            }}
-            currentPage={resolvedPage}
-            totalPages={totalPages}
-            totalItems={filteredDevices.length}
-            onPageChange={(nextPage) => setCurrentPage(nextPage)}
+      {!isEditorRoute && (
+        <>
+          <FilterBar
+            left={
+              <div className="flex flex-1 flex-wrap items-center gap-3 md:flex-nowrap">
+                <div className="relative min-w-[240px] flex-1">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Buscar por nome, IMEI, placa"
+                    className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                  />
+                </div>
+                <select
+                  value={filters.link}
+                  onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
+                  className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                >
+                  <option value="all">Vínculo: Todos</option>
+                  <option value="linked">Vínculo: Vinculado</option>
+                  <option value="unlinked">Vínculo: Sem vínculo</option>
+                </select>
+                {!isTechnician ? (
+                  <select
+                    value={filters.status}
+                    onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                    className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                  >
+                    <option value="all">Status: Todos</option>
+                    <option value="online">Online</option>
+                    <option value="offline">Offline</option>
+                    <option value="1-6h">Sem transmissão 1–6h</option>
+                    <option value="6-24h">Sem transmissão 6–24h</option>
+                    <option value=">24h">&gt;24h</option>
+                  </select>
+                ) : null}
+                <div className="min-w-[240px] flex-1">
+                  <AutocompleteSelect
+                    value={modelDraft}
+                    onChange={(nextValue) => setModelDraft(String(nextValue || ""))}
+                    placeholder="Buscar modelo"
+                    options={modelOptions}
+                    loadOptions={loadModelOptions}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilters((current) => ({ ...current, model: modelDraft }))}
+                  disabled={modelDraft === filters.model}
+                  className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-white transition hover:border-white/30 hover:bg-white/15 disabled:opacity-60"
+                >
+                  Aplicar
+                </button>
+              </div>
+            }
+            right={
+              <div className="relative flex items-center gap-3">
+                <span className="text-xs text-white/60">
+                  {filteredDevices.length} de {devices.length} equipamentos
+                </span>
+                {!isTechnician ? (
+                  <button
+                    type="button"
+                    onClick={handleExportCsv}
+                    disabled={!filteredDevices.length}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Exportar CSV
+                    </span>
+                  </button>
+                ) : null}
+              </div>
+            }
           />
-        </div>
-      </div>
 
-      <Drawer
-        open={showDeviceDrawer}
-        onClose={() => setShowDeviceDrawer(false)}
-        title={editingId ? "Editar equipamento" : "Novo equipamento"}
-        description="Edite dados gerais, vínculos e telemetria em um layout lateral."
+          {error && (
+            <div className="rounded-none border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              {error.message}
+            </div>
+          )}
+
+          <div className="pb-4">
+            <div className="overflow-x-auto overflow-y-visible rounded-none border border-white/10">
+              <DataTable horizontalScroll={false} className="overflow-visible" tableClassName="min-w-max w-full table-auto text-white/80">
+                <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
+                  {isTechnician ? (
+                    <tr>
+                      <th className="px-3 py-3 text-left">Cliente</th>
+                      <th className="px-3 py-3 text-left">Modelo</th>
+                      <th className="px-3 py-3 text-left">ID do Equipamento</th>
+                      <th className="px-3 py-3 text-left">Data transferido</th>
+                    </tr>
+                  ) : isServiceStockGlobalProfile ? (
+                    <tr>
+                      <th className="px-3 py-3 text-left">ID / IMEI</th>
+                      <th className="px-3 py-3 text-left">Modelo</th>
+                      <th className="px-3 py-3 text-left">Localização</th>
+                      <th className="px-3 py-3 text-left">Técnico</th>
+                      <th className="px-3 py-3 text-left">Garantia</th>
+                      <th className="px-3 py-3 text-left">Data do Último Serviço</th>
+                      <th className="px-3 py-3 text-left">Propriedade</th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      {columnVisibility.id && <th className="w-[220px] min-w-[220px] px-3 py-3 text-left">ID / IMEI</th>}
+                      {columnVisibility.model && <th className="w-[240px] min-w-[220px] px-3 py-3 text-left">Modelo</th>}
+                      {columnVisibility.status && <th className="w-[180px] min-w-[170px] px-3 py-3 text-left">Status</th>}
+                      {columnVisibility.lastCommunication && (
+                        <th className="w-[190px] min-w-[180px] px-3 py-3 text-left">Última comunicação</th>
+                      )}
+                      {columnVisibility.lastPosition && (
+                        <th className="w-[340px] min-w-[280px] px-3 py-3 text-left">Última posição</th>
+                      )}
+                      {columnVisibility.link && <th className="w-[280px] min-w-[240px] px-3 py-3 text-left">Vínculo</th>}
+                      {columnVisibility.client && <th className="w-[220px] min-w-[180px] px-3 py-3 text-left">Cliente</th>}
+                      {columnVisibility.warranty && (
+                        <th className="w-[250px] min-w-[220px] px-3 py-3 text-left">Garantia</th>
+                      )}
+                      {columnVisibility.actions && (
+                        <th className="sticky right-0 z-20 w-[170px] min-w-[170px] bg-[#151d2b] px-3 py-3 text-right">
+                          Ações
+                        </th>
+                      )}
+                    </tr>
+                  )}
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {(loading || traccarLoading) && (
+                    <tr>
+                      <td
+                        colSpan={isTechnician ? 4 : isServiceStockGlobalProfile ? serviceStockColumnsCount : tableColCount}
+                        className="px-4 py-6"
+                      >
+                        <SkeletonTable
+                          rows={6}
+                          columns={
+                            isTechnician
+                              ? 4
+                              : isServiceStockGlobalProfile
+                                ? serviceStockColumnsCount
+                                : Math.max(visibleColumns.length, 1)
+                          }
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  {!loading && !traccarLoading && filteredDevices.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={isTechnician ? 4 : isServiceStockGlobalProfile ? serviceStockColumnsCount : tableColCount}
+                        className="px-4 py-8"
+                      >
+                        <EmptyState
+                          title="Nenhum equipamento encontrado com os filtros atuais."
+                          subtitle={isTechnician ? "Não há equipamentos vinculados ao técnico." : "Ajuste filtros ou cadastre um novo equipamento."}
+                          action={
+                            isTechnician ? null : (
+                              <div className="flex flex-wrap justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFilters({ status: "all", link: "all", model: "" });
+                                    setQuery("");
+                                  }}
+                                  className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+                                >
+                                  <span className="inline-flex items-center gap-2">
+                                    <RefreshCw className="h-4 w-4" />
+                                    Limpar filtros
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={openNewDeviceEditor}
+                                  className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                                >
+                                  <span className="inline-flex items-center gap-2">
+                                    <Plus className="h-4 w-4" />
+                                    Cadastrar equipamento
+                                  </span>
+                                </button>
+                              </div>
+                            )
+                          }
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  {!loading &&
+                    !traccarLoading &&
+                    paginatedDevices.map((device) => {
+                      if (isTechnician) {
+                        const deviceModelId = device.modelId || device.attributes?.modelId || null;
+                        const model = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
+                        const transferDate =
+                          device.technicianMovementAt ||
+                          device.attributes?.technicianMovementAt ||
+                          device.attributes?.lastTransferAt ||
+                          device.updatedAt ||
+                          null;
+                        return (
+                          <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
+                            <td className="px-3 py-3 text-white/70">
+                              {device.clientName || device.vehicle?.clientName || "—"}
+                            </td>
+                            <td className="px-3 py-3 text-white/70">{model?.name || device.modelName || "—"}</td>
+                            <td className="px-3 py-3 text-white">{device.uniqueId || device.id || "—"}</td>
+                            <td className="px-3 py-3 text-white/70">{formatTransferDate(transferDate)}</td>
+                          </tr>
+                        );
+                      }
+                      if (isServiceStockGlobalProfile) {
+                        const deviceModelId = device.modelId || device.attributes?.modelId || null;
+                        const model = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
+                        const warrantyLabel = formatWarranty(device);
+                        const propertyLabel = formatOwnershipType(device);
+                        const locationLabel = device.locationLabel || (device.vehicleId ? "No veículo" : "Base");
+                        return (
+                          <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
+                            <td className="px-3 py-3 text-white">{device.uniqueId || device.id || "—"}</td>
+                            <td className="px-3 py-3 text-white/80">{model?.name || device.modelName || "—"}</td>
+                            <td className="px-3 py-3 text-white/70">{locationLabel}</td>
+                            <td className="px-3 py-3 text-white/70">{device.technicianName || "—"}</td>
+                            <td className="px-3 py-3 text-white/70">{warrantyLabel}</td>
+                            <td className="px-3 py-3 text-white/70">{formatLastServiceDate(device.lastServiceAt)}</td>
+                            <td className="px-3 py-3 text-white/70">{propertyLabel}</td>
+                          </tr>
+                        );
+                      }
+                      const deviceModelId = device.modelId || device.attributes?.modelId || null;
+                      const modelo = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
+                      const vehicle = resolveLinkedVehicle(device);
+                      const position = latestPositionByDevice.get(deviceKey(device));
+                      const meta = statusMeta(device);
+                      const traccarDevice = traccarDeviceFor(device);
+                      const warrantyLabel = formatWarranty(device);
+                      return (
+                        <DeviceRow
+                          key={device.internalId || device.id || device.uniqueId}
+                          device={device}
+                          traccarDevice={traccarDevice}
+                          model={modelo}
+                          vehicle={vehicle}
+                          position={position}
+                          status={meta}
+                          warrantyLabel={warrantyLabel}
+                          onMap={() => position && setMapTarget({ device, position })}
+                          onLink={() => {
+                            setLinkTarget(device);
+                            setLinkVehicleId(device.vehicleId || vehicle?.id || "");
+                          }}
+                          onUnlink={() => handleUnlinkFromVehicle(device, vehicle)}
+                          onNavigateToMonitoring={() => handleNavigateToMonitoring(device)}
+                          onEdit={() => openEditDevice(device)}
+                          onDelete={() => handleDeleteDevice(device.id)}
+                          canDelete={isAdminGeneral}
+                          positionLabel={formatPositionSummary(position)}
+                          lastCommunication={formatLastCommunication(device)}
+                          visibleColumns={columnVisibility}
+                        />
+                      );
+                    })}
+                </tbody>
+              </DataTable>
+            </div>
+            <DataTablePagination
+              className="mt-4"
+              pageSize={pageSize}
+              pageSizeOptions={PAGE_SIZE_OPTIONS}
+              onPageSizeChange={(value) => {
+                setPageSize(value === "all" ? "all" : Number(value));
+                setCurrentPage(1);
+              }}
+              currentPage={resolvedPage}
+              totalPages={totalPages}
+              totalItems={filteredDevices.length}
+              onPageChange={(nextPage) => setCurrentPage(nextPage)}
+            />
+          </div>
+        </>
+      )}
+
+      <DeviceEditorContainer
+        isEditorRoute={isEditorRoute}
+        open={isEditorRoute || showDeviceDrawer}
+        onClose={closeDeviceEditor}
+        title={isEditorRoute ? null : editingId ? "Editar equipamento" : "Novo equipamento"}
+        description={null}
       >
-        <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-          {["geral", "vinculos", "telemetria", "garantia", "massa", "acoes"].map((key) => (
+        <div className="flex flex-wrap gap-2 pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+          {DEVICE_EDITOR_TABS.map((key) => (
             <button
               key={key}
               onClick={() => setDrawerTab(key)}
-              className={`rounded-md px-3 py-2 transition ${drawerTab === key ? "bg-primary/20 text-white border border-primary/40" : "border border-transparent hover:border-white/20"}`}
+              className={`whitespace-nowrap rounded-md px-3 py-2 transition ${drawerTab === key ? "bg-primary/20 text-white border border-primary/40" : "border border-transparent hover:border-white/20"}`}
             >
-              {key === "geral" && "Geral"}
-              {key === "vinculos" && "Vínculos"}
-              {key === "telemetria" && "Telemetria"}
-              {key === "garantia" && "Garantia"}
-              {key === "massa" && "Massa"}
-              {key === "acoes" && "Ações"}
+              {getDeviceTabLabel(key)}
             </button>
           ))}
         </div>
 
         {drawerTab === "geral" && (
           <form onSubmit={handleSaveDevice} className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2 text-xs uppercase tracking-[0.12em] text-white/50">
+              Informações do equipamento
+            </div>
             <Input
               label="Nome (opcional)"
               value={deviceForm.name}
@@ -1815,17 +2867,39 @@ export default function Devices() {
             />
             <Input
               label="Código interno (gerado automaticamente)"
-              value={deviceForm.internalCode}
-              onChange={(event) => setDeviceForm((current) => ({ ...current, internalCode: event.target.value }))}
-              placeholder="Gerado automaticamente"
+              value={editingId ? deviceForm.internalCode || "" : ""}
+              placeholder={internalCodePreviewLoading ? "Carregando..." : "Gerado automaticamente ao salvar"}
               disabled
             />
+            {internalCodePreviewLoading && !deviceForm.internalCode && (
+              <div className="-mt-2 text-xs text-white/50">Carregando código interno...</div>
+            )}
+            {internalCodePreviewError && !deviceForm.internalCode && (
+              <div className="-mt-2 flex items-center gap-2 text-xs text-amber-300">
+                <span>{internalCodePreviewError}</span>
+                <button
+                  type="button"
+                  className="rounded border border-amber-300/30 px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-amber-100 hover:bg-amber-300/10"
+                  onClick={() => setInternalCodePreviewRetryKey((current) => current + 1)}
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )}
+            <div className="md:col-span-2 text-xs uppercase tracking-[0.12em] text-white/50">
+              Modelo e comunicação
+            </div>
             <div className="md:col-span-2">
               <label className="text-xs uppercase tracking-[0.1em] text-white/60">Modelo</label>
               <AutocompleteSelect
                 value={deviceForm.modelId}
                 onChange={(nextValue, option) => {
-                  setDeviceForm((current) => ({ ...current, modelId: String(nextValue || "") }));
+                  const nextId = String(nextValue || "");
+                  const modelData = option?.data;
+                  if (modelData && !modeloById.has(String(modelData.id))) {
+                    setModels((current) => [...current, modelData]);
+                  }
+                  setDeviceForm((current) => ({ ...current, modelId: nextId }));
                 }}
                 placeholder="Buscar modelo"
                 options={modelOptions}
@@ -1845,12 +2919,8 @@ export default function Devices() {
                     <div className="text-white">{modeloById.get(deviceForm.modelId)?.protocol || "—"}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.1em] text-white/50">Portas</div>
-                    <div className="text-white">
-                      {Array.isArray(modeloById.get(deviceForm.modelId)?.ports)
-                        ? modeloById.get(deviceForm.modelId)?.ports?.length
-                        : "—"}
-                    </div>
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-white/50">Interfaces</div>
+                    <div className="text-white">{portSummary}</div>
                   </div>
                 </div>
               </div>
@@ -1868,18 +2938,8 @@ export default function Devices() {
               <option value="true">Sim</option>
               <option value="false">Não</option>
             </Select>
-            <Select
-              label="Condição"
-              value={deviceForm.condition}
-              onChange={(event) => setDeviceForm((current) => ({ ...current, condition: event.target.value }))}
-            >
-              <option value="">— Selecione —</option>
-              <option value="novo">Novo</option>
-              <option value="usado_funcionando">Usado Funcionando</option>
-              <option value="usado_defeito">Usado Defeito</option>
-            </Select>
             <div className="md:col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
+              <Button type="button" variant="ghost" onClick={closeDeviceEditor}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={savingDevice}>
@@ -1913,7 +2973,7 @@ export default function Devices() {
                 />
                 {linkVehicleId && (
                   <div className="text-xs text-white/60">
-                    Tipo do veículo: {vehicleById.get(linkVehicleId)?.type || "—"}
+                    Tipo do veículo: {vehicleById.get(String(linkVehicleId))?.type || "—"}
                   </div>
                 )}
               </div>
@@ -1945,13 +3005,50 @@ export default function Devices() {
             <div className="flex justify-between gap-2">
               <div />
               <div className="flex gap-2">
-                <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
+                <Button type="button" variant="ghost" onClick={closeDeviceEditor}>
                   Fechar
                 </Button>
                 <Button type="submit" disabled={!linkVehicleId}>
                   Vincular
                 </Button>
               </div>
+            </div>
+          </form>
+        )}
+
+        {drawerTab === "status" && (
+          <form onSubmit={handleSaveDevice} className="space-y-4">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="text-xs uppercase tracking-[0.12em] text-white/50">Status do equipamento</div>
+              <p className="mt-1 text-xs text-white/60">
+                Este status é sincronizado com Veículo &gt; Equipamentos. Ao vincular, o status muda automaticamente para HABILITADO.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <Select
+                  label="Status atual"
+                  value={normalizeEquipmentStatusValue(deviceForm.equipmentStatus)}
+                  onChange={(event) =>
+                    setDeviceForm((current) => ({
+                      ...current,
+                      equipmentStatus: normalizeEquipmentStatusValue(event.target.value),
+                    }))
+                  }
+                >
+                  {EQUIPMENT_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={closeDeviceEditor}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={savingDevice}>
+                {savingDevice ? "Salvando..." : "Salvar status"}
+              </Button>
             </div>
           </form>
         )}
@@ -1993,39 +3090,112 @@ export default function Devices() {
           </div>
         )}
 
+        {drawerTab === "portas" && (
+          <div className="space-y-4">
+            {!editingId && (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                Salve o equipamento para configurar as portas.
+              </div>
+            )}
+            {editingId && portList.length === 0 && (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                Nenhuma porta configurada para este modelo.
+              </div>
+            )}
+            {editingId && portList.length > 0 && (
+              <div className="grid gap-3">
+                {portList.map((port) => (
+                  <div key={port.key} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs uppercase tracking-[0.12em] text-white/50">{port.key}</div>
+                      {port.stateLabel ? (
+                        <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70">
+                          {port.stateLabel}
+                        </span>
+                      ) : null}
+                    </div>
+                    <Input
+                      value={deviceForm.portLabels?.[port.key] ?? port.label}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setDeviceForm((current) => {
+                          const currentLabels = { ...(current.portLabels || {}) };
+                          if (value.trim()) {
+                            currentLabels[port.key] = value;
+                          } else {
+                            delete currentLabels[port.key];
+                          }
+                          return { ...current, portLabels: currentLabels };
+                        });
+                      }}
+                      placeholder={port.defaultLabel}
+                    />
+                    <div className="text-xs text-white/40">Nome padrão: {port.defaultLabel}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {editingId && (
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={closeDeviceEditor}>
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={handleSavePortLabels} disabled={savingPorts}>
+                  {savingPorts ? "Salvando…" : "Salvar portas"}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
         {drawerTab === "garantia" && (
           <form onSubmit={handleSaveDevice} className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              <Input
-                label="Data de produção"
-                type="date"
-                value={deviceForm.productionDate}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, productionDate: event.target.value }))}
-              />
-              <Input
-                label="Data de instalação"
-                type="date"
-                value={deviceForm.installationDate}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, installationDate: event.target.value }))}
-                required
-              />
-              <Input
-                label="Dias de garantia"
-                type="number"
-                min="0"
-                value={deviceForm.warrantyDays}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyDays: event.target.value }))}
-              />
-              <Input
-                label="Data do fim da garantia"
-                type="date"
-                value={deviceForm.warrantyEndDate}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyEndDate: event.target.value }))}
-                disabled
-              />
+              <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                Data de produção
+                <Input
+                  type="date"
+                  value={deviceForm.productionDate}
+                  onChange={(event) => setDeviceForm((current) => ({ ...current, productionDate: event.target.value }))}
+                  className="mt-2"
+                />
+              </label>
+              <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                Início da garantia (OS)
+                <Input
+                  type="date"
+                  value={deviceForm.installationDate}
+                  className="mt-2"
+                  disabled
+                  readOnly
+                />
+                <span className="mt-1 block text-[11px] normal-case tracking-normal text-white/45">
+                  Preenchido automaticamente pela data da OS quando o equipamento é associado.
+                </span>
+              </label>
+              <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                Dias de garantia
+                <Input
+                  type="number"
+                  min="0"
+                  value={deviceForm.warrantyDays}
+                  onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyDays: event.target.value }))}
+                  className="mt-2"
+                />
+              </label>
+              <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                Fim da garantia
+                <Input
+                  type="date"
+                  value={deviceForm.warrantyEndDate}
+                  onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyEndDate: event.target.value }))}
+                  className="mt-2"
+                  disabled
+                />
+              </label>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
+              <Button type="button" variant="ghost" onClick={closeDeviceEditor}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={savingDevice}>
@@ -2033,6 +3203,175 @@ export default function Devices() {
               </Button>
             </div>
           </form>
+        )}
+
+        {drawerTab === "condicoes" && (
+          <div className="space-y-4">
+            {!editingId && (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                Salve o equipamento para registrar as condições.
+              </div>
+            )}
+            {editingId && (
+              <>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs uppercase tracking-[0.12em] text-white/50">Nova condição</div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <Select
+                      label="Condição"
+                      value={conditionDraft.condition}
+                      onChange={(event) => setConditionDraft((current) => ({ ...current, condition: event.target.value }))}
+                    >
+                      {EQUIPMENT_CONDITION_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
+                      type="datetime-local"
+                      label="Data e hora"
+                      value={conditionDraft.date}
+                      onChange={(event) => setConditionDraft((current) => ({ ...current, date: event.target.value }))}
+                    />
+                    <Input
+                      label="Observação"
+                      placeholder="Observação"
+                      value={conditionDraft.note}
+                      onChange={(event) => setConditionDraft((current) => ({ ...current, note: event.target.value }))}
+                    />
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button type="button" onClick={handleAddDeviceCondition} disabled={savingDevice}>
+                      {savingDevice ? "Salvando..." : "Registrar condição"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.12em] text-white/50">Histórico</div>
+                  {deviceConditionHistory.length === 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                      Nenhuma condição registrada ainda.
+                    </div>
+                  )}
+                  {deviceConditionHistory.length > 0 && (
+                    <div className="space-y-2">
+                      {deviceConditionHistory.map((entry) => (
+                        <div key={entry.id || entry.createdAt} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-white">{entry.condition || "—"}</div>
+                            <div className="text-xs text-white/60">
+                              {entry.createdAt || entry.date || entry.at
+                                ? new Date(entry.createdAt || entry.date || entry.at).toLocaleString()
+                                : "—"}
+                            </div>
+                          </div>
+                          {entry.note ? (
+                            <div className="mt-2 text-xs text-white/70">{entry.note}</div>
+                          ) : (
+                            <div className="mt-2 text-xs text-white/40">Sem observação</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {drawerTab === "historico" && (
+          <div className="space-y-4">
+            {!editingId && (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                Salve o equipamento para visualizar o histórico completo.
+              </div>
+            )}
+            {editingId && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.12em] text-white/50">Histórico</div>
+                    <div className="text-sm text-white/80">Ciclo completo do equipamento</div>
+                  </div>
+                  <Button type="button" variant="ghost" onClick={loadDeviceHistory} disabled={deviceHistoryLoading}>
+                    {deviceHistoryLoading ? "Atualizando..." : "Atualizar"}
+                  </Button>
+                </div>
+
+                {deviceHistoryError ? (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+                    {deviceHistoryError}
+                  </div>
+                ) : null}
+
+                {!deviceHistoryLoading && normalizedDeviceHistoryRows.length === 0 ? (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                    Nenhum evento de histórico disponível para este equipamento.
+                  </div>
+                ) : null}
+
+                {deviceHistoryLoading ? (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <SkeletonTable rows={5} columns={1} />
+                  </div>
+                ) : null}
+
+                {!deviceHistoryLoading && normalizedDeviceHistoryRows.length > 0 ? (
+                  <div className="space-y-3">
+                    {normalizedDeviceHistoryRows.map((entry) => (
+                      <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-white">{entry.title}</div>
+                          <div className="text-xs text-white/60">{formatTransferDate(entry.date)}</div>
+                        </div>
+                        <div className="mt-3 grid gap-3 text-xs text-white/70 md:grid-cols-3">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-white/50">Responsável</div>
+                            <div className="text-sm text-white">{entry.responsible || "—"}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-white/50">Origem / Destino</div>
+                            <div className="text-sm text-white">
+                              {[entry.origin, entry.destination].filter(Boolean).join(" → ") || "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-white/50">Referência</div>
+                            <div className="text-sm text-white">{entry.reference || "—"}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-white/50">Veículo</div>
+                            <div className="text-sm text-white">{entry.vehicle || "—"}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-white/50">Status</div>
+                            <div className="text-sm text-white">{entry.status || "—"}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-white/50">Tipo técnico</div>
+                            <div
+                              className="text-sm text-white"
+                              title={!entry.movementKnown && entry.movementCode ? entry.movementCode : undefined}
+                            >
+                              {entry.movementKnown ? entry.movementLabel : "Movimentação"}
+                            </div>
+                          </div>
+                        </div>
+                        {entry.notes ? (
+                          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70">
+                            {entry.notes}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
         )}
 
         {drawerTab === "massa" && (
@@ -2193,7 +3532,7 @@ export default function Devices() {
               className="inline-flex items-center gap-2"
               onClick={() => {
                 const device = devices.find((item) => String(item.id) === String(editingId));
-                if (device) handleUnlinkFromVehicle(device);
+                if (device) handleUnlinkFromVehicle(device, resolveLinkedVehicle(device));
               }}
               disabled={!editingId}
             >
@@ -2225,7 +3564,7 @@ export default function Devices() {
             )}
           </div>
         )}
-      </Drawer>
+      </DeviceEditorContainer>
 
       <Drawer
         open={Boolean(linkTarget)}
@@ -2253,7 +3592,7 @@ export default function Devices() {
             />
             {linkVehicleId && (
               <div className="text-xs text-white/60">
-                Tipo do veículo: {vehicleById.get(linkVehicleId)?.type || "—"}
+                Tipo do veículo: {vehicleById.get(String(linkVehicleId))?.type || "—"}
               </div>
             )}
           </div>
@@ -2342,6 +3681,12 @@ export default function Devices() {
         onClose={() => setMapTarget(null)}
         title={mapTarget?.device?.name || mapTarget?.device?.uniqueId || "Posição"}
         width="max-w-4xl"
+        zIndex="z-[13000]"
+        containerClassName="items-center"
+        topOffsetClassName="py-6"
+        panelClassName="p-0"
+        headerClassName="px-6 pt-5 pb-4"
+        bodyClassName="pt-0"
       >
         {mapTarget?.position ? (
           <div className="h-[420px] overflow-hidden rounded-xl">
@@ -2355,12 +3700,13 @@ export default function Devices() {
               style={{ height: "100%", width: "100%" }}
               whenReady={onMapReady}
             >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+              <TileLayer url={tileUrl} attribution={tileAttribution} subdomains={tileSubdomains} maxZoom={tileMaxZoom} />
               <Marker
                 position={[
                   Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
                   Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
                 ]}
+                icon={mapMarkerIcon}
               >
                 <Popup>
                   <div className="space-y-1 text-sm">

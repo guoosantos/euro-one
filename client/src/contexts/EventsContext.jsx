@@ -20,17 +20,24 @@ function normaliseEvents(payload) {
 const EventsContext = createContext({ data: [], events: [], loading: false, error: null, refresh: () => {} });
 
 export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
-  const { tenantId, isAuthenticated } = useTenant();
+  const { tenantId, isAuthenticated, contextSwitching, contextSwitchKey, contextAbortSignal } = useTenant();
   const { t } = useTranslation();
   const { accessibleVehicleIds, accessibleDeviceIds, isRestricted, loading: accessLoading } = useVehicleAccess();
   const eventsPermission = usePermissionGate({ menuKey: "primary", pageKey: "events" });
-  const autoRefresh = useAutoRefresh({ enabled: isAuthenticated, intervalMs: interval, pauseWhenOverlayOpen: true });
+  const autoRefresh = useAutoRefresh({
+    enabled: isAuthenticated && !contextSwitching,
+    intervalMs: interval,
+    pauseWhenOverlayOpen: true,
+  });
   const canAccessEvents = eventsPermission.hasAccess;
 
   const fetchEvents = useCallback(async () => {
     if (!canAccessEvents) return [];
     const params = tenantId ? { clientId: tenantId, limit } : { limit };
-    const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.traccar.events, { params });
+    const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.traccar.events, {
+      params,
+      signal: contextAbortSignal,
+    });
     if (apiError) {
       const status = Number(apiError?.response?.status ?? apiError?.status);
       const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadEvents");
@@ -48,9 +55,9 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: fetchEvents,
     intervalMs: autoRefresh.intervalMs,
-    enabled: isAuthenticated && canAccessEvents,
+    enabled: isAuthenticated && canAccessEvents && !contextSwitching,
     paused: autoRefresh.paused,
-    dependencies: [tenantId, isAuthenticated, limit, canAccessEvents],
+    dependencies: [tenantId, isAuthenticated, limit, canAccessEvents, contextSwitchKey],
     resetOnChange: true,
   });
 

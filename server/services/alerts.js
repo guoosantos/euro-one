@@ -1,6 +1,8 @@
+import { randomUUID } from "crypto";
 import { loadCollection, saveCollection } from "./storage.js";
 
 const STORAGE_KEY = "vehicle-alerts";
+const MANUAL_HANDLINGS_KEY = "vehicle-manual-handlings";
 
 function normalizeClientKey(clientId) {
   return clientId ? String(clientId).trim() : "default";
@@ -33,6 +35,14 @@ function persistSnapshot(next) {
   saveCollection(STORAGE_KEY, next);
 }
 
+function getManualSnapshot() {
+  return loadCollection(MANUAL_HANDLINGS_KEY, {});
+}
+
+function persistManualSnapshot(next) {
+  saveCollection(MANUAL_HANDLINGS_KEY, next);
+}
+
 function buildAlertRecord({
   event,
   configuredEvent,
@@ -48,14 +58,17 @@ function buildAlertRecord({
   const eventTime =
     event?.eventTime ?? event?.serverTime ?? event?.deviceTime ?? event?.time ?? null;
   const createdAt = parseTimestamp(eventTime) || new Date();
+  const normalizedEvent = event?.normalizedEvent || null;
+  const fallbackLabel = normalizedEvent?.title || normalizedEvent?.label || null;
+  const fallbackSeverity = normalizedEvent?.severity || null;
 
   return {
     id: eventId,
     eventId,
     protocol: protocol || null,
     eventType: event?.type || event?.attributes?.type || event?.event || null,
-    eventLabel: configuredEvent?.label || event?.eventLabel || null,
-    severity: configuredEvent?.severity || event?.eventSeverity || event?.severity || null,
+    eventLabel: configuredEvent?.label || event?.eventLabel || fallbackLabel || null,
+    severity: configuredEvent?.severity || event?.eventSeverity || event?.severity || fallbackSeverity || null,
     category: configuredEvent?.category ?? event?.eventCategory ?? null,
     requiresHandling: configuredEvent?.requiresHandling ?? event?.eventRequiresHandling ?? true,
     status: "pending",
@@ -64,11 +77,28 @@ function buildAlertRecord({
     handledBy: null,
     handledByName: null,
     handling: null,
+    handlings: [],
     deviceId: deviceId ? String(deviceId) : null,
     vehicleId: vehicleId ? String(vehicleId) : null,
     vehicleLabel: vehicleLabel || null,
     plate: plate || null,
     address: address || null,
+    normalizedEvent,
+  };
+}
+
+function buildHandlingEntry({ type = "mandatory", payload, handledBy, handledByName }) {
+  const now = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    type,
+    createdAt: now,
+    handledBy: handledBy ?? null,
+    handledByName: handledByName ?? null,
+    isOk: payload?.isOk ?? null,
+    action: payload?.action ?? "",
+    cause: payload?.cause ?? "",
+    notes: payload?.notes ?? "",
   };
 }
 
@@ -176,18 +206,16 @@ export function handleAlert({
 
   const nextAlerts = alerts.map((alert) => {
     if (String(alert.id) !== normalizedId && String(alert.eventId) !== normalizedId) return alert;
+    const entry = buildHandlingEntry({ type: "mandatory", payload, handledBy, handledByName });
+    const handlings = Array.isArray(alert.handlings) ? [...alert.handlings, entry] : [entry];
     return {
       ...alert,
       status: "handled",
       handledAt: now,
       handledBy: handledBy ?? alert.handledBy ?? null,
       handledByName: handledByName ?? alert.handledByName ?? null,
-      handling: {
-        isOk: payload?.isOk ?? null,
-        action: payload?.action ?? "",
-        cause: payload?.cause ?? "",
-        notes: payload?.notes ?? "",
-      },
+      handling: entry,
+      handlings,
     };
   });
 
@@ -202,4 +230,127 @@ export function handleAlert({
   return nextAlerts.find(
     (alert) => String(alert.id) === normalizedId || String(alert.eventId) === normalizedId,
   );
+}
+
+export function addManualHandling({
+  clientId,
+  alertId,
+  payload,
+  handledBy,
+  handledByName,
+} = {}) {
+  const snapshot = getSnapshot();
+  const clientKey = normalizeClientKey(clientId);
+  const alerts = Array.isArray(snapshot?.[clientKey]?.alerts)
+    ? snapshot[clientKey].alerts
+    : [];
+  const normalizedId = normalizeId(alertId);
+  if (!normalizedId) return null;
+  const entry = buildHandlingEntry({ type: "manual", payload, handledBy, handledByName });
+
+  const nextAlerts = alerts.map((alert) => {
+    if (String(alert.id) !== normalizedId && String(alert.eventId) !== normalizedId) return alert;
+    const handlings = Array.isArray(alert.handlings) ? [...alert.handlings, entry] : [entry];
+    return {
+      ...alert,
+      handlings,
+    };
+  });
+
+  const nextSnapshot = {
+    ...snapshot,
+    [clientKey]: {
+      ...(snapshot?.[clientKey] || {}),
+      alerts: nextAlerts,
+    },
+  };
+  persistSnapshot(nextSnapshot);
+  return nextAlerts.find(
+    (alert) => String(alert.id) === normalizedId || String(alert.eventId) === normalizedId,
+  );
+}
+
+function buildVehicleManualHandling({
+  vehicleId,
+  eventId = null,
+  payload,
+  handledBy,
+  handledByName,
+  ipAddress,
+} = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    type: "manual",
+    createdAt: now,
+    handledBy: handledBy ?? null,
+    handledByName: handledByName ?? null,
+    notes: payload?.notes ?? "",
+    vehicleId: normalizeId(vehicleId),
+    eventId: normalizeId(eventId),
+    ipAddress: ipAddress ?? null,
+  };
+}
+
+export function addVehicleManualHandling({
+  clientId,
+  vehicleId,
+  eventId,
+  payload,
+  handledBy,
+  handledByName,
+  ipAddress,
+} = {}) {
+  const normalizedVehicleId = normalizeId(vehicleId);
+  if (!normalizedVehicleId) return null;
+  const snapshot = getManualSnapshot();
+  const clientKey = normalizeClientKey(clientId);
+  const entries = Array.isArray(snapshot?.[clientKey]?.handlings)
+    ? snapshot[clientKey].handlings
+    : [];
+  const entry = buildVehicleManualHandling({
+    vehicleId: normalizedVehicleId,
+    eventId,
+    payload,
+    handledBy,
+    handledByName,
+    ipAddress,
+  });
+  const nextEntries = [entry, ...entries];
+  const nextSnapshot = {
+    ...snapshot,
+    [clientKey]: {
+      ...(snapshot?.[clientKey] || {}),
+      handlings: nextEntries,
+    },
+  };
+  persistManualSnapshot(nextSnapshot);
+  return entry;
+}
+
+export function listVehicleManualHandlings({
+  clientId,
+  vehicleId,
+  from,
+  to,
+} = {}) {
+  const snapshot = getManualSnapshot();
+  const clientKey = normalizeClientKey(clientId);
+  const entries = Array.isArray(snapshot?.[clientKey]?.handlings)
+    ? snapshot[clientKey].handlings
+    : [];
+  const vehicleKey = normalizeId(vehicleId);
+  const fromDate = parseTimestamp(from);
+  const toDate = parseTimestamp(to);
+
+  return entries.filter((entry) => {
+    if (vehicleKey && String(entry.vehicleId || "") !== vehicleKey) return false;
+    if (fromDate || toDate) {
+      const createdAt = parseTimestamp(entry.createdAt);
+      if (!createdAt) return false;
+      if (fromDate && createdAt < fromDate) return false;
+      if (toDate && createdAt > toDate) return false;
+    }
+    return true;
+  });
 }

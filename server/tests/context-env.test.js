@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import { errorHandler } from "../middleware/error-handler.js";
 import { loadEnv } from "../utils/env.js";
+import { requestApp } from "./app-request.js";
 
 async function withProductionEnvFile(contents, fn) {
   const envPath = "/home/ubuntu/euro-one/server/.env";
@@ -64,13 +65,11 @@ function setupApp(contextRoutes) {
 }
 
 async function callEndpoint(app, { path: requestPath, token }) {
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}${requestPath}`, {
+  const response = await requestApp(app, {
+    url: requestPath,
     headers: { Authorization: `Bearer ${token}` },
   });
   const payload = await response.json();
-  server.close();
   return { status: response.status, payload };
 }
 

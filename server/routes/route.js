@@ -1,7 +1,8 @@
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { buildRoutesKml, parseRoutePlacemarks } from "../utils/kml.js";
 import { createRoute, deleteRoute, getRouteById, listRoutes, updateRoute } from "../models/route.js";
 
@@ -23,7 +24,10 @@ function ensureSameTenant(user, clientId) {
   }
 }
 
-router.get("/routes/export/kml", async (req, res, next) => {
+router.get(
+  "/routes/export/kml",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes" }),
+  async (req, res, next) => {
   try {
     const targetClientId = resolveClientId(req, req.query?.clientId);
     if (!targetClientId) {
@@ -36,9 +40,13 @@ router.get("/routes/export/kml", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/routes/import/kml", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/routes/import/kml",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes", requireFull: true }),
+  async (req, res, next) => {
   try {
     const { kml, clientId: providedClientId, color = null } = req.body || {};
     const targetClientId = resolveClientId(req, providedClientId);
@@ -66,9 +74,13 @@ router.post("/routes/import/kml", requireRole("manager", "admin"), async (req, r
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/routes", async (req, res, next) => {
+router.get(
+  "/routes",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes" }),
+  async (req, res, next) => {
   try {
     const targetClientId = resolveClientId(req, req.query?.clientId);
     if (!targetClientId && req.user.role !== "admin") {
@@ -79,9 +91,13 @@ router.get("/routes", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/routes/:id", async (req, res, next) => {
+router.get(
+  "/routes/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes" }),
+  async (req, res, next) => {
   try {
     const route = await getRouteById(req.params.id);
     if (!route) {
@@ -92,9 +108,13 @@ router.get("/routes/:id", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/routes", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/routes",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes", requireFull: true }),
+  async (req, res, next) => {
   try {
     const targetClientId = resolveClientId(req, req.body?.clientId);
     if (!targetClientId) {
@@ -108,9 +128,13 @@ router.post("/routes", requireRole("manager", "admin"), async (req, res, next) =
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.put("/routes/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/routes/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes", requireFull: true }),
+  async (req, res, next) => {
   try {
     const existing = await getRouteById(req.params.id);
     if (!existing) {
@@ -128,9 +152,13 @@ router.put("/routes/:id", requireRole("manager", "admin"), async (req, res, next
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.delete("/routes/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.delete(
+  "/routes/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "routes", requireFull: true }),
+  async (req, res, next) => {
   try {
     const existing = await getRouteById(req.params.id);
     if (!existing) {
@@ -142,6 +170,7 @@ router.delete("/routes/:id", requireRole("manager", "admin"), async (req, res, n
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 export default router;

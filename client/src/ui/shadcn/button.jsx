@@ -19,7 +19,7 @@ export function Button({ variant = "default", size = "default", className, child
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring-selected)]",
         variants[variant],
         sizes[size],
         className,

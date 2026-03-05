@@ -3,9 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { CoreApi } from "../coreApi.js";
+import { resolveMirrorClientParams } from "../mirror-params.js";
 
-export default function useTasks(params = {}, { enabled = true } = {}) {
-  const { tenantId } = useTenant();
+export default function useTasks(params = {}, { enabled = true, tenantIdOverride } = {}) {
+  const {
+    tenantId: contextTenantId,
+    mirrorContextMode,
+    activeMirrorOwnerClientId,
+  } = useTenant();
   const { t } = useTranslation();
 
   const [tasks, setTasks] = useState([]);
@@ -13,22 +18,39 @@ export default function useTasks(params = {}, { enabled = true } = {}) {
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // 🔥 Memo verdadeiro — não muda enquanto valores internos não mudarem
-  const resolvedParams = useMemo(() => {
-    const p = { ...params };
-    if (tenantId) p.clientId = tenantId;
-    return p;
-  }, [tenantId, params.clientId, params.status, params.vehicleId, params.driverId, params.from, params.to, params.type]);
+  const resolvedTenantId = tenantIdOverride !== undefined ? tenantIdOverride : contextTenantId;
+  const mirrorOwnerClientId = activeMirrorOwnerClientId ?? null;
+  const resolvedParams = useMemo(
+    () =>
+      resolveMirrorClientParams({
+        params,
+        tenantId: resolvedTenantId,
+        mirrorContextMode,
+        mirrorOwnerClientId,
+      }) || {},
+    [
+      mirrorContextMode,
+      mirrorOwnerClientId,
+      params.clientId,
+      params.status,
+      params.vehicleId,
+      params.driverId,
+      params.from,
+      params.to,
+      params.type,
+      resolvedTenantId,
+    ],
+  );
 
   // Guardar última hash estável para não ficar disparando effect
   const lastHashRef = useRef("");
   const currentHash = useMemo(() => {
     try {
-      return JSON.stringify({ ...resolvedParams, reloadKey });
+      return JSON.stringify({ ...resolvedParams, reloadKey, mirrorOwnerClientId, mirrorContextMode });
     } catch {
       return "";
     }
-  }, [reloadKey, resolvedParams]);
+  }, [mirrorContextMode, mirrorOwnerClientId, reloadKey, resolvedParams]);
 
   const shouldRun = lastHashRef.current !== currentHash;
 
@@ -45,17 +67,10 @@ export default function useTasks(params = {}, { enabled = true } = {}) {
 
     let cancelled = false;
 
-    if (!resolvedParams.clientId) {
-      setTasks([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
-    CoreApi.listTasks(resolvedParams)
+    CoreApi.listTasks({ params: resolvedParams })
       .then((data) => {
         if (cancelled) return;
         const list =
@@ -97,7 +112,15 @@ export default function useTasks(params = {}, { enabled = true } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [currentHash, enabled, shouldRun, t, resolvedParams.clientId]);
+  }, [
+    currentHash,
+    enabled,
+    mirrorContextMode,
+    mirrorOwnerClientId,
+    shouldRun,
+    t,
+    resolvedParams.clientId,
+  ]);
 
   const reload = useCallback(() => {
     setReloadKey((current) => current + 1);

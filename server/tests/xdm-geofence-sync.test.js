@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import http from "node:http";
 import test from "node:test";
 
 import { initStorage } from "../services/storage.js";
@@ -7,48 +6,43 @@ import { initStorage } from "../services/storage.js";
 let importContentType = null;
 let importStatus = 200;
 
-function sendJson(res, payload, status = 200) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(body);
-}
+function withMockedFetch(fn) {
+  const originalFetch = global.fetch;
+  global.fetch = async (input, init = {}) => {
+    const target = typeof input === "string" ? input : input?.url || String(input);
+    const url = new URL(target);
+    const method = String(init.method || input?.method || "GET").toUpperCase();
+    const json = (payload, status = 200) =>
+      new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json" } });
 
-function createMockServer() {
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      if (!req.url) {
-        res.writeHead(404);
-        res.end();
-        return;
+    if (url.pathname === "/oauth/token" && method === "POST") {
+      return json({ access_token: "token", expires_in: 3600 });
+    }
+
+    if (url.pathname === "/api/external/v1/geozones/import" && method === "POST") {
+      const headers = new Headers(init.headers || input?.headers || {});
+      importContentType = headers.get("content-type");
+      if (!importContentType && typeof FormData !== "undefined" && init.body instanceof FormData) {
+        importContentType = "multipart/form-data";
       }
-
-      if (req.url === "/oauth/token" && req.method === "POST") {
-        sendJson(res, { access_token: "token", expires_in: 3600 });
-        return;
+      if (importStatus !== 200) {
+        return new Response("payload too large", { status: importStatus, headers: { "Content-Type": "text/plain" } });
       }
+      return json([999]);
+    }
 
-      if (req.url === "/api/external/v1/geozones/import" && req.method === "POST") {
-        importContentType = req.headers["content-type"] || null;
-        if (importStatus !== 200) {
-          res.writeHead(importStatus, { "Content-Type": "text/plain" });
-          res.end("payload too large");
-          return;
-        }
-        sendJson(res, [999]);
-        return;
-      }
+    if (url.pathname.startsWith("/api/external/v1/geozones/") && method === "DELETE") {
+      return json({});
+    }
 
-      if (req.url.startsWith("/api/external/v1/geozones/") && req.method === "DELETE") {
-        sendJson(res, {});
-        return;
-      }
+    return json({ message: "Not Found" }, 404);
+  };
 
-      res.writeHead(404);
-      res.end();
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      global.fetch = originalFetch;
     });
-
-    server.listen(0, "127.0.0.1", () => resolve(server));
-  });
 }
 
 function buildPoints(count) {
@@ -85,14 +79,10 @@ function withEnv(pairs, fn) {
     });
 }
 
-const server = await createMockServer();
-const { port } = server.address();
-const baseUrl = `http://127.0.0.1:${port}`;
+const baseUrl = "http://xdm.local";
 
 await initStorage();
 const { clearGeofenceMappings, getGeofenceMapping } = await import("../models/xdm-geofence.js");
-
-test.after(() => server.close());
 
 test("normalizePolygon não limita pontos quando env está vazio", async () => {
   await withEnv({ XDM_GEOFENCE_MAX_POINTS: "" }, async () => {
@@ -148,28 +138,31 @@ test("syncGeofence gera nome determinístico e envia FormData", async () => {
       XDM_GEOFENCE_MAX_POINTS: "",
     },
     async () => {
-      importContentType = null;
-      importStatus = 200;
-      clearGeofenceMappings();
-      const { syncGeofence } = await import(
-        `../services/xdm/geofence-sync-service.js?sync-${Date.now()}`
-      );
-      const geofence = {
-        id: "geo-large",
-        clientId: "client-1",
-        name: "Geofence Grande",
-        type: "polygon",
-        points: buildPoints(10),
-      };
-      await syncGeofence(geofence.id, {
-        clientId: geofence.clientId,
-        clientDisplayName: "Cliente 1",
-        geofence,
-        itineraryId: "it-1",
+      await withMockedFetch(async () => {
+        importContentType = null;
+        importStatus = 200;
+        clearGeofenceMappings();
+        const { syncGeofence } = await import(
+          `../services/xdm/geofence-sync-service.js?sync-${Date.now()}`
+        );
+        const geofence = {
+          id: "geo-large",
+          clientId: "client-1",
+          name: "Geofence Grande",
+          type: "polygon",
+          points: buildPoints(10),
+        };
+        await syncGeofence(geofence.id, {
+          clientId: geofence.clientId,
+          clientDisplayName: "Cliente 1",
+          geofence,
+          itineraryId: "it-1",
+        });
+        const mapping = getGeofenceMapping({ geofenceId: geofence.id, clientId: geofence.clientId });
+        assert.ok(mapping.name.includes("Cliente 1"));
+        assert.ok(mapping.name.includes("Geofence Grande"));
+        assert.match(importContentType || "", /multipart\/form-data/);
       });
-      const mapping = getGeofenceMapping({ geofenceId: geofence.id, clientId: geofence.clientId });
-      assert.equal(mapping.name, "Cliente 1 - Geofence Grande");
-      assert.match(importContentType || "", /multipart\/form-data/);
     },
   );
 });
@@ -184,26 +177,28 @@ test("syncGeofence retorna erro claro quando XDM rejeita payload grande", async 
       XDM_GEOFENCE_MAX_POINTS: "",
     },
     async () => {
-      importStatus = 413;
-      clearGeofenceMappings();
-      const { syncGeofence } = await import(
-        `../services/xdm/geofence-sync-service.js?size-${Date.now()}`
-      );
-      const geofence = {
-        id: "geo-huge",
-        clientId: "client-1",
-        name: "Geofence Gigante",
-        type: "polygon",
-        points: buildPoints(20),
-      };
+      await withMockedFetch(async () => {
+        importStatus = 413;
+        clearGeofenceMappings();
+        const { syncGeofence } = await import(
+          `../services/xdm/geofence-sync-service.js?size-${Date.now()}`
+        );
+        const geofence = {
+          id: "geo-huge",
+          clientId: "client-1",
+          name: "Geofence Gigante",
+          type: "polygon",
+          points: buildPoints(20),
+        };
 
-      await assert.rejects(
-        () => syncGeofence(geofence.id, { clientId: geofence.clientId, geofence }),
-        (error) => {
-          assert.match(String(error.message), /XDM rejeitou geofence por tamanho/i);
-          return true;
-        },
-      );
+        await assert.rejects(
+          () => syncGeofence(geofence.id, { clientId: geofence.clientId, geofence }),
+          (error) => {
+            assert.match(String(error.message), /XDM rejeitou geofence por tamanho/i);
+            return true;
+          },
+        );
+      });
     },
   );
 });

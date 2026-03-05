@@ -101,3 +101,37 @@ input, select, button{
   font-size: 14px !important;
   border-radius: 12px !important;
 }
+
+/* Light theme overrides */
+:root[data-theme="light"] aside{
+  border-right-color: var(--border) !important;
+}
+
+:root[data-theme="light"] aside nav a{
+  color: var(--text-2) !important;
+}
+
+:root[data-theme="light"] aside nav a:hover{
+  color: var(--text) !important;
+  background: var(--surface-2) !important;
+}
+
+:root[data-theme="light"] aside [class*="uppercase"],
+:root[data-theme="light"] aside .section-title{
+  color: var(--muted) !important;
+}
+
+:root[data-theme="light"] main > :first-child{
+  border-bottom-color: var(--border) !important;
+}
+
+:root[data-theme="light"] main > :first-child h1,
+:root[data-theme="light"] main > :first-child [data-title],
+:root[data-theme="light"] main > :first-child .page-title,
+:root[data-theme="light"] main > :first-child .title{
+  color: var(--text) !important;
+}
+
+:root[data-theme="light"] .e-subheading{
+  color: var(--text-2) !important;
+}

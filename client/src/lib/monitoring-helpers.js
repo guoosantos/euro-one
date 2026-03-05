@@ -1,3 +1,5 @@
+import { matchesTenant } from "./tenancy.js";
+
 export function toKey(value) {
   if (value === null || value === undefined) return null;
   try {
@@ -43,6 +45,16 @@ export function isLinkedToVehicle({ device, source, vehicle } = {}) {
       : null;
 
   return Boolean(fromDevice ?? fromSource ?? fromNestedDevice ?? fromVehicle);
+}
+
+export function matchesAnyTenant(entry, tenantIds) {
+  if (!Array.isArray(tenantIds) || tenantIds.length === 0) return true;
+  return tenantIds.some(
+    (tenantId) =>
+      matchesTenant(entry?.device, tenantId) ||
+      matchesTenant(entry?.vehicle, tenantId) ||
+      matchesTenant(entry?.source, tenantId),
+  );
 }
 
 export function pickCoordinate(values) {
@@ -207,6 +219,111 @@ export function isOnline(position, offlineThresholdMinutes = 5) {
   if (!lastUpdate) return false;
   const diffMinutes = (Date.now() - lastUpdate.getTime()) / 1000 / 60;
   return diffMinutes <= offlineThresholdMinutes;
+}
+
+function normalizeText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+  return "";
+}
+
+function pickFirstString(sources, keys) {
+  const list = Array.isArray(sources) ? sources : [sources];
+  for (const source of list) {
+    if (!source || typeof source !== "object") continue;
+    for (const key of keys) {
+      const candidate = normalizeText(source[key]);
+      if (candidate) return candidate;
+    }
+  }
+  return "";
+}
+
+function isLikelyInternalCode(value) {
+  const text = normalizeText(value);
+  if (!text) return false;
+  if (text.includes(" ")) return false;
+  if (text.length > 6) return false;
+  const hasLetters = /[A-Za-z]/.test(text);
+  const hasDigits = /\d/.test(text);
+  return hasLetters && hasDigits;
+}
+
+export function resolveVehicleInfo({ vehicle, device, attributes } = {}) {
+  const vehicleRecord = vehicle || {};
+  const deviceRecord = device || {};
+  const attributeRecord = attributes || {};
+  const sources = [
+    vehicleRecord,
+    vehicleRecord.vehicle,
+    vehicleRecord.attributes,
+    deviceRecord.vehicle,
+    deviceRecord,
+    deviceRecord.attributes,
+    attributeRecord,
+  ];
+
+  const brand = pickFirstString(sources, ["brand", "marca", "make", "manufacturer", "fabricante"]);
+  const model = pickFirstString(sources, ["model", "modelo", "modelName", "model_name", "vehicleModel"]);
+  const description = pickFirstString(sources, [
+    "description",
+    "makeModel",
+    "make_model",
+    "modelDescription",
+    "vehicleDescription",
+  ]);
+  const item = pickFirstString(sources, ["item", "vehicleName", "name", "label"]);
+  const plate = pickFirstString(sources, ["plate", "registrationNumber", "placa"]);
+  const deviceModel = pickFirstString([deviceRecord, deviceRecord.attributes], [
+    "model",
+    "modelName",
+    "model_name",
+    "deviceModel",
+  ]);
+
+  return {
+    brand: brand || null,
+    model: model || null,
+    description: description || null,
+    item: item || null,
+    plate: plate || null,
+    deviceModel: deviceModel || null,
+  };
+}
+
+export function resolveVehicleDisplayName(info = {}) {
+  const brand = normalizeText(info.brand);
+  const model = normalizeText(info.model);
+  const description = normalizeText(info.description);
+  const item = normalizeText(info.item);
+  const deviceModel = normalizeText(info.deviceModel);
+  const plate = normalizeText(info.plate);
+  const modelIsCode = isLikelyInternalCode(model);
+
+  if (brand && model) {
+    const modelLower = model.toLowerCase();
+    const brandLower = brand.toLowerCase();
+    if (modelLower.includes(brandLower)) {
+      return model;
+    }
+    if (modelIsCode && description) {
+      return description;
+    }
+    return `${brand} ${model}`.trim();
+  }
+
+  if (description) return description;
+
+  if (brand) return brand;
+
+  if (model && !modelIsCode) return model;
+
+  if (item && item.toLowerCase() !== plate.toLowerCase()) return item;
+
+  if (deviceModel && !isLikelyInternalCode(deviceModel)) return deviceModel;
+
+  return "—";
 }
 
 export function deriveStatus(position) {

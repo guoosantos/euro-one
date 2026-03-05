@@ -507,9 +507,6 @@ export default function Clients() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
-        overline="Central de clientes"
-        title="Clientes"
-        subtitle="Cadastre, acompanhe limites e gerencie as informações dos clientes."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button

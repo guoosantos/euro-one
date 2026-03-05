@@ -57,8 +57,6 @@ export default function Finance() {
   return (
     <div className="space-y-4 text-white/80">
       <PageHeader
-        title="Financeiro"
-        subtitle="Entradas, saídas e OS aprovadas."
         actions={
           <div className="flex items-center gap-2">
             <button

@@ -13,6 +13,7 @@ import { createVehicle, deleteVehicle } from "../models/vehicle.js";
 import { __resetTraccarDbForTests, __setTraccarDbTestOverrides } from "../services/traccar-db.js";
 import { randomUUID } from "node:crypto";
 import proxyRoutes from "../routes/proxy.js";
+import { requestApp } from "./app-request.js";
 
 let positionsDeviceIds = [];
 let eventsDeviceIds = [];
@@ -80,19 +81,17 @@ async function callProxy({ path, token, headers = {}, method = "GET", body }) {
   app.use("/api", proxyRoutes);
   app.use(errorHandler);
 
-  const server = app.listen(0);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await requestApp(app, {
+    url: path,
     method,
     headers: {
       Authorization: `Bearer ${token}`,
       ...(body ? { "Content-Type": "application/json" } : {}),
       ...headers,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body,
   });
   const payload = await response.json();
-  server.close();
   return { status: response.status, payload };
 }
 
@@ -319,7 +318,7 @@ test("POST /api/devices mantém 403 para role user mesmo em mirror", async () =>
   });
 
   assert.equal(status, 403);
-  assert.equal(payload.message, "Permissão insuficiente");
+  assert.equal(payload.message, "Sem acesso");
 });
 
 test("GET /api/events retorna apenas eventos dos veículos do espelho", async () => {

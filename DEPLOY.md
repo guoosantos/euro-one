@@ -15,26 +15,6 @@ Guia rápido para subir e validar o backend do Euro One (PM2 + geração de rela
    ```
    - O build grava `client/dist/version.json` com o SHA do git para conferência em produção (`/api/version` e `/version.txt`).
 
-## Release padrao do frontend (canonica)
-
-Para evitar drift de frontend, o deploy padrao usa sempre o archive canônico:
-
-- `/home/ubuntu/backups/euro-one-front/OFFICIAL_FRONT_BUILD.mapbox-livefix-2026-03-01T021817Z.tgz`
-- `sha256`: `423296904c5eac3e9ea509b4a16b3b3dc8f1b320ad8ba9c59ca11974c371d935`
-
-Comandos oficiais:
-
-```bash
-./scripts/publish-front.sh
-./scripts/publish-front-official.sh
-```
-
-O fluxo por source existe, mas fica bloqueado por padrão e exige liberação explícita:
-
-```bash
-ALLOW_SOURCE_PUBLISH=1 ./scripts/publish-front.sh --from-source
-```
-
 ## Verificações antes do deploy
 
 Execute os checks locais para garantir que o frontend e o backend estão íntegros:

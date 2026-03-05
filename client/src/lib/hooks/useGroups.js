@@ -9,12 +9,13 @@ function normaliseGroups(payload) {
   return [];
 }
 
-export function useGroups({ params = {}, autoRefreshMs = 60_000 } = {}) {
+export function useGroups({ params = {}, autoRefreshMs = 60_000, requestOptions = {} } = {}) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
   const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
+  const optionsKey = useMemo(() => JSON.stringify(requestOptions || {}), [requestOptions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,7 +26,7 @@ export function useGroups({ params = {}, autoRefreshMs = 60_000 } = {}) {
       setError(null);
       try {
         const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
-        const response = await api.get(API_ROUTES.groups, { params: parsedParams });
+        const response = await api.get(API_ROUTES.groups, { ...requestOptions, params: parsedParams });
         if (cancelled) return;
         setData(normaliseGroups(response?.data));
       } catch (requestError) {
@@ -51,33 +52,33 @@ export function useGroups({ params = {}, autoRefreshMs = 60_000 } = {}) {
         globalThis.clearTimeout(timer);
       }
     };
-  }, [autoRefreshMs, paramsKey, version]);
+  }, [autoRefreshMs, optionsKey, paramsKey, version]);
 
   const reload = useCallback(() => {
     setVersion((value) => value + 1);
   }, []);
 
   const createGroup = useCallback(async (payload) => {
-    const response = await api.post(API_ROUTES.groups, payload);
+    const response = await api.post(API_ROUTES.groups, payload, requestOptions);
     reload();
     return response?.data;
-  }, [reload]);
+  }, [reload, requestOptions]);
 
   const updateGroup = useCallback(
     async (id, payload) => {
-      const response = await api.put(`/groups/${id}`, payload);
+      const response = await api.put(`/groups/${id}`, payload, requestOptions);
       reload();
       return response?.data;
     },
-    [reload],
+    [reload, requestOptions],
   );
 
   const deleteGroup = useCallback(
     async (id) => {
-      await api.delete(`/groups/${id}`);
+      await api.delete(`/groups/${id}`, requestOptions);
       reload();
     },
-    [reload],
+    [reload, requestOptions],
   );
 
   return useMemo(

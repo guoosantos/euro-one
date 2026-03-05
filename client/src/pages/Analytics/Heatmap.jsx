@@ -9,6 +9,7 @@ import { translateEventType } from "../../lib/event-translations.js";
 import useGroups from "../../lib/hooks/useGroups.js";
 import { useHeatmapEvents } from "../../lib/hooks/useHeatmapEvents.js";
 import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
+import { DEFAULT_MAP_LAYER } from "../../lib/mapLayers.js";
 import PageHeader from "../../components/ui/PageHeader.jsx";
 
 const CRIME_TYPES = ["crime", "theft", "assalto", "robbery"];
@@ -67,10 +68,12 @@ export default function HeatmapAnalytics() {
   const { groups } = useGroups();
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
-  const tileUrl = useMemo(
-    () => import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    [],
-  );
+  const baseLayer = DEFAULT_MAP_LAYER;
+  const tileUrl = baseLayer?.url || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileAttribution =
+    baseLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const tileSubdomains = baseLayer?.subdomains ?? "abc";
+  const tileMaxZoom = baseLayer?.maxZoom;
   const requestFilters = useMemo(
     () => ({
       ...filters,
@@ -158,7 +161,6 @@ export default function HeatmapAnalytics() {
   return (
     <div className="space-y-4">
       <PageHeader
-        overline="Analytics"
         title={t("analyticsHeatmap")}
         subtitle={t("analyticsHeatmapDescription")}
         rightSlot={
@@ -243,8 +245,10 @@ export default function HeatmapAnalytics() {
               whenReady={onMapReady}
             >
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                attribution={tileAttribution}
                 url={tileUrl}
+                subdomains={tileSubdomains}
+                maxZoom={tileMaxZoom}
               />
               {isHeatReady ? <HeatLayer points={points} /> : null}
             </MapContainer>

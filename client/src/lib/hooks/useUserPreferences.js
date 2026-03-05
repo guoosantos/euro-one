@@ -2,8 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTenant } from "../tenant-context.jsx";
 
-const STORAGE_KEY = "userPrefs:monitoring";
+const STORAGE_KEY_PREFIX = "userPrefs:monitoring";
+
+const MONITORING_CONTEXT_KEYS = new Set([
+  "monitoringTableColumns",
+  "monitoringColumnWidths",
+  "monitoringDefaultFilters",
+  "monitoringLayoutVisibility",
+  "monitoringMapLayerKey",
+  "monitoringMapHeight",
+  "monitoringSearchRadius",
+  "monitoringPanelRatio",
+]);
 
 const DEFAULT_PREFERENCES = {
   monitoringTableColumns: null,
@@ -12,7 +24,11 @@ const DEFAULT_PREFERENCES = {
   tripsReportColumns: null,
   monitoringDefaultFilters: null,
   monitoringLayoutVisibility: null,
+  monitoringMapLayerKey: null,
   monitoringMapHeight: null,
+  monitoringSearchRadius: null,
+  monitoringPanelRatio: null,
+  monitoringContexts: null,
   reportEventScope: "active",
 };
 
@@ -46,8 +62,36 @@ function normalisePreferences(raw) {
       typeof raw.monitoringLayoutVisibility === "object"
         ? { ...raw.monitoringLayoutVisibility }
         : null,
+    monitoringMapLayerKey: typeof raw.monitoringMapLayerKey === "string" ? raw.monitoringMapLayerKey : null,
+    monitoringMapHeight: Number.isFinite(Number(raw.monitoringMapHeight)) ? Number(raw.monitoringMapHeight) : null,
+    monitoringSearchRadius: Number.isFinite(Number(raw.monitoringSearchRadius)) ? Number(raw.monitoringSearchRadius) : null,
+    monitoringPanelRatio: Number.isFinite(Number(raw.monitoringPanelRatio)) ? Number(raw.monitoringPanelRatio) : null,
+    monitoringContexts:
+      raw.monitoringContexts && typeof raw.monitoringContexts === "object" && !Array.isArray(raw.monitoringContexts)
+        ? { ...raw.monitoringContexts }
+        : null,
     reportEventScope: raw.reportEventScope === "all" ? "all" : "active",
   };
+}
+
+function normaliseContextEntry(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const base = normalisePreferences(raw);
+  const entry = {};
+  MONITORING_CONTEXT_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      entry[key] = base[key];
+    }
+  });
+  return Object.keys(entry).length ? entry : null;
+}
+
+function resolveContextOverrides(preferences, contextKey) {
+  if (!contextKey) return null;
+  const contexts = preferences?.monitoringContexts;
+  if (!contexts || typeof contexts !== "object") return null;
+  const entry = contexts[contextKey];
+  return normaliseContextEntry(entry);
 }
 
 function getLocalStorage() {
@@ -59,69 +103,145 @@ function getLocalStorage() {
   return null;
 }
 
-function readStoredPreferences() {
+function buildStorageKey(userId) {
+  return `${STORAGE_KEY_PREFIX}:${userId ? String(userId) : "anon"}`;
+}
+
+function readStoredPreferences(storageKey) {
   const storage = getLocalStorage();
   if (!storage) return { ...DEFAULT_PREFERENCES };
 
   try {
-    const stored = storage.getItem(STORAGE_KEY);
+    const stored = storage.getItem(storageKey);
     return stored ? normalisePreferences(JSON.parse(stored)) : { ...DEFAULT_PREFERENCES };
   } catch (_error) {
     return { ...DEFAULT_PREFERENCES };
   }
 }
 
-export default function useUserPreferences() {
-  const [preferences, setPreferences] = useState(() => readStoredPreferences());
+function stripUndefinedValues(value) {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => typeof entryValue !== "undefined"),
+  );
+}
+
+function buildNextPreferences(base, updates, scopedContextKey = null) {
+  const safeUpdates = updates && typeof updates === "object" ? updates : {};
+  if (!scopedContextKey) {
+    return {
+      next: normalisePreferences({ ...base, ...safeUpdates }),
+      payload: stripUndefinedValues(safeUpdates),
+    };
+  }
+
+  const contextMap =
+    base.monitoringContexts && typeof base.monitoringContexts === "object"
+      ? { ...base.monitoringContexts }
+      : {};
+  const existingEntry = contextMap[scopedContextKey];
+  const entryBase = normaliseContextEntry(existingEntry) || {};
+  const entryUpdates = normaliseContextEntry(safeUpdates) || {};
+  const nextEntry = { ...entryBase, ...entryUpdates };
+  if (Object.keys(nextEntry).length) {
+    contextMap[scopedContextKey] = nextEntry;
+  }
+
+  const globalUpdates = { ...safeUpdates };
+  MONITORING_CONTEXT_KEYS.forEach((key) => {
+    delete globalUpdates[key];
+  });
+
+  return {
+    next: normalisePreferences({
+      ...base,
+      ...globalUpdates,
+      monitoringContexts: Object.keys(contextMap).length ? contextMap : null,
+    }),
+    payload: stripUndefinedValues({
+      ...globalUpdates,
+      monitoringContexts: Object.keys(contextMap).length ? contextMap : null,
+    }),
+  };
+}
+
+export default function useUserPreferences({ contextKey } = {}) {
+  const { isAuthenticated, contextSwitching, contextSwitchKey, contextAbortSignal, user } = useTenant();
+  const storageKey = useMemo(() => buildStorageKey(user?.id), [user?.id]);
+  const [rawPreferences, setRawPreferences] = useState(() => readStoredPreferences(storageKey));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const isMountedRef = useRef(true);
+  const forbiddenRef = useRef(false);
+  const contextKeyRef = useRef(contextKey);
+  const rawPreferencesRef = useRef(readStoredPreferences(storageKey));
+  const saveQueueRef = useRef(Promise.resolve());
 
   useEffect(() => () => {
     isMountedRef.current = false;
   }, []);
+  useEffect(() => {
+    forbiddenRef.current = false;
+  }, [user?.id]);
+  useEffect(() => {
+    const stored = readStoredPreferences(storageKey);
+    rawPreferencesRef.current = stored;
+    setRawPreferences(stored);
+  }, [storageKey]);
+  useEffect(() => {
+    rawPreferencesRef.current = normalisePreferences(rawPreferences);
+  }, [rawPreferences]);
 
   const persistLocally = useCallback((next) => {
     const storage = getLocalStorage();
     if (!storage) return;
     try {
-      storage.setItem(STORAGE_KEY, JSON.stringify(next));
+      storage.setItem(storageKey, JSON.stringify(next));
     } catch (_error) {
       // Ignore persistence failures; keep in-memory state
     }
-  }, []);
+  }, [storageKey]);
 
   const clearLocalPreferences = useCallback(() => {
     const storage = getLocalStorage();
     if (!storage) return;
     try {
-      storage.removeItem(STORAGE_KEY);
+      storage.removeItem(storageKey);
     } catch (_error) {
       // Ignore persistence failures; keep in-memory state
     }
-  }, []);
+  }, [storageKey]);
 
   const refresh = useCallback(async () => {
+    if (!isAuthenticated || contextSwitching || forbiddenRef.current) {
+      return readStoredPreferences(storageKey);
+    }
     setLoading(true);
     setError(null);
 
-    const localPreferences = readStoredPreferences();
+    const localPreferences = readStoredPreferences(storageKey);
     if (isMountedRef.current) {
-      setPreferences(localPreferences);
+      rawPreferencesRef.current = localPreferences;
+      setRawPreferences(localPreferences);
     }
 
     try {
-      const response = await api.get(API_ROUTES.userPreferences);
+      const response = await api.get(API_ROUTES.userPreferences, { signal: contextAbortSignal });
       const remotePreferences = normalisePreferences(response?.data?.preferences);
 
       if (isMountedRef.current) {
-        setPreferences(remotePreferences);
+        rawPreferencesRef.current = remotePreferences;
+        setRawPreferences(remotePreferences);
         persistLocally(remotePreferences);
       }
 
       return remotePreferences;
     } catch (fetchError) {
+      const status = Number(fetchError?.status || fetchError?.response?.status);
+      if (status === 403) {
+        forbiddenRef.current = true;
+      }
       if (isMountedRef.current) {
         setError(fetchError);
       }
@@ -131,46 +251,78 @@ export default function useUserPreferences() {
         setLoading(false);
       }
     }
-  }, [persistLocally]);
+  }, [contextAbortSignal, contextSwitching, isAuthenticated, persistLocally, storageKey]);
 
   useEffect(() => {
+    if (!isAuthenticated || contextSwitching) return;
     refresh();
-  }, [refresh]);
+  }, [contextSwitchKey, contextSwitching, isAuthenticated, refresh]);
 
   const savePreferences = useCallback(
-    async (updates) => {
-      const next = normalisePreferences({ ...preferences, ...(updates || {}) });
-      setPreferences(next);
+    async (updates = {}, options = {}) => {
+      const scopedContextKey = options.contextKey ?? contextKeyRef.current ?? null;
+      const base = normalisePreferences(rawPreferencesRef.current);
+      const { next, payload } = buildNextPreferences(base, updates, scopedContextKey);
+      const hasPayload = Object.keys(payload).length > 0;
+
+      rawPreferencesRef.current = next;
+      setRawPreferences(next);
       persistLocally(next);
       setError(null);
+      if (!hasPayload) {
+        return next;
+      }
 
-      try {
+      const runSave = async () => {
+        if (!isMountedRef.current) {
+          return next;
+        }
+
         setSaving(true);
-        const response = await api.put(API_ROUTES.userPreferences, next);
+        const response = await api.put(API_ROUTES.userPreferences, payload);
         const persisted = normalisePreferences(response?.data?.preferences || next);
 
         if (isMountedRef.current) {
-          setPreferences(persisted);
+          rawPreferencesRef.current = persisted;
+          setRawPreferences(persisted);
           persistLocally(persisted);
         }
 
         return persisted;
+      };
+
+      const pending = saveQueueRef.current
+        .catch(() => null)
+        .then(runSave)
+        .catch((saveError) => {
+          if (isMountedRef.current) {
+            setError(saveError);
+          }
+          throw saveError;
+        })
+        .finally(() => {
+          if (isMountedRef.current) {
+            setSaving(false);
+          }
+        });
+
+      saveQueueRef.current = pending;
+
+      try {
+        return await pending;
       } catch (saveError) {
         if (isMountedRef.current) {
           setError(saveError);
         }
-        return Promise.reject(saveError);
-      } finally {
-        if (isMountedRef.current) {
-          setSaving(false);
-        }
+        throw saveError;
       }
     },
-    [preferences, persistLocally],
+    [persistLocally],
   );
 
   const resetPreferences = useCallback(async () => {
-    setPreferences({ ...DEFAULT_PREFERENCES });
+    rawPreferencesRef.current = { ...DEFAULT_PREFERENCES };
+    setRawPreferences({ ...DEFAULT_PREFERENCES });
     clearLocalPreferences();
     setError(null);
 
@@ -180,7 +332,8 @@ export default function useUserPreferences() {
       const cleared = normalisePreferences(response?.data?.preferences || DEFAULT_PREFERENCES);
 
       if (isMountedRef.current) {
-        setPreferences(cleared);
+        rawPreferencesRef.current = cleared;
+        setRawPreferences(cleared);
         persistLocally(cleared);
       }
 
@@ -197,9 +350,22 @@ export default function useUserPreferences() {
     }
   }, [clearLocalPreferences, persistLocally]);
 
+  const resolvedContextKey = contextKey || null;
+  useEffect(() => {
+    contextKeyRef.current = resolvedContextKey;
+  }, [resolvedContextKey]);
+
+  const preferences = useMemo(() => {
+    const base = normalisePreferences(rawPreferences);
+    const overrides = resolveContextOverrides(base, resolvedContextKey);
+    if (!overrides) return base;
+    return normalisePreferences({ ...base, ...overrides });
+  }, [rawPreferences, resolvedContextKey]);
+
   return useMemo(
     () => ({
       preferences: preferences || { ...DEFAULT_PREFERENCES },
+      rawPreferences: rawPreferences || { ...DEFAULT_PREFERENCES },
       loading,
       isSaving: saving,
       error,
@@ -207,6 +373,6 @@ export default function useUserPreferences() {
       savePreferences,
       resetPreferences,
     }),
-    [error, loading, preferences, refresh, resetPreferences, savePreferences, saving],
+    [error, loading, preferences, rawPreferences, refresh, resetPreferences, savePreferences, saving],
   );
 }

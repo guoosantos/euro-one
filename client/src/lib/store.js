@@ -17,15 +17,36 @@ function persistState(state) {
   try {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (state?.theme) {
+      window.localStorage.setItem("theme", state.theme);
+    }
   } catch (error) {
     console.warn("Failed to persist UI state", error);
   }
 }
 
+const storedState = loadState();
+const storedTheme =
+  typeof window !== "undefined"
+    ? window.localStorage.getItem("theme")
+    : null;
+const prefersDark =
+  typeof window !== "undefined" &&
+  window.matchMedia &&
+  window.matchMedia("(prefers-color-scheme: dark)").matches;
+const initialTheme =
+  (storedTheme === "dark" || storedTheme === "light" ? storedTheme : null) ??
+  storedState.theme ??
+  (prefersDark ? "dark" : "light");
+
+if (typeof document !== "undefined") {
+  document.documentElement.dataset.theme = initialTheme;
+}
+
 const initialState = {
   sidebarOpen: false,
   sidebarCollapsed: false,
-  theme: "dark",
+  theme: initialTheme,
   locale: "pt-BR",
   monitoringTopbarVisible: true,
   geofencesTopbarVisible: true,
@@ -33,7 +54,10 @@ const initialState = {
   selectedVehicleId: null,
   selectedTelemetryDeviceId: null,
   overlayCount: 0,
-  ...loadState(),
+  ...storedState,
+  selectedVehicleId: null,
+  selectedTelemetryDeviceId: null,
+  theme: initialTheme,
 };
 
 function persistNextState(nextState) {
@@ -44,8 +68,6 @@ function persistNextState(nextState) {
     monitoringTopbarVisible: nextState.monitoringTopbarVisible,
     geofencesTopbarVisible: nextState.geofencesTopbarVisible,
     routesTopbarVisible: nextState.routesTopbarVisible,
-    selectedVehicleId: nextState.selectedVehicleId,
-    selectedTelemetryDeviceId: nextState.selectedTelemetryDeviceId,
   });
 }
 

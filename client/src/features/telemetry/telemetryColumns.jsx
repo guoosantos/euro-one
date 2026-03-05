@@ -82,7 +82,7 @@ export const TELEMETRY_COLUMNS = [
     key: "plate",
     labelKey: "monitoring.columns.plate",
     defaultVisible: true,
-    getValue: (row) => row.plate || row.vehicle?.plate || row.vehicleName || FALLBACK,
+    getValue: (row) => row.plateLabel || row.plate || row.vehicle?.plate || row.vehicleName || FALLBACK,
   },
   {
     key: "deviceId",
@@ -476,7 +476,14 @@ export const TELEMETRY_COLUMNS = [
     key: "notes",
     labelKey: "monitoring.columns.notes",
     defaultVisible: false,
-    getValue: (row) => row.device?.notes || row.device?.observations || row.device?.attributes?.notes || FALLBACK,
+    getValue: (row) =>
+      row.vehicle?.notes ||
+      row.vehicle?.observations ||
+      row.device?.notes ||
+      row.device?.observations ||
+      row.vehicle?.attributes?.notes ||
+      row.device?.attributes?.notes ||
+      FALLBACK,
   },
 ];
 

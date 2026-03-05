@@ -6,6 +6,7 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { CoreApi } from "../lib/coreApi.js";
 import { formatDate } from "../lib/fleet-utils.js";
 import { formatAddress } from "../lib/format-address.js";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function TaskDetails() {
   const { id } = useParams();
@@ -56,66 +57,74 @@ export default function TaskDetails() {
     { label: t("tasks.serviceEnd"), value: task?.serviceEndTime },
   ].filter((item) => item.value);
 
-  if (loading) return <div className="text-white">{t("loading")}</div>;
-  if (error) return <div className="text-red-200">{t("tasks.loadError")}</div>;
-  if (!task) return <div className="text-white">{t("tasks.notFound")}</div>;
+  const headerSubtitle = task ? formatAddress(task.address || t("tasks.addressPlaceholder")) : null;
+  const headerActions = (
+    <button className="btn" onClick={() => navigate("/tasks")}>
+      {t("back")}
+    </button>
+  );
+
+  let content = null;
+  if (loading) content = <div className="text-white">{t("loading")}</div>;
+  else if (error) content = <div className="text-red-200">{t("tasks.loadError")}</div>;
+  else if (!task) content = <div className="text-white">{t("tasks.notFound")}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-lg font-semibold text-white">{t("tasks.detailsTitle")}</div>
-          <div className="text-sm text-white/60">{formatAddress(task.address || t("tasks.addressPlaceholder"))}</div>
-        </div>
-        <button className="btn" onClick={() => navigate("/tasks")}>{t("back")}</button>
-      </div>
+      <PageHeader title={t("tasks.detailsTitle")} subtitle={headerSubtitle} actions={headerActions} />
 
-      <div className="card space-y-2">
-        <Detail label={t("tasks.vehicle")} value={task.vehicleId || "—"} />
-        <Detail label={t("tasks.driver")} value={task.driverId || "—"} />
-        <Detail label={t("tasks.type")} value={task.type} />
-        <Detail label={t("tasks.status")} value={task.status} />
-        <Detail
-          label={t("tasks.expectedStart")}
-          value={task.startTimeExpected ? formatDate(task.startTimeExpected) : "—"}
-        />
-        <Detail
-          label={t("tasks.expectedEnd")}
-          value={task.endTimeExpected ? formatDate(task.endTimeExpected) : "—"}
-        />
-        <Detail label={t("tasks.createdAt")} value={task.createdAt ? formatDate(task.createdAt) : "—"} />
-        <Detail label={t("tasks.geofenceRadius")} value={task.geofenceRadius || "—"} />
-        <Detail label={t("tasks.geofence")} value={task.geoFenceId || "—"} />
-      </div>
+      {content}
 
-      {timeline.length ? (
-        <div className="card space-y-2">
-          <div className="text-sm font-semibold text-white">{t("tasks.timeline")}</div>
-          {timeline.map((item) => (
-            <Detail key={item.label} label={item.label} value={formatDate(item.value)} />
-          ))}
-        </div>
-      ) : null}
+      {!loading && !error && task && (
+        <>
+          <div className="card space-y-2">
+            <Detail label={t("tasks.vehicle")} value={task.vehicleId || "—"} />
+            <Detail label={t("tasks.driver")} value={task.driverId || "—"} />
+            <Detail label={t("tasks.type")} value={task.type} />
+            <Detail label={t("tasks.status")} value={task.status} />
+            <Detail
+              label={t("tasks.expectedStart")}
+              value={task.startTimeExpected ? formatDate(task.startTimeExpected) : "—"}
+            />
+            <Detail
+              label={t("tasks.expectedEnd")}
+              value={task.endTimeExpected ? formatDate(task.endTimeExpected) : "—"}
+            />
+            <Detail label={t("tasks.createdAt")} value={task.createdAt ? formatDate(task.createdAt) : "—"} />
+            <Detail label={t("tasks.geofenceRadius")} value={task.geofenceRadius || "—"} />
+            <Detail label={t("tasks.geofence")} value={task.geoFenceId || "—"} />
+          </div>
 
-      {Array.isArray(task.attachments) && task.attachments.length ? (
-        <div className="card space-y-2">
-          <div className="text-sm font-semibold text-white">{t("tasks.attachments")}</div>
-          <ul className="list-disc space-y-1 pl-5 text-white/80">
-            {task.attachments.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+          {timeline.length ? (
+            <div className="card space-y-2">
+              <div className="text-sm font-semibold text-white">{t("tasks.timeline")}</div>
+              {timeline.map((item) => (
+                <Detail key={item.label} label={item.label} value={formatDate(item.value)} />
+              ))}
+            </div>
+          ) : null}
 
-        <div className="flex gap-2">
-          <button className="btn btn-primary" disabled={updating} onClick={() => updateStatus("finalizada")}>
-            {t("tasks.finish")}
-          </button>
-          <button className="btn" disabled={updating} onClick={() => updateStatus("em atendimento")}>
-            {t("tasks.statusInService")}
-          </button>
-        </div>
+          {Array.isArray(task.attachments) && task.attachments.length ? (
+            <div className="card space-y-2">
+              <div className="text-sm font-semibold text-white">{t("tasks.attachments")}</div>
+              <ul className="list-disc space-y-1 pl-5 text-white/80">
+                {task.attachments.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="flex gap-2">
+            <button className="btn btn-primary" disabled={updating} onClick={() => updateStatus("finalizada")}>
+              {t("tasks.finish")}
+            </button>
+            <button className="btn" disabled={updating} onClick={() => updateStatus("em atendimento")}>
+              {t("tasks.statusInService")}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

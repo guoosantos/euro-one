@@ -3,6 +3,7 @@ import createError from "http-errors";
 import { config } from "../config.js";
 import { getClientById } from "../models/client.js";
 import { listMirrors } from "../models/mirror.js";
+import { resolveAllowedMirrorOwnerIds } from "../utils/mirror-access.js";
 import { resolveMirrorVehicleIds } from "../utils/mirror-scope.js";
 
 const RECEIVER_TYPES = new Set([
@@ -65,29 +66,70 @@ export async function resolveMirrorContext(req) {
     return null;
   }
 
+  const allowedMirrorOwners = resolveAllowedMirrorOwnerIds(req.user);
+  const allowedOwnerIds = Array.isArray(allowedMirrorOwners)
+    ? new Set(allowedMirrorOwners.map((id) => String(id)))
+    : null;
+  if (allowedOwnerIds && allowedOwnerIds.size === 0) {
+    throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+  }
+  if (allowedOwnerIds && String(ownerClientId) !== "all" && !allowedOwnerIds.has(String(ownerClientId))) {
+    throw createError(403, `Usuário sem acesso ao clientId ${ownerClientId}`);
+  }
+
   const client = await getClientById(req.user.clientId).catch(() => null);
   const clientType = resolveClientType(client);
   if (!isReceiverType(clientType)) {
     return null;
   }
 
-  const mirrors = listMirrors({ ownerClientId, targetClientId: req.user.clientId }).filter((mirror) =>
-    isMirrorActive(mirror),
-  );
-  if (!mirrors.length) {
-    return null;
-  }
+  let context = null;
+  if (String(ownerClientId) === "all") {
+    const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) => isMirrorActive(mirror));
+    if (!mirrors.length) return null;
+    const activeMirrors = mirrors.filter((mirror) => {
+      if (!mirror?.targetType) return true;
+      return isReceiverType(mirror.targetType);
+    });
+    const filteredActiveMirrors = allowedOwnerIds
+      ? activeMirrors.filter((mirror) => allowedOwnerIds.has(String(mirror.ownerClientId)))
+      : activeMirrors;
+    if (!filteredActiveMirrors.length) return null;
+    const ownerClientIds = Array.from(
+      new Set(filteredActiveMirrors.map((mirror) => String(mirror.ownerClientId)).filter(Boolean)),
+    );
+    const vehicleIds = Array.from(
+      new Set(filteredActiveMirrors.flatMap((mirror) => resolveMirrorVehicleIds(mirror)).map(String)),
+    );
+    context = {
+      mode: "target",
+      ownerClientId: "all",
+      ownerClientIds,
+      targetClientId: String(req.user.clientId),
+      mirrorId: null,
+      permissionGroupId: null,
+      vehicleIds,
+      vehicleGroupId: null,
+    };
+  } else {
+    const mirrors = listMirrors({ ownerClientId, targetClientId: req.user.clientId }).filter((mirror) =>
+      isMirrorActive(mirror),
+    );
+    if (!mirrors.length) {
+      return null;
+    }
 
-  const mirror = mirrors[0];
-  const context = {
-    mode: "target",
-    ownerClientId: String(ownerClientId),
-    targetClientId: String(req.user.clientId),
-    mirrorId: String(mirror.id),
-    permissionGroupId: mirror.permissionGroupId ?? null,
-    vehicleIds: resolveMirrorVehicleIds(mirror),
-    vehicleGroupId: mirror.vehicleGroupId ?? null,
-  };
+    const mirror = mirrors[0];
+    context = {
+      mode: "target",
+      ownerClientId: String(ownerClientId),
+      targetClientId: String(req.user.clientId),
+      mirrorId: String(mirror.id),
+      permissionGroupId: mirror.permissionGroupId ?? null,
+      vehicleIds: resolveMirrorVehicleIds(mirror),
+      vehicleGroupId: mirror.vehicleGroupId ?? null,
+    };
+  }
   if (process.env.DEBUG_MIRROR === "true") {
     console.info("[mirror] contexto ativo", {
       mirrorModeEnabled: Boolean(config.features?.mirrorMode),
@@ -105,7 +147,9 @@ export async function mirrorContextMiddleware(req, _res, next) {
     const context = await resolveMirrorContext(req);
     if (context) {
       req.mirrorContext = context;
-      req.clientId = context.ownerClientId;
+      req.clientId = String(context.ownerClientId) === "all"
+        ? String(req.user?.clientId ?? "")
+        : context.ownerClientId;
     }
     next();
   } catch (error) {

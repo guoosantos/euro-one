@@ -10,9 +10,6 @@ export default function Drivers() {
   return (
     <div className="space-y-6">
       <PageHeader
-        overline="Central de motoristas"
-        title="Motoristas"
-        subtitle="Lista proveniente do cadastro do Traccar."
         actions={
           <button
             type="button"

@@ -37,6 +37,13 @@ export default function ClientUsers() {
   const [message, setMessage] = useState(null);
   const { confirmDelete } = useConfirmDialog();
   const { toast, showToast } = usePageToast();
+  const selfRequestOptions = useMemo(
+    () => ({
+      skipMirrorClient: true,
+      headers: { "X-Mirror-Mode": "self" },
+    }),
+    [],
+  );
 
   const managedTenants = useMemo(() => {
     if (role === "admin") {
@@ -71,7 +78,10 @@ export default function ClientUsers() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(API_ROUTES.users, { params: role === "admin" ? { clientId } : {} });
+      const response = await api.get(API_ROUTES.users, {
+        params: role === "admin" ? { clientId } : {},
+        ...selfRequestOptions,
+      });
       const list = response?.data?.users || response?.data || [];
       setUsers(Array.isArray(list) ? list : []);
     } catch (loadError) {
@@ -94,10 +104,10 @@ export default function ClientUsers() {
         delete payload.password;
       }
       if (editingId) {
-        await api.put(`/users/${editingId}`, payload);
+        await api.put(`/users/${editingId}`, payload, selfRequestOptions);
         setMessage("Usuário atualizado");
       } else {
-        await api.post(API_ROUTES.users, payload);
+        await api.post(API_ROUTES.users, payload, selfRequestOptions);
         setMessage("Usuário criado");
       }
       setForm({ ...defaultUserForm, clientId: selectedTenantId });
@@ -130,7 +140,7 @@ export default function ClientUsers() {
       confirmLabel: "Excluir",
       onDelete: async () => {
         try {
-          await api.delete(`/users/${entry.id}`);
+          await api.delete(`/users/${entry.id}`, selfRequestOptions);
           setMessage("Excluído com sucesso.");
           showToast("Excluído com sucesso.");
           await loadUsers(selectedTenantId);
@@ -155,7 +165,6 @@ export default function ClientUsers() {
     <div className="space-y-6">
       <section className="card space-y-4">
         <PageHeader
-          overline="Central de usuários"
           title="Usuários"
           subtitle="Cadastre operadores, motoristas ou gestores vinculados ao cliente selecionado."
           rightSlot={

@@ -25,7 +25,7 @@ function resolveStatusLabel(status, preferredLabel = null) {
   if (["DEPLOYING", "SYNCING", "STARTED", "RUNNING"].includes(normalized)) return "PENDENTE";
   if (["FAILED", "TIMEOUT"].includes(normalized)) return "FALHOU (EQUIPAMENTO)";
   if (["ERROR", "INVALID", "REJECTED"].includes(normalized)) return "FALHOU (ENVIO)";
-  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "PENDENTE";
+  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "CONCLUÍDO";
   return "PENDENTE";
 }
 
@@ -77,11 +77,18 @@ function resolveHistoryMessage(entry) {
 
 export function normalizeHistoryEntry(entry) {
   const statusCode = entry.statusCode || entry.status || "SYNCING";
-  const statusLabel = resolveStatusLabel(statusCode, entry.statusLabel);
+  let statusLabel = resolveStatusLabel(statusCode, entry.statusLabel);
   const actionLabel = resolveActionLabel(entry.action);
   const details = entry.details || entry.result || null;
+  const deviceConfirmedAt = entry.deviceConfirmedAt || entry.receivedAtDevice || entry.confirmedAt || null;
+  const isConfirmed = Boolean(deviceConfirmedAt);
+  if (!isConfirmed) {
+    const normalizedLabel = String(statusLabel || "").toUpperCase();
+    if (normalizedLabel.startsWith("CONCLU") || normalizedLabel.startsWith("EMBARCADO")) {
+      statusLabel = "PENDENTE";
+    }
+  }
   const message = entry.message || resolveHistoryMessage({ ...entry, statusCode, statusLabel });
-  const deviceConfirmedAt = entry.deviceConfirmedAt || entry.receivedAtDevice || null;
   return {
     ...entry,
     statusCode,

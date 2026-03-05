@@ -376,35 +376,55 @@ export default function ReportsAnalytic() {
 
   const availableColumns = useMemo(() => {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
+    const normalizeColumn = (column) => {
+      const normalized = normalizeColumnLabel(column, { protocol: reportProtocol });
+      return {
+        ...normalized,
+        defaultVisible: normalized.defaultVisible ?? true,
+        width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
+      };
+    };
+
+    const metaColumns = Array.isArray(meta?.columns) ? meta.columns : [];
+    const metaAvailableKeys = Array.isArray(meta?.availableColumns) ? meta.availableColumns : [];
+    const byKey = new Map();
+
     if (positions.length) {
       const schema = buildPositionsSchema(positions, { protocol: reportProtocol });
-      const normalizedSchema = schema.map((column) => {
-        const normalized = normalizeColumnLabel(column, { protocol: reportProtocol });
-        return {
-          ...normalized,
-          defaultVisible: normalized.defaultVisible ?? true,
-          width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
-        };
+      schema.map(normalizeColumn).forEach((column) => {
+        byKey.set(column.key, column);
       });
-      const requiredKeys = ["eventType", "blocked", "whoSent"];
-      const requiredColumns = positionsColumns
-        .filter((column) => requiredKeys.includes(column.key))
-        .map((column) => normalizeColumnLabel(column, { protocol: reportProtocol }))
-        .map((column) => ({
-          ...column,
-          defaultVisible: column.defaultVisible ?? true,
-          width: column.width ?? Math.min(240, Math.max(120, column.label.length * 7)),
-        }));
-      const byKey = new Map(normalizedSchema.map((column) => [column.key, column]));
-      requiredColumns.forEach((column) => {
+    } else {
+      FALLBACK_COLUMNS.map((column) => normalizeColumn(column)).forEach((column) => {
+        byKey.set(column.key, column);
+      });
+    }
+
+    const requiredKeys = ["eventType", "blocked", "whoSent", "handlingNotes", "handlingAuthor", "handlingAt"];
+    positionsColumns
+      .filter((column) => requiredKeys.includes(column.key))
+      .map((column) => normalizeColumn(column))
+      .forEach((column) => {
         if (!byKey.has(column.key)) {
           byKey.set(column.key, column);
         }
       });
-      return Array.from(byKey.values());
-    }
-    return FALLBACK_COLUMNS.map((column) => normalizeColumnLabel(column, { protocol: reportProtocol }));
-  }, [positions, reportProtocol]);
+
+    metaColumns.map((column) => normalizeColumn(column)).forEach((column) => {
+      if (!byKey.has(column.key)) {
+        byKey.set(column.key, column);
+      }
+    });
+
+    metaAvailableKeys.forEach((key) => {
+      if (byKey.has(key)) return;
+      const base =
+        positionsColumns.find((column) => column.key === key) || { key, label: key };
+      byKey.set(key, normalizeColumn(base));
+    });
+
+    return Array.from(byKey.values());
+  }, [meta, positions, reportProtocol]);
 
   const availableColumnKeys = useMemo(
     () => availableColumns.map((column) => column.key),
@@ -568,6 +588,19 @@ export default function ReportsAnalytic() {
       });
     const eventLabel = normalizeActionEventLabel(entry?.event || "Ação do Usuário");
     const eventType = entry?.eventType || entry?.actionLabel || entry?.details?.report || "—";
+    const handlingNotes =
+      entry?.handlingNotes ||
+      entry?.details?.handlingNotes ||
+      entry?.details?.notes ||
+      entry?.details?.handlingAction ||
+      entry?.details?.handlingCause ||
+      null;
+    const handlingAuthor =
+      entry?.handlingAuthor ||
+      entry?.details?.handlingAuthor ||
+      entry?.user ||
+      null;
+    const handlingAtRaw = entry?.handlingAt || entry?.details?.handlingAt || entry?.sentAt || null;
     return {
       key: entry?.id || `${entry?.timestamp || "action"}-${Math.random()}`,
       entryType: "action",
@@ -577,6 +610,9 @@ export default function ReportsAnalytic() {
       eventType,
       whoSent,
       deviceStatus: entry?.status || "—",
+      handlingNotes: handlingNotes || "—",
+      handlingAuthor: handlingAuthor || "—",
+      handlingAt: formatDateTime(handlingAtRaw),
     };
   }, []);
 
@@ -655,6 +691,25 @@ export default function ReportsAnalytic() {
     return events;
   }, [meta?.deviceModel, meta?.protocol, portsIndex, positions]);
 
+  const resolveEntryTimestamp = useCallback((entry, sortKey) => {
+    if (!entry) return null;
+    const key = sortKey || null;
+    const fallback = entry?.timestamp || null;
+    if (!key) return fallback;
+    const directValue = entry?.position?.[key] ?? entry?.[key] ?? null;
+    if (directValue) return directValue;
+    if (key === "deviceTime") {
+      return entry?.deviceTime || entry?.sentAt || entry?.timestamp || null;
+    }
+    if (key === "serverTime") {
+      return entry?.serverTime || entry?.respondedAt || entry?.timestamp || null;
+    }
+    if (key === "gpsTime") {
+      return entry?.gpsTime || entry?.timestamp || null;
+    }
+    return fallback;
+  }, []);
+
 
   const timelineEntries = useMemo(() => {
     const positionEntries = (positions || []).map((position) => ({
@@ -670,17 +725,29 @@ export default function ReportsAnalytic() {
     }));
     const baseEntries = Array.isArray(entries) && entries.length ? entries : [...positionEntries, ...actionEntries];
     const merged = [...baseEntries, ...ioEventEntries];
+    const sortKey = sortState?.key;
+    const sortDir = sortState?.dir === "desc" ? -1 : 1;
     return merged
       .filter((entry) => entry.timestamp)
       .sort((a, b) => {
-        const timeDelta = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-        if (timeDelta !== 0) return timeDelta;
+        const aTime = resolveEntryTimestamp(a, sortKey) ?? a.timestamp;
+        const bTime = resolveEntryTimestamp(b, sortKey) ?? b.timestamp;
+        const aMs = aTime ? new Date(aTime).getTime() : Number.NaN;
+        const bMs = bTime ? new Date(bTime).getTime() : Number.NaN;
+        const aValid = Number.isFinite(aMs);
+        const bValid = Number.isFinite(bMs);
+        if (aValid && bValid) {
+          const timeDelta = (aMs - bMs) * sortDir;
+          if (timeDelta !== 0) return timeDelta;
+        } else if (aValid !== bValid) {
+          return aValid ? -1 : 1;
+        }
         const priority = { "io-event": 0, "signal-loss": 1, itinerary: 2, position: 3, action: 4 };
         const aRank = priority[a.type] ?? 3;
         const bRank = priority[b.type] ?? 3;
         return aRank - bRank;
       });
-  }, [actions, entries, ioEventEntries, positions]);
+  }, [actions, entries, ioEventEntries, positions, resolveEntryTimestamp, sortState?.dir, sortState?.key]);
 
   const timelineRows = useMemo(() => (
     timelineEntries
@@ -765,10 +832,10 @@ export default function ReportsAnalytic() {
     async (event) => {
       event?.preventDefault?.();
       setFeedback(null);
-      if (!selectedVehicleId) {
-        setFormError("Selecione exatamente um veículo.");
-        return;
-      }
+    if (!selectedVehicleId || !selectedVehicle) {
+      setFormError("Selecione exatamente um veículo.");
+      return;
+    }
       if (!from || !to) {
         setFormError("Selecione o período completo.");
         return;
@@ -864,7 +931,7 @@ export default function ReportsAnalytic() {
 
   const resolveExportPayload = async () => {
     setFormError("");
-    if (!selectedVehicleId) {
+    if (!selectedVehicleId || !selectedVehicle) {
       setFormError("Selecione exatamente um veículo.");
       return null;
     }
@@ -1029,13 +1096,7 @@ export default function ReportsAnalytic() {
       if (current.key !== key) {
         return { key, dir: "asc" };
       }
-      if (current.dir === "asc") {
-        return { key, dir: "desc" };
-      }
-      if (current.dir === "desc") {
-        return { key: "", dir: "" };
-      }
-      return { key, dir: "asc" };
+      return { key, dir: current.dir === "asc" ? "desc" : "asc" };
     });
   }, []);
 
@@ -1088,13 +1149,14 @@ export default function ReportsAnalytic() {
       <div className="flex w-full flex-col gap-4">
         <form onSubmit={handleGenerate} className="flex w-full flex-col gap-4">
           <PageHeader
-            title="Relatório Analítico"
             right={(
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <button
                   type="submit"
-                  disabled={loading || geocoding || !selectedVehicleId}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                  disabled={loading || geocoding || !selectedVehicleId || !selectedVehicle}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+                    loading ? "btn-report-loading" : "bg-primary hover:bg-primary/90"
+                  }`}
                 >
                   {loading ? "Gerando…" : "Gerar relatório"}
                 </button>

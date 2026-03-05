@@ -6,10 +6,11 @@ import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useDevices from "../lib/hooks/useDevices.js";
 import useDrivers from "../lib/hooks/useDrivers.js";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function TaskForm() {
   const navigate = useNavigate();
-  const { tenantId, user } = useTenant();
+  const { tenantId, tenantScope, user } = useTenant();
   const { t } = useTranslation();
   const { devices } = useDevices({ tenantId });
   const { drivers } = useDrivers({ params: { clientId: tenantId } });
@@ -27,7 +28,8 @@ export default function TaskForm() {
     setSaving(true);
     setError(null);
     try {
-      await CoreApi.createTask({ ...form, clientId: tenantId || user?.clientId });
+      const clientId = tenantScope === "ALL" ? null : (tenantId || user?.clientId || null);
+      await CoreApi.createTask({ ...form, clientId: clientId || undefined });
       navigate("/tasks");
     } catch (err) {
       setError(err?.response?.data?.message || "Erro ao salvar task");
@@ -38,7 +40,7 @@ export default function TaskForm() {
 
   return (
     <div className="space-y-4">
-      <div className="text-lg font-semibold text-white">{t("tasks.newTitle")}</div>
+      <PageHeader title={t("tasks.newTitle")} />
       <form onSubmit={handleSubmit} className="space-y-3 card p-4">
         {error && <div className="rounded-md bg-red-500/20 p-2 text-sm text-red-100">{error}</div>}
         <div className="grid gap-3 md:grid-cols-2">
