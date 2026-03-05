@@ -44,6 +44,7 @@ import SecurityAnalytics from "./pages/Analytics/Security.jsx";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
+import TrustCenterPage from "./pages/trust-center/TrustCenterPage.jsx";
 import Clients from "./pages/Clients";
 import ClientDetailsPage from "./pages/ClientDetailsPage.jsx";
 import MirrorReceivers from "./pages/MirrorReceivers.jsx";
@@ -213,6 +214,10 @@ export const routeConfig = [
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
   { path: "/analytics/risk-area", element: RiskArea, title: "Área de Risco", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
   { path: "/analytics/security", element: SecurityAnalytics, title: "Segurança", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "security-events" } },
+  { path: "/trust-center", element: TrustCenterPage, title: "Trust Center", requireTenant: true },
+  { path: "/trust-center/users", element: TrustCenterPage, title: "Trust Center", requireTenant: true },
+  { path: "/trust-center/activity", element: TrustCenterPage, title: "Trust Center", requireTenant: true },
+  { path: "/trust-center/counter-key", element: TrustCenterPage, title: "Trust Center", requireTenant: true },
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
