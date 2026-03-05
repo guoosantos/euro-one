@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import Sidebar from "../components/Sidebar";
@@ -8,7 +8,6 @@ import DeviceModalGlobal from "../components/DeviceModalGlobal";
 import { useUI } from "../lib/store";
 import { useTenant } from "../lib/tenant-context";
 import { usePageMeta } from "../lib/page-meta";
-import useRuntimeVersion from "../lib/hooks/useRuntimeVersion.js";
 
 export default function Layout({ children, title, hideTitle = false }) {
   const location = useLocation();
@@ -42,7 +41,7 @@ export default function Layout({ children, title, hideTitle = false }) {
   const showMonitoringTopbar = useUI((state) => state.monitoringTopbarVisible !== false);
   const showGeofencesTopbar = useUI((state) => state.geofencesTopbarVisible !== false);
   const showRoutesTopbar = useUI((state) => state.routesTopbarVisible !== false);
-  const { data: runtimeVersion, loading: runtimeVersionLoading } = useRuntimeVersion();
+  const [buildInfo, setBuildInfo] = useState(null);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -53,55 +52,25 @@ export default function Layout({ children, title, hideTitle = false }) {
   }, [resolvedTitle]);
 
   useEffect(() => {
+    let active = true;
+    fetch("/version.json", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.builtAt || data.gitSha) setBuildInfo(data);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.dataset.theme = theme;
       document.documentElement.lang = locale || "pt-BR";
     }
   }, [theme, locale]);
-
-  const buildPanel = useMemo(() => {
-    const hasVersion = Boolean(runtimeVersion?.builtAt || runtimeVersion?.gitSha || runtimeVersion?.hotfix);
-    if (!hasVersion && !runtimeVersionLoading) {
-      return null;
-    }
-
-    const localBuiltAt = runtimeVersion?.builtAt
-      ? new Intl.DateTimeFormat("pt-BR", {
-          timeZone: "America/Sao_Paulo",
-          dateStyle: "short",
-          timeStyle: "medium",
-        }).format(new Date(runtimeVersion.builtAt))
-      : "—";
-
-    const localBaseBuiltAt = runtimeVersion?.baseBuildAt
-      ? new Intl.DateTimeFormat("pt-BR", {
-          timeZone: "America/Sao_Paulo",
-          dateStyle: "short",
-          timeStyle: "medium",
-        }).format(new Date(runtimeVersion.baseBuildAt))
-      : null;
-
-    const title = runtimeVersion?.builtAt
-      ? `UTC: ${new Intl.DateTimeFormat("en-GB", {
-          timeZone: "UTC",
-          dateStyle: "short",
-          timeStyle: "medium",
-        }).format(new Date(runtimeVersion.builtAt))}`
-      : undefined;
-
-    return (
-      <div
-        className="pointer-events-none fixed bottom-3 right-3 z-50 rounded-xl border border-white/10 bg-black/65 px-3 py-2 text-[11px] text-white/75 shadow"
-        title={title}
-      >
-        <div className="font-semibold uppercase tracking-[0.12em] text-white/70">Build Runtime</div>
-        <div>hotfix: {runtimeVersionLoading ? "carregando..." : runtimeVersion?.hotfix || "—"}</div>
-        <div>builtAt (UTC-3): {runtimeVersionLoading ? "carregando..." : localBuiltAt}</div>
-        <div>gitSha: {runtimeVersion?.gitSha ? runtimeVersion.gitSha.slice(0, 12) : "—"}</div>
-        {localBaseBuiltAt ? <div>baseBuildAt (UTC-3): {localBaseBuiltAt}</div> : null}
-      </div>
-    );
-  }, [runtimeVersion, runtimeVersionLoading]);
 
   const rootStyle = accentColor
     ? {
@@ -179,7 +148,29 @@ export default function Layout({ children, title, hideTitle = false }) {
         </section>
       </main>
 
-      {buildPanel}
+      {buildInfo && (
+        <div
+          className="pointer-events-none fixed bottom-3 right-3 z-50 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-white/70 shadow"
+          title={
+            buildInfo.builtAt
+              ? `UTC: ${new Intl.DateTimeFormat("en-GB", {
+                  timeZone: "UTC",
+                  dateStyle: "short",
+                  timeStyle: "medium",
+                }).format(new Date(buildInfo.builtAt))}`
+              : undefined
+          }
+        >
+          Build (UTC-3):{" "}
+          {buildInfo.builtAt
+            ? new Intl.DateTimeFormat("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+                dateStyle: "short",
+                timeStyle: "medium",
+              }).format(new Date(buildInfo.builtAt))
+            : "unknown"}
+        </div>
+      )}
       <DeviceModalGlobal />
     </div>
   );
