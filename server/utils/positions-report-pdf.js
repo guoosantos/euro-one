@@ -10,6 +10,7 @@ const FONT_STACK = '"DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", A
 const FONT_PATH_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 const CONTENT_GUTTER_PX = 0;
+export const REPORT_PDF_BRAND_COLOR = BRAND_COLOR;
 
 let cachedLogoDataUrl = null;
 let cachedFontRegular = null;
@@ -34,6 +35,10 @@ async function loadChromium() {
   }
 }
 
+export async function getReportPdfChromium() {
+  return loadChromium();
+}
+
 async function fetchLogoDataUrl() {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
   try {
@@ -50,6 +55,10 @@ async function fetchLogoDataUrl() {
     cachedLogoDataUrl = null;
     return null;
   }
+}
+
+export async function getReportPdfLogoDataUrl() {
+  return fetchLogoDataUrl();
 }
 
 function loadFontBase64(fontPath) {
@@ -73,6 +82,98 @@ function ensureFontData() {
     regular: cachedFontRegular,
     bold: cachedFontBold,
   };
+}
+
+export function getReportPdfFontData() {
+  return ensureFontData();
+}
+
+export function resolveReportPdfFontFaces(fontData = {}) {
+  const regular = fontData?.regular
+    ? `
+      @font-face {
+        font-family: "DejaVu Sans";
+        src: url(data:font/ttf;base64,${fontData.regular}) format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
+    `
+    : "";
+  const bold = fontData?.bold
+    ? `
+      @font-face {
+        font-family: "DejaVu Sans";
+        src: url(data:font/ttf;base64,${fontData.bold}) format("truetype");
+        font-weight: 700;
+        font-style: normal;
+      }
+    `
+    : "";
+  return `${regular}\n${bold}`.trim();
+}
+
+export function buildReportPdfThemeBaseCss({
+  fontFaces = "",
+  pageMargin = "14mm 10mm 14mm 10mm",
+} = {}) {
+  return `
+    ${fontFaces || ""}
+    :root {
+      color-scheme: light;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: ${FONT_STACK};
+      color: #0f172a;
+      background: #f8fafc;
+      font-size: 12px;
+    }
+    @page {
+      margin: ${pageMargin};
+    }
+    .report {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.14);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid #dbe3ee;
+      padding: 6px 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #eef4fb;
+      color: #0f172a;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+  `;
 }
 
 function formatDate(value) {
@@ -523,22 +624,10 @@ function buildHtml({
     `
     : "";
 
-  const fontFaces = fontData?.regular
-    ? `
-    @font-face {
-      font-family: 'DejaVu Sans';
-      src: url('data:font/ttf;base64,${fontData.regular}') format('truetype');
-      font-weight: 400;
-      font-style: normal;
-    }
-    @font-face {
-      font-family: 'DejaVu Sans';
-      src: url('data:font/ttf;base64,${fontData.bold || fontData.regular}') format('truetype');
-      font-weight: 700;
-      font-style: normal;
-    }
-  `
-    : "";
+  const fontFaces = resolveReportPdfFontFaces({
+    regular: fontData?.regular || null,
+    bold: fontData?.bold || fontData?.regular || null,
+  });
 
   return `
 <!doctype html>
