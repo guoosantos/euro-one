@@ -1,56 +1,68 @@
 # Trust Center
 
-Módulo dedicado para gestão de acessos ESP32, auditoria operacional e geração de contra-senhas.
+## Visão geral
 
-## Permissões
+O módulo **Trust Center** é isolado e dedicado a:
+
+- gerenciamento de acessos de usuários/dispositivos ESP32;
+- auditoria de ações;
+- geração, uso e cancelamento de contra-senha.
+
+Rotas frontend:
+
+- `/trust-center/users`
+- `/trust-center/activity`
+- `/trust-center/counter-key`
+
+## Permissões funcionais
+
+As permissões funcionais do módulo são:
 
 - `trust_center.view`
 - `trust_center.audit_view`
 - `trust_center.manage_counter_key`
 
-## Rotas frontend
+Fallback por papel (quando não há configuração explícita):
 
-- `/trust-center/users` (padrão)
-- `/trust-center/activity`
-- `/trust-center/counter-key`
+- `admin`, `tenant_admin`, `manager`: todas as permissões;
+- `user`: apenas `trust_center.view`.
 
 ## Endpoints REST
 
-- `GET /api/trust-center/options`
-- `GET /api/trust-center/users`
-- `GET /api/trust-center/users/:stateId/summary`
-- `POST /api/trust-center/challenge/rotate`
-- `POST /api/trust-center/counter-keys/simulate`
-- `GET /api/trust-center/counter-keys`
-- `POST /api/trust-center/counter-keys`
-- `POST /api/trust-center/counter-keys/:id/use`
-- `POST /api/trust-center/counter-keys/:id/cancel`
-- `GET /api/trust-center/activity`
-- `GET /api/trust-center/activity/export`
-- `GET /api/trust-center/audit`
+Base: `/api/trust-center`
+
+- `GET /capabilities`
+- `GET /users`
+- `GET /users/:id/summary`
+- `POST /users/state`
+- `GET /activity`
+- `GET /activity/export`
+- `GET /counter-keys`
+- `POST /counter-keys`
+- `POST /counter-keys/:id/use`
+- `POST /counter-keys/:id/cancel`
+- `POST /challenge/rotate`
+- `POST /counter-keys/simulate`
+- `GET /audit`
 
 ## Segurança
 
-- Senha base de 6 dígitos nunca é persistida em texto puro.
-- Persistência usa hash criptográfico (`hashPassword`) em `basePinHash`.
-- Operações sensíveis são registradas em auditoria.
+- senha base nunca é persistida em texto simples;
+- persistência usa `base_password_hash` + `base_password_salt`;
+- ações sensíveis registram auditoria (`trust_center`);
+- contra-senha usa cálculo com HMAC SHA-256 e segredo `TRUST_CENTER_SECRET`.
 
-## Expiração de contra-senha (.env)
+## Variáveis de ambiente
 
-- `TRUST_CENTER_COUNTER_KEY_TTL_MINUTES`
-- `TRUST_CENTER_COUNTER_KEY_MAX_USES`
-- `TRUST_CENTER_COUNTER_KEY_SECRET`
-- `TRUST_CENTER_CHALLENGE_LENGTH`
-- `TRUST_CENTER_COUNTER_KEY_LENGTH`
+- `TRUST_CENTER_SECRET`
+- `TRUST_CENTER_COUNTER_KEY_TTL_MINUTES` (default: `60`)
+- `TRUST_CENTER_COUNTER_KEY_MAX_USES` (default: `1`)
+- `TRUST_CENTER_MAX_ACTIVITY_ROWS` (default: `50000`)
+- `TRUST_CENTER_MAX_AUDIT_ROWS` (default: `20000`)
 
-## Banco de dados
+## Migrations
 
-Migração Prisma:
+Arquivos de migration SQL:
 
-- `prisma/migrations/20260305190000_add_trust_center_module/migration.sql`
-
-Tabelas criadas:
-
-- `trust_center_user_states`
-- `trust_center_activity_events`
-- `trust_center_counter_keys`
+- `server/migrations/app/20260305193000_create_trust_center_tables.sql`
+- `server/migrations/app/20260305193100_create_trust_center_indexes.sql`

@@ -18,6 +18,7 @@ import {
   NotebookPen,
   Package,
   Radio,
+  Shield,
   ShieldCheck,
   Shield,
   Target,
@@ -171,6 +172,15 @@ export const PERMISSION_REGISTRY = [
           { subKey: "ranking", label: "Ranking" },
           { subKey: "risk-area", label: "Área de Risco" },
           { subKey: "security-events", label: "Segurança" },
+        ],
+      },
+      {
+        pageKey: "trust-center",
+        label: "Trust Center",
+        subpages: [
+          { subKey: "users", label: "Usuários" },
+          { subKey: "activity", label: "Histórico" },
+          { subKey: "counter-key", label: "Contra-senha" },
         ],
       },
       {
@@ -333,6 +343,11 @@ export const MENU_REGISTRY = [
           { to: "/analytics/risk-area", label: "Área de Risco", icon: Map, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
           { to: "/analytics/security", label: "Segurança", icon: ShieldCheck, permission: { menuKey: "admin", pageKey: "analytics", subKey: "security-events" } },
         ],
+      },
+      {
+        to: "/trust-center/users",
+        label: "Trust Center",
+        icon: Shield,
       },
       {
         to: "/clients",

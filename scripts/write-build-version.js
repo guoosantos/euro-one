@@ -17,10 +17,17 @@ function resolveGitSha() {
   }
 }
 
+function resolveHotfix() {
+  const candidate = process.env.BUILD_HOTFIX || process.env.HOTFIX || "";
+  const normalized = String(candidate).trim();
+  return normalized || null;
+}
+
 const payload = {
   gitSha: resolveGitSha(),
   hotfix: String(process.env.BUILD_HOTFIX || process.env.HOTFIX || "no-hotfix"),
   builtAt: new Date().toISOString(),
+  hotfix: resolveHotfix(),
 };
 
 try {

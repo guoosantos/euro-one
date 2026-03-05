@@ -2,393 +2,368 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
-import { authorizePermission } from "../middleware/permissions.js";
-import { resolveTenantScope } from "../utils/tenant-scope.js";
-import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
+import { resolveClientId } from "../middleware/client.js";
 import {
-  cancelCounterKey,
-  createCounterKey,
-  exportActivityCsv,
-  getUserSummary,
-  listActivity,
-  listAudit,
-  listCounterKeys,
-  listOptions,
-  listUserStates,
-  rotateChallenge,
+  TRUST_CENTER_PERMISSIONS,
+  authorizeTrustCenter,
+  getTrustCenterPermissionPayload,
+} from "../middleware/trust-center-permissions.js";
+import {
+  cancelTrustCenterCounterKey,
+  createTrustCenterCounterKey,
+  getTrustCenterUserSummary,
+  listTrustCenterActivity,
+  listTrustCenterAudit,
+  listTrustCenterCounterKeys,
+  listTrustCenterUsers,
+  rotateTrustCenterChallenge,
   simulateCounterKey,
-  useCounterKey,
-} from "../services/trust-center/index.js";
+  upsertTrustCenterUserState,
+  useTrustCenterCounterKey,
+} from "../models/trust-center.js";
+import { stringifyCsv } from "../utils/csv.js";
 
 const router = express.Router();
 
-const canViewTrustCenter = authorizePermission({
-  menuKey: "trust_center",
-  pageKey: "view",
-});
-
-const canViewTrustCenterAudit = authorizePermission({
-  menuKey: "trust_center",
-  pageKey: "audit_view",
-});
-
-const canManageCounterKey = authorizePermission({
-  menuKey: "trust_center",
-  pageKey: "manage_counter_key",
-});
-
 router.use(authenticate);
 
-function parsePagination(query = {}) {
-  const page = Number(query.page);
-  const pageSize = Number(query.pageSize);
+function parsePositiveNumber(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function pickActor(req) {
   return {
-    page: Number.isFinite(page) && page > 0 ? Math.floor(page) : 1,
-    pageSize: Number.isFinite(pageSize) && pageSize > 0 ? Math.min(200, Math.floor(pageSize)) : 20,
+    id: req.user?.id ? String(req.user.id) : null,
+    name: req.user?.name || req.user?.username || req.user?.email || "Sistema",
   };
 }
 
-function parseSort(query = {}) {
-  const sortBy = query.sortBy ? String(query.sortBy) : null;
-  const sortDir = String(query.sortDir || "desc").toLowerCase() === "asc" ? "asc" : "desc";
-  return { sortBy, sortDir };
-}
-
-async function resolveScopedClientIds(req, requestedClientId = null) {
-  const scope = await resolveTenantScope(req.user);
-  if (scope.isAdmin) {
-    if (requestedClientId) return [String(requestedClientId)];
-    return null;
-  }
-
-  const scopeIds = Array.from(scope.clientIds || []).map((clientId) => String(clientId));
-  if (!requestedClientId) return scopeIds;
-
-  if (!scope.clientIds.has(String(requestedClientId))) {
-    throw createError(403, "Permissão insuficiente para acessar este cliente");
-  }
-
-  return [String(requestedClientId)];
-}
-
-function resolveActor(req) {
-  return req.user?.name || req.user?.username || req.user?.email || req.user?.id || null;
-}
-
-function logSensitiveAudit({ req, action, status = "OK", clientId = null, details = null }) {
-  try {
-    recordAuditEvent({
-      clientId: clientId || req.user?.clientId || null,
-      category: "trust-center",
-      action,
-      status,
-      user: {
-        id: req.user?.id || null,
-        name: resolveActor(req),
-      },
-      ipAddress: resolveRequestIp(req),
-      details,
-    });
-  } catch (error) {
-    console.warn("[trust-center] falha ao registrar auditoria", error?.message || error);
-  }
-}
-
-router.get("/trust-center/options", canViewTrustCenter, async (req, res, next) => {
-  try {
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
-    const payload = await listOptions({ clientIds });
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
+router.get("/trust-center/capabilities", (req, res) => {
+  const permissions = getTrustCenterPermissionPayload(req.user);
+  res.json({
+    permissions,
+    routes: {
+      default: "/trust-center/users",
+      users: "/trust-center/users",
+      activity: "/trust-center/activity",
+      counterKey: "/trust-center/counter-key",
+    },
+  });
 });
 
-router.get("/trust-center/users", canViewTrustCenter, async (req, res, next) => {
-  try {
-    const { page, pageSize } = parsePagination(req.query);
-    const { sortBy, sortDir } = parseSort(req.query);
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
+router.get(
+  "/trust-center/users",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.VIEW),
+  async (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+      const payload = await listTrustCenterUsers({
+        clientId,
+        filters: {
+          user: req.query?.user,
+          device: req.query?.device,
+          password: req.query?.password,
+          actionType: req.query?.actionType,
+          result: req.query?.result,
+        },
+        page: parsePositiveNumber(req.query?.page, 1),
+        pageSize: parsePositiveNumber(req.query?.pageSize, 20),
+        sortBy: req.query?.sortBy,
+        sortDir: req.query?.sortDir,
+      });
 
-    const payload = listUserStates({
-      clientIds,
-      page,
-      pageSize,
-      sortBy,
-      sortDir,
-      filters: {
-        user: req.query?.user,
-        device: req.query?.device,
-        password: req.query?.password,
-        actionType: req.query?.actionType,
-        result: req.query?.result,
-        state: req.query?.state,
-      },
-    });
-
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.get("/trust-center/users/:stateId/summary", canViewTrustCenter, async (req, res, next) => {
-  try {
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
-    const payload = getUserSummary(req.params.stateId, { clientIds });
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.post("/trust-center/challenge/rotate", canManageCounterKey, async (req, res, next) => {
-  try {
-    const requestedClientId = req.body?.clientId || req.query?.clientId || null;
-    const clientIds = await resolveScopedClientIds(req, requestedClientId);
-    const payload = await rotateChallenge({
-      clientIds,
-      userId: req.body?.userId || null,
-      actor: resolveActor(req),
-      filters: {
-        user: req.body?.filters?.user,
-        device: req.body?.filters?.device,
-        password: req.body?.filters?.password,
-        actionType: req.body?.filters?.actionType,
-        result: req.body?.filters?.result,
-        state: req.body?.filters?.state,
-      },
-    });
-
-    logSensitiveAudit({
-      req,
-      action: "challenge.rotate",
-      clientId: requestedClientId,
-      details: { rotated: payload.rotated },
-    });
-
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.post("/trust-center/counter-keys/simulate", canManageCounterKey, async (req, res, next) => {
-  try {
-    const requestedClientId = req.body?.clientId || req.query?.clientId || req.user?.clientId || null;
-    const clientIds = await resolveScopedClientIds(req, requestedClientId);
-    if (Array.isArray(clientIds) && clientIds.length === 0) {
-      throw createError(403, "Sem escopo de cliente para esta operação");
+      return res.json(payload);
+    } catch (error) {
+      return next(error);
     }
+  },
+);
 
-    const payload = await simulateCounterKey({
-      clientId: requestedClientId,
-      basePin: req.body?.basePin,
-      challenge: req.body?.challenge,
-      userId: req.body?.userId,
-      vehicleId: req.body?.vehicleId,
-      actor: resolveActor(req),
-    });
+router.get(
+  "/trust-center/users/:id/summary",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.VIEW),
+  async (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+      const summary = await getTrustCenterUserSummary({
+        id: req.params.id,
+        clientId,
+      });
 
-    logSensitiveAudit({
-      req,
-      action: "counter-key.simulate",
-      clientId: requestedClientId,
-      details: { challenge: payload.challenge },
-    });
+      if (!summary) {
+        throw createError(404, "Registro de usuário não encontrado");
+      }
 
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.get("/trust-center/counter-keys", canManageCounterKey, async (req, res, next) => {
-  try {
-    const { page, pageSize } = parsePagination(req.query);
-    const { sortBy, sortDir } = parseSort(req.query);
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
-
-    const payload = listCounterKeys({
-      clientIds,
-      page,
-      pageSize,
-      sortBy,
-      sortDir,
-      filters: {
-        user: req.query?.user,
-        vehicle: req.query?.vehicle,
-        device: req.query?.device,
-        status: req.query?.status,
-      },
-    });
-
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.post("/trust-center/counter-keys", canManageCounterKey, async (req, res, next) => {
-  try {
-    const requestedClientId = req.body?.clientId || req.query?.clientId || req.user?.clientId || null;
-    const clientIds = await resolveScopedClientIds(req, requestedClientId);
-    if (Array.isArray(clientIds) && clientIds.length === 0) {
-      throw createError(403, "Sem escopo de cliente para esta operação");
+      return res.json(summary);
+    } catch (error) {
+      return next(error);
     }
+  },
+);
 
-    const payload = await createCounterKey({
-      clientId: requestedClientId,
-      userId: req.body?.userId,
-      targetUserId: req.body?.targetUserId || null,
-      vehicleId: req.body?.vehicleId || null,
-      esp32Device: req.body?.esp32Device || null,
-      basePin: req.body?.basePin,
-      challenge: req.body?.challenge || null,
-      actor: resolveActor(req),
-    });
+router.post(
+  "/trust-center/users/state",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+      const item = upsertTrustCenterUserState({
+        clientId,
+        userId: req.body?.userId,
+        userName: req.body?.userName,
+        profile: req.body?.profile,
+        deviceId: req.body?.deviceId,
+        esp32Device: req.body?.esp32Device,
+        vehicleId: req.body?.vehicleId,
+        vehicleLabel: req.body?.vehicleLabel,
+        state: req.body?.state,
+        result: req.body?.result,
+        actionType: req.body?.actionType,
+        method: req.body?.method,
+        challenge: req.body?.challenge,
+        actor: pickActor(req),
+        usedBy: req.body?.usedBy,
+      });
+      return res.status(201).json({ data: item });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-    logSensitiveAudit({
-      req,
-      action: "counter-key.create",
-      clientId: requestedClientId,
-      details: { counterKeyId: payload.id, vehicleId: payload.vehicleId || null },
-    });
+router.get(
+  "/trust-center/activity",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.AUDIT_VIEW),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+      const payload = listTrustCenterActivity({
+        clientId,
+        filters: {
+          from: req.query?.from,
+          to: req.query?.to,
+          user: req.query?.user,
+          client: req.query?.client,
+          vehicle: req.query?.vehicle,
+          device: req.query?.device,
+          method: req.query?.method,
+          result: req.query?.result,
+        },
+        page: parsePositiveNumber(req.query?.page, 1),
+        pageSize: parsePositiveNumber(req.query?.pageSize, 50),
+        sortBy: req.query?.sortBy,
+        sortDir: req.query?.sortDir,
+      });
 
-    return res.status(201).json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
+      return res.json(payload);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-router.post("/trust-center/counter-keys/:id/use", canManageCounterKey, async (req, res, next) => {
-  try {
-    const requestedClientId = req.body?.clientId || req.query?.clientId || req.user?.clientId || null;
-    await resolveScopedClientIds(req, requestedClientId);
+router.get(
+  "/trust-center/activity/export",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.AUDIT_VIEW),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+      const payload = listTrustCenterActivity({
+        clientId,
+        filters: {
+          from: req.query?.from,
+          to: req.query?.to,
+          user: req.query?.user,
+          client: req.query?.client,
+          vehicle: req.query?.vehicle,
+          device: req.query?.device,
+          method: req.query?.method,
+          result: req.query?.result,
+        },
+        page: 1,
+        pageSize: 100_000,
+        sortBy: req.query?.sortBy || "date",
+        sortDir: req.query?.sortDir || "desc",
+      });
 
-    const payload = useCounterKey({
-      id: req.params.id,
-      actor: resolveActor(req),
-      counterKey: req.body?.counterKey || null,
-    });
+      const rows = payload.data || [];
+      const extraColumns = Array.isArray(payload.extraEsp32Columns) ? payload.extraEsp32Columns : [];
+      const columns = [
+        { key: "date", label: "data" },
+        { key: "userName", label: "usuario" },
+        { key: "profile", label: "perfil" },
+        { key: "client", label: "cliente" },
+        { key: "vehicle", label: "veiculo" },
+        { key: "device", label: "dispositivo" },
+        { key: "method", label: "metodo" },
+        { key: "action", label: "acao" },
+        { key: "result", label: "resultado" },
+        { key: "created_by", label: "created_by" },
+        { key: "used_by", label: "used_by" },
+      ];
 
-    logSensitiveAudit({
-      req,
-      action: "counter-key.use",
-      clientId: requestedClientId,
-      details: { counterKeyId: payload.id, usesCount: payload.usesCount },
-    });
+      extraColumns.forEach((key) => {
+        columns.push({
+          key: `esp32.${key}`,
+          label: `esp32_${key}`,
+          accessor: (row) => row?.esp32?.[key] || "",
+        });
+      });
 
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
+      const csv = stringifyCsv(rows, columns);
+      const fileName = `trust-center-activity-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
 
-router.post("/trust-center/counter-keys/:id/cancel", canManageCounterKey, async (req, res, next) => {
-  try {
-    const requestedClientId = req.body?.clientId || req.query?.clientId || req.user?.clientId || null;
-    await resolveScopedClientIds(req, requestedClientId);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      return res.status(200).send(csv);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-    const payload = cancelCounterKey({
-      id: req.params.id,
-      actor: resolveActor(req),
-    });
+router.get(
+  "/trust-center/counter-keys",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+      const payload = listTrustCenterCounterKeys({
+        clientId,
+        filters: {
+          user: req.query?.user,
+          vehicle: req.query?.vehicle,
+          device: req.query?.device,
+          status: req.query?.status,
+        },
+        page: parsePositiveNumber(req.query?.page, 1),
+        pageSize: parsePositiveNumber(req.query?.pageSize, 20),
+        sortBy: req.query?.sortBy,
+        sortDir: req.query?.sortDir,
+      });
+      return res.json(payload);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-    logSensitiveAudit({
-      req,
-      action: "counter-key.cancel",
-      clientId: requestedClientId,
-      details: { counterKeyId: payload.id },
-    });
+router.post(
+  "/trust-center/counter-keys",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+      const data = createTrustCenterCounterKey({
+        clientId,
+        targetUserId: req.body?.targetUserId,
+        vehicleId: req.body?.vehicleId,
+        deviceId: req.body?.deviceId,
+        basePassword: req.body?.basePassword,
+        expiresInMinutes: req.body?.expiresInMinutes,
+        maxUses: req.body?.maxUses,
+        actor: pickActor(req),
+      });
+      return res.status(201).json({ data });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
+router.post(
+  "/trust-center/counter-keys/:id/use",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+      const data = useTrustCenterCounterKey({
+        clientId,
+        counterKeyId: req.params.id,
+        providedCounterKey: req.body?.counterKey,
+        actor: pickActor(req),
+      });
+      return res.json({ data });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-router.get("/trust-center/activity", canViewTrustCenterAudit, async (req, res, next) => {
-  try {
-    const { page, pageSize } = parsePagination(req.query);
-    const { sortBy, sortDir } = parseSort(req.query);
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
+router.post(
+  "/trust-center/counter-keys/:id/cancel",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+      const data = cancelTrustCenterCounterKey({
+        clientId,
+        counterKeyId: req.params.id,
+        actor: pickActor(req),
+      });
+      return res.json({ data });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-    const payload = listActivity({
-      clientIds,
-      page,
-      pageSize,
-      sortBy,
-      sortDir,
-      filters: {
-        from: req.query?.from,
-        to: req.query?.to,
-        user: req.query?.user,
-        client: req.query?.client,
-        vehicle: req.query?.vehicle,
-        device: req.query?.device,
-        method: req.query?.method,
-        result: req.query?.result,
-      },
-    });
+router.post(
+  "/trust-center/challenge/rotate",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+      const payload = rotateTrustCenterChallenge({
+        clientId,
+        userIds: req.body?.userIds,
+        deviceIds: req.body?.deviceIds,
+        actor: pickActor(req),
+      });
+      return res.json(payload);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
+router.post(
+  "/trust-center/counter-keys/simulate",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.MANAGE_COUNTER_KEY),
+  (req, res, next) => {
+    try {
+      const payload = simulateCounterKey({
+        basePassword: req.body?.basePassword,
+        challenge: req.body?.challenge,
+        context: req.body?.context,
+      });
+      return res.json(payload);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
-router.get("/trust-center/activity/export", canViewTrustCenterAudit, async (req, res, next) => {
-  try {
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
-    const csv = exportActivityCsv({
-      clientIds,
-      filters: {
-        from: req.query?.from,
-        to: req.query?.to,
-        user: req.query?.user,
-        client: req.query?.client,
-        vehicle: req.query?.vehicle,
-        device: req.query?.device,
-        method: req.query?.method,
-        result: req.query?.result,
-      },
-    });
-
-    const fileName = `trust-center-activity-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-    return res.status(200).send(csv);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.get("/trust-center/audit", canViewTrustCenterAudit, async (req, res, next) => {
-  try {
-    const { page, pageSize } = parsePagination(req.query);
-    const clientIds = await resolveScopedClientIds(req, req.query?.clientId || null);
-
-    const payload = listAudit({
-      clientIds,
-      page,
-      pageSize,
-      filters: {
-        from: req.query?.from,
-        to: req.query?.to,
-        user: req.query?.user,
-        client: req.query?.client,
-        vehicle: req.query?.vehicle,
-        device: req.query?.device,
-        method: req.query?.method,
-        result: req.query?.result,
-      },
-    });
-
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
+router.get(
+  "/trust-center/audit",
+  authorizeTrustCenter(TRUST_CENTER_PERMISSIONS.AUDIT_VIEW),
+  (req, res, next) => {
+    try {
+      const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+      const payload = listTrustCenterAudit({
+        clientId,
+        action: req.query?.action,
+        actor: req.query?.actor,
+        page: parsePositiveNumber(req.query?.page, 1),
+        pageSize: parsePositiveNumber(req.query?.pageSize, 50),
+      });
+      return res.json(payload);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
 export default router;
