@@ -1,3 +1,4 @@
+// eslint-disable-next-line import/namespace
 import { resolveEventDescriptor } from "../../../shared/telemetryDictionary.js";
 
 const EVENT_LABELS_PT = {

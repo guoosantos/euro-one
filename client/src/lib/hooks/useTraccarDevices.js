@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
-import usePolling from "./usePolling.js";
+import usePollingHook from "./usePolling.js";
 import { toDeviceKey } from "./useDevices.helpers.js";
 import { usePermissionGate } from "../permissions/permission-gate.js";
 
@@ -22,7 +22,7 @@ export function useTraccarDevices({ enabled = true, intervalMs = 15_000, deviceI
     [deviceIds],
   );
 
-  const { data, loading, error, lastUpdated, refresh } = usePolling(async () => {
+  const { data, loading, error, lastUpdated, refresh } = usePollingHook(async () => {
     if (!canAccessDevices) return [];
     const params = { all: true };
     if (normalizedDeviceIds.length) {
