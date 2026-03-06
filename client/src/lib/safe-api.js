@@ -77,9 +77,7 @@ async function request(
     if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 500) {
       friendly.permanent = true;
     }
-    const upperMethod = String(method || "GET").toUpperCase();
-    const isReadMethod = ["GET", "HEAD"].includes(upperMethod);
-    if (statusCode === 403 && (suppressForbidden || isReadMethod)) {
+    if (statusCode === 403 && suppressForbidden) {
       return {
         data: forbiddenFallbackData,
         error: null,
