@@ -44,6 +44,8 @@ import SecurityAnalytics from "./pages/Analytics/Security.jsx";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
+import Trainings from "./pages/Trainings.jsx";
+import Sla from "./pages/Sla.jsx";
 import Clients from "./pages/Clients";
 import ClientDetailsPage from "./pages/ClientDetailsPage.jsx";
 import MirrorReceivers from "./pages/MirrorReceivers.jsx";
@@ -217,6 +219,8 @@ export const routeConfig = [
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
+  { path: "/trainings", element: Trainings, title: "Treinamentos", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
+  { path: "/sla", element: Sla, title: "SLA de Atendimento", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/clients", element: Clients, title: "Clientes", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/clients/:id", element: ClientDetailsPage, title: "Detalhes do cliente", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
