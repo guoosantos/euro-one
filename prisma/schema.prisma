@@ -30,12 +30,15 @@ model Client {
   geofences      Geofence[]
   geofenceGroups GeofenceGroup[]
 
-  commandDispatches CommandDispatch[]
-  customCommands    CustomCommand[]
-  equipmentProducts EquipmentProduct[]
-  equipments        Equipment[]
-  serviceOrders     ServiceOrder[]
-  euroImportLogs    EuroImportLog[]
+  commandDispatches      CommandDispatch[]
+  customCommands         CustomCommand[]
+  equipmentProducts      EquipmentProduct[]
+  equipments             Equipment[]
+  serviceOrders          ServiceOrder[]
+  euroImportLogs         EuroImportLog[]
+  trustCenterUserStates  TrustCenterUserState[]
+  trustCenterEvents      TrustCenterEvent[]
+  trustCenterCounterKeys TrustCenterCounterKey[]
 }
 
 model User {
@@ -52,10 +55,13 @@ model User {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  client           Client?          @relation(fields: [clientId], references: [id])
-  preferences      UserPreference[]
-  geofencesCreated Geofence[]
-  euroImportLogs  EuroImportLog[]
+  client                 Client?                 @relation(fields: [clientId], references: [id])
+  preferences            UserPreference[]
+  geofencesCreated       Geofence[]
+  euroImportLogs         EuroImportLog[]
+  trustCenterUserStates  TrustCenterUserState[]
+  trustCenterEvents      TrustCenterEvent[]
+  trustCenterCounterKeys TrustCenterCounterKey[]
 }
 
 model Model {
@@ -75,18 +81,18 @@ model Model {
 }
 
 model Device {
-  id         String   @id @default(uuid())
-  clientId   String
-  name       String?
-  uniqueId   String   @unique
-  modelId    String?
-  traccarId  String?  @unique
-  chipId     String?  @unique
-  vehicleId  String?
-  ownershipType String @default("COMODATO")
-  attributes Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id            String   @id @default(uuid())
+  clientId      String
+  name          String?
+  uniqueId      String   @unique
+  modelId       String?
+  traccarId     String?  @unique
+  chipId        String?  @unique
+  vehicleId     String?
+  ownershipType String   @default("COMODATO")
+  attributes    Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   client  Client   @relation(fields: [clientId], references: [id])
   model   Model?   @relation(fields: [modelId], references: [id])
@@ -150,7 +156,7 @@ model Nt407Event {
 }
 
 model Nt407Media {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   deviceId      String?
   terminalId    String
   cameraChannel Int?
@@ -163,7 +169,7 @@ model Nt407Media {
   metadata      Json?
   startTime     DateTime
   endTime       DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
@@ -193,36 +199,39 @@ model Chip {
 }
 
 model Vehicle {
-  id        String   @id @default(uuid())
-  clientId  String
-  name      String?
-  item      String?
-  plate     String
-  identifier String?
-  model     String?
-  brand     String?
-  chassis   String?
-  renavam   String?
-  color     String?
-  externalRef String?
-  modelYear Int?
+  id              String   @id @default(uuid())
+  clientId        String
+  name            String?
+  item            String?
+  plate           String
+  identifier      String?
+  model           String?
+  brand           String?
+  chassis         String?
+  renavam         String?
+  color           String?
+  externalRef     String?
+  modelYear       Int?
   manufactureYear Int?
-  fipeCode  String?
-  fipeValue Float?
-  zeroKm    Boolean  @default(false)
-  driver    String?
-  group     String?
-  type      String?
-  status    String?
-  notes     String?
-  attributes Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  fipeCode        String?
+  fipeValue       Float?
+  zeroKm          Boolean  @default(false)
+  driver          String?
+  group           String?
+  type            String?
+  status          String?
+  notes           String?
+  attributes      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  client  Client   @relation(fields: [clientId], references: [id])
-  devices Device[]
-  equipments Equipment[]
-  serviceOrders ServiceOrder[]
+  client                 Client                  @relation(fields: [clientId], references: [id])
+  devices                Device[]
+  equipments             Equipment[]
+  serviceOrders          ServiceOrder[]
+  trustCenterUserStates  TrustCenterUserState[]
+  trustCenterEvents      TrustCenterEvent[]
+  trustCenterCounterKeys TrustCenterCounterKey[]
 }
 
 model EquipmentProduct {
@@ -234,7 +243,7 @@ model EquipmentProduct {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  client    Client     @relation(fields: [clientId], references: [id])
+  client     Client      @relation(fields: [clientId], references: [id])
   equipments Equipment[]
 
   @@unique([clientId, nameNormalized])
@@ -242,22 +251,22 @@ model EquipmentProduct {
 }
 
 model Equipment {
-  id             String   @id @default(uuid())
-  clientId       String
-  vehicleId      String?
-  productId      String?
-  internalId     String
-  status         String?
-  condition      String?
-  location       String?
-  warrantyDays   Int?
-  priceValue     Float?
-  externalRef    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id           String   @id @default(uuid())
+  clientId     String
+  vehicleId    String?
+  productId    String?
+  internalId   String
+  status       String?
+  condition    String?
+  location     String?
+  warrantyDays Int?
+  priceValue   Float?
+  externalRef  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  client  Client           @relation(fields: [clientId], references: [id])
-  vehicle Vehicle?         @relation(fields: [vehicleId], references: [id])
+  client  Client            @relation(fields: [clientId], references: [id])
+  vehicle Vehicle?          @relation(fields: [vehicleId], references: [id])
   product EquipmentProduct? @relation(fields: [productId], references: [id])
 
   @@unique([clientId, internalId])
@@ -265,7 +274,7 @@ model Equipment {
 }
 
 model ServiceOrder {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   clientId         String
   clientName       String?
   vehicleId        String?
@@ -291,8 +300,8 @@ model ServiceOrder {
   equipmentsData   Json?
   checklistItems   Json?
   signatures       Json?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   client  Client   @relation(fields: [clientId], references: [id])
   vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
@@ -495,55 +504,55 @@ model Reminder {
 }
 
 model Task {
-  id                 String    @id @default(uuid())
-  clientId           String
-  vehicleId          String?
-  driverId           String?
-  unit               String?
-  operation          String?
-  category           String?
-  clientName         String?
-  clientDocument     String?
-  contractPlan       String?
-  contactName        String?
-  contactChannel     String?
-  authorizationStatus String?
-  authorizationBy    String?
-  address            String?
-  referencePoint     String?
-  geoFenceId         String?
-  geofenceRadius     Int?
-  latitude           Float?
-  longitude          Float?
-  startTimeExpected  DateTime?
-  endTimeExpected    DateTime?
-  arrivalTime        DateTime?
-  serviceStartTime   DateTime?
-  serviceEndTime     DateTime?
-  checklistCompleted Boolean   @default(false)
-  type               String
-  serviceReason      String?
-  serviceItem        String?
-  priority           String?
-  sla                String?
-  slaExceptionReason String?
-  status             String
-  ownerName          String?
-  technicianName     String?
+  id                   String    @id @default(uuid())
+  clientId             String
+  vehicleId            String?
+  driverId             String?
+  unit                 String?
+  operation            String?
+  category             String?
+  clientName           String?
+  clientDocument       String?
+  contractPlan         String?
+  contactName          String?
+  contactChannel       String?
+  authorizationStatus  String?
+  authorizationBy      String?
+  address              String?
+  referencePoint       String?
+  geoFenceId           String?
+  geofenceRadius       Int?
+  latitude             Float?
+  longitude            Float?
+  startTimeExpected    DateTime?
+  endTimeExpected      DateTime?
+  arrivalTime          DateTime?
+  serviceStartTime     DateTime?
+  serviceEndTime       DateTime?
+  checklistCompleted   Boolean   @default(false)
+  type                 String
+  serviceReason        String?
+  serviceItem          String?
+  priority             String?
+  sla                  String?
+  slaExceptionReason   String?
+  status               String
+  ownerName            String?
+  technicianName       String?
   assignedTechnicianId String?
-  assignedTeam       String?
-  schedulingId       String?
-  workOrderId        String?
-  vehicleBrand       String?
-  vehicleYear        String?
-  vehicleColor       String?
-  selectedEquipments Json?
-  isRescheduled      Boolean   @default(false)
-  rescheduleReason   String?
-  cancelReason       String?
-  attachments        Json?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  assignedTeam         String?
+  schedulingId         String?
+  workOrderId          String?
+  vehicleBrand         String?
+  vehicleYear          String?
+  vehicleColor         String?
+  selectedEquipments   Json?
+  isRescheduled        Boolean   @default(false)
+  rescheduleReason     String?
+  cancelReason         String?
+  attachments          Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 model TaskTemplate {
@@ -640,18 +649,18 @@ model EventMapping {
 }
 
 model CommandDispatch {
-  id             String   @id @default(uuid())
-  clientId       String?
-  vehicleId      String
-  traccarId      Int
-  commandKey     String?
-  commandName    String?
+  id               String   @id @default(uuid())
+  clientId         String?
+  vehicleId        String
+  traccarId        Int
+  commandKey       String?
+  commandName      String?
   traccarCommandId Int?
-  payloadSummary Json?
-  sentAt         DateTime
-  status         String
-  createdBy      String?
-  createdAt      DateTime @default(now())
+  payloadSummary   Json?
+  sentAt           DateTime
+  status           String
+  createdBy        String?
+  createdAt        DateTime @default(now())
 
   client Client? @relation(fields: [clientId], references: [id])
 
@@ -680,4 +689,95 @@ model CustomCommand {
   @@index([clientId, protocol])
   @@index([clientId, sortOrder])
   @@map("custom_commands")
+}
+
+model TrustCenterUserState {
+  id                String    @id @default(uuid())
+  clientId          String    @map("client_id")
+  userId            String    @map("user_id")
+  vehicleId         String?   @map("vehicle_id")
+  esp32DeviceId     String    @map("esp32_device_id")
+  statusState       String    @map("status_state")
+  challenge         String?
+  validationMethod  String?   @map("validation_method")
+  lastResult        String?   @map("last_result")
+  lastActionType    String?   @map("last_action_type")
+  lastPasswordLast6 String?   @map("last_password_last6")
+  lastHeartbeatAt   DateTime? @map("last_heartbeat_at")
+  lastAttemptAt     DateTime? @map("last_attempt_at")
+  lastAccessAt      DateTime? @map("last_access_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  client  Client   @relation(fields: [clientId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@unique([clientId, userId, esp32DeviceId])
+  @@index([clientId, statusState])
+  @@index([clientId, esp32DeviceId])
+  @@index([lastHeartbeatAt])
+  @@index([lastAttemptAt])
+  @@index([lastAccessAt])
+  @@map("trust_center_user_state")
+}
+
+model TrustCenterEvent {
+  id            String   @id @default(uuid())
+  clientId      String   @map("client_id")
+  userId        String?  @map("user_id")
+  vehicleId     String?  @map("vehicle_id")
+  esp32DeviceId String?  @map("esp32_device_id")
+  state         String?
+  method        String?
+  action        String
+  result        String?
+  createdBy     String?  @map("created_by")
+  usedBy        String?  @map("used_by")
+  ipAddress     String?  @map("ip_address")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  client  Client   @relation(fields: [clientId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@index([clientId, createdAt])
+  @@index([clientId, userId, createdAt])
+  @@index([clientId, esp32DeviceId, createdAt])
+  @@index([action, createdAt])
+  @@index([result, createdAt])
+  @@map("trust_center_event")
+}
+
+model TrustCenterCounterKey {
+  id               String    @id @default(uuid())
+  clientId         String    @map("client_id")
+  userId           String    @map("user_id")
+  vehicleId        String?   @map("vehicle_id")
+  esp32DeviceId    String    @map("esp32_device_id")
+  basePasswordHash String    @map("base_password_hash")
+  basePasswordSalt String    @map("base_password_salt")
+  counterKey       String    @map("counter_key")
+  status           String
+  usesCount        Int       @default(0) @map("uses_count")
+  maxUses          Int       @default(1) @map("max_uses")
+  expiresAt        DateTime? @map("expires_at")
+  firstUsedAt      DateTime? @map("first_used_at")
+  lastUsedAt       DateTime? @map("last_used_at")
+  createdBy        String?   @map("created_by")
+  usedBy           String?   @map("used_by")
+  metadata         Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  client  Client   @relation(fields: [clientId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@index([clientId, createdAt])
+  @@index([clientId, status, createdAt])
+  @@index([clientId, userId, createdAt])
+  @@index([counterKey])
+  @@map("trust_center_counter_key")
 }

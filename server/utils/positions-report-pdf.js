@@ -35,10 +35,6 @@ async function loadChromium() {
   }
 }
 
-export async function getReportPdfChromium() {
-  return loadChromium();
-}
-
 async function fetchLogoDataUrl() {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
   try {
@@ -55,10 +51,6 @@ async function fetchLogoDataUrl() {
     cachedLogoDataUrl = null;
     return null;
   }
-}
-
-export async function getReportPdfLogoDataUrl() {
-  return fetchLogoDataUrl();
 }
 
 function loadFontBase64(fontPath) {
@@ -84,94 +76,110 @@ function ensureFontData() {
   };
 }
 
+export async function getReportPdfChromium() {
+  return loadChromium();
+}
+
+export async function getReportPdfLogoDataUrl() {
+  return fetchLogoDataUrl();
+}
+
 export function getReportPdfFontData() {
   return ensureFontData();
 }
 
 export function resolveReportPdfFontFaces(fontData = {}) {
-  const regular = fontData?.regular
-    ? `
-      @font-face {
-        font-family: "DejaVu Sans";
-        src: url(data:font/ttf;base64,${fontData.regular}) format("truetype");
-        font-weight: 400;
-        font-style: normal;
-      }
-    `
-    : "";
-  const bold = fontData?.bold
-    ? `
-      @font-face {
-        font-family: "DejaVu Sans";
-        src: url(data:font/ttf;base64,${fontData.bold}) format("truetype");
-        font-weight: 700;
-        font-style: normal;
-      }
-    `
-    : "";
-  return `${regular}\n${bold}`.trim();
+  if (!fontData?.regular) return "";
+  return `
+    @font-face {
+      font-family: 'DejaVu Sans';
+      src: url('data:font/ttf;base64,${fontData.regular}') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'DejaVu Sans';
+      src: url('data:font/ttf;base64,${fontData.bold || fontData.regular}') format('truetype');
+      font-weight: 700;
+      font-style: normal;
+    }
+  `;
 }
 
 export function buildReportPdfThemeBaseCss({
   fontFaces = "",
-  pageMargin = "14mm 10mm 14mm 10mm",
+  pageMargin = "24mm 8mm 14mm 8mm",
 } = {}) {
   return `
-    ${fontFaces || ""}
-    :root {
-      color-scheme: light;
-    }
-    * {
-      box-sizing: border-box;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    html, body {
+    ${fontFaces}
+    * { box-sizing: border-box; }
+    body {
       margin: 0;
-      padding: 0;
       font-family: ${FONT_STACK};
       color: #0f172a;
-      background: #f8fafc;
-      font-size: 12px;
+      background: #ffffff;
     }
-    @page {
-      margin: ${pageMargin};
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 12px;
+      background: #ffffff;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
     }
-    .report {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .chip {
+    .badge {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
+      background: rgba(0, 31, 63, 0.08);
+      color: ${REPORT_PDF_BRAND_COLOR};
+      border: 1px solid rgba(0, 31, 63, 0.14);
       border-radius: 999px;
-      padding: 3px 10px;
+      padding: 4px 8px;
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.04em;
       text-transform: uppercase;
-      border: 1px solid rgba(255, 255, 255, 0.35);
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.14);
+      letter-spacing: 0.05em;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: ${REPORT_PDF_BRAND_COLOR};
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .table-wrapper {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      width: 100%;
     }
     table {
       width: 100%;
       border-collapse: collapse;
+      table-layout: fixed;
+    }
+    thead {
+      background: ${REPORT_PDF_BRAND_COLOR};
+      color: #ffffff;
     }
     th, td {
-      border: 1px solid #dbe3ee;
-      padding: 6px 8px;
-      vertical-align: top;
       text-align: left;
-    }
-    th {
-      background: #eef4fb;
-      color: #0f172a;
+      padding: 6px 8px;
+      border-bottom: 1px solid #e2e8f0;
       font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      line-height: 1.45;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    @page {
+      margin: ${pageMargin};
     }
   `;
 }
@@ -624,10 +632,22 @@ function buildHtml({
     `
     : "";
 
-  const fontFaces = resolveReportPdfFontFaces({
-    regular: fontData?.regular || null,
-    bold: fontData?.bold || fontData?.regular || null,
-  });
+  const fontFaces = fontData?.regular
+    ? `
+    @font-face {
+      font-family: 'DejaVu Sans';
+      src: url('data:font/ttf;base64,${fontData.regular}') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'DejaVu Sans';
+      src: url('data:font/ttf;base64,${fontData.bold || fontData.regular}') format('truetype');
+      font-weight: 700;
+      font-style: normal;
+    }
+  `
+    : "";
 
   return `
 <!doctype html>

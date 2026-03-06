@@ -18,6 +18,7 @@ import {
   NotebookPen,
   Package,
   Radio,
+  Shield,
   ShieldCheck,
   Shield,
   Target,
@@ -205,6 +206,15 @@ export const PERMISSION_REGISTRY = [
           { subKey: "users-permission-groups", label: "Grupos de permissões" },
         ],
       },
+      {
+        pageKey: "trust-center",
+        label: "Trust Center",
+        subpages: [
+          { subKey: "users", label: "Usuários" },
+          { subKey: "activity", label: "Histórico" },
+          { subKey: "counter-key", label: "Contra-senha" },
+        ],
+      },
       { pageKey: "import", label: "Importar Base (XLSX)" },
     ],
   },
@@ -345,6 +355,12 @@ export const MENU_REGISTRY = [
         icon: Users,
         permission: { menuKey: "admin", pageKey: "clients" },
         isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
+      },
+      {
+        to: "/trust-center",
+        label: "Trust Center",
+        icon: Shield,
+        permission: { menuKey: "admin", pageKey: "trust-center" },
       },
       {
         to: "/users",
