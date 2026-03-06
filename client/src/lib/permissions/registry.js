@@ -78,11 +78,11 @@ export const PERMISSION_REGISTRY = [
       },
       {
         pageKey: "trust-center",
-        label: "Trust Center",
+        label: "Segurança",
         subpages: [
-          { subKey: "users", label: "Usuários" },
-          { subKey: "activity", label: "Histórico" },
-          { subKey: "counter-key", label: "Contra-senha" },
+          { subKey: "activity", label: "Verificar ES Jammer" },
+          { subKey: "users", label: "Usuarios" },
+          { subKey: "counter-key", label: "Permissao / Contra-senha" },
         ],
       },
     ],
@@ -205,15 +205,6 @@ export const PERMISSION_REGISTRY = [
           { subKey: "users-permission-groups", label: "Grupos de permissões" },
         ],
       },
-      {
-        pageKey: "trust-center",
-        label: "Trust Center",
-        subpages: [
-          { subKey: "users", label: "Usuários" },
-          { subKey: "activity", label: "Histórico" },
-          { subKey: "counter-key", label: "Contra-senha" },
-        ],
-      },
       { pageKey: "import", label: "Importar Base (XLSX)" },
     ],
   },
@@ -255,11 +246,29 @@ export const MENU_REGISTRY = [
         icon: ShieldCheck,
         permission: { menuKey: "primary", pageKey: "events" },
       },
+    ],
+  },
+  {
+    key: "seguranca",
+    title: "SEGURANÇA",
+    items: [
+      {
+        to: "/trust-center/activity",
+        label: "Verificar ES Jammer",
+        icon: Shield,
+        permission: { menuKey: "primary", pageKey: "trust-center", subKey: "activity" },
+      },
       {
         to: "/trust-center/users",
-        label: "Trust Center",
-        icon: Shield,
+        label: "Usuarios",
+        icon: User,
         permission: { menuKey: "primary", pageKey: "trust-center", subKey: "users" },
+      },
+      {
+        to: "/trust-center/counter-key",
+        label: "Permissao / Contra-senha",
+        icon: ShieldCheck,
+        permission: { menuKey: "primary", pageKey: "trust-center", subKey: "counter-key" },
       },
     ],
   },
@@ -354,12 +363,6 @@ export const MENU_REGISTRY = [
         icon: Users,
         permission: { menuKey: "admin", pageKey: "clients" },
         isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
-      },
-      {
-        to: "/trust-center",
-        label: "Trust Center",
-        icon: Shield,
-        permission: { menuKey: "admin", pageKey: "trust-center" },
       },
       {
         to: "/users",

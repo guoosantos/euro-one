@@ -125,7 +125,7 @@ export const ENABLED_MAP_LAYERS = MAP_LAYER_SECTIONS.flatMap((section) =>
     .map((layer) => ({ ...layer, section: section.key })),
 );
 
-const PREFERRED_DEFAULT_LAYER_KEY = "satellite";
+const PREFERRED_DEFAULT_LAYER_KEY = "carto-light";
 const preferredDefaultLayer = ENABLED_MAP_LAYERS.find((layer) => layer.key === PREFERRED_DEFAULT_LAYER_KEY) || null;
 
 export const MAP_LAYER_FALLBACK = ENABLED_MAP_LAYERS[0] || BASE_MAP_LAYERS[0];
