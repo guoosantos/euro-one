@@ -30,6 +30,107 @@ const SWITCH_TIMEOUT_MS = 10000;
 const CONTEXT_REFRESH_TIMEOUT_MS = 12000;
 const PERMISSION_READY_TIMEOUT_MS = 12000;
 const PERMISSION_SNAPSHOT_MAX_AGE_MS = 5 * 60 * 1000;
+const INVALID_BOOTSTRAP_PAYLOAD_CODE = "INVALID_BOOTSTRAP_PAYLOAD";
+
+export const BOOTSTRAP_STATUS = {
+  loading: "loading",
+  ready: "ready",
+  failed: "failed",
+};
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPermissionLevel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "read" || normalized === "view" || normalized === "full";
+}
+
+export function isValidPermissionContextPayload(payload) {
+  if (!isRecord(payload)) return false;
+  if (payload.error || payload.aborted) return false;
+  if (payload.isFull === true) return true;
+  if (isPermissionLevel(payload.level)) return true;
+  return isRecord(payload.permissions);
+}
+
+function isValidMePermissionsPayload(payload) {
+  if (!isRecord(payload)) return false;
+  if (payload.error || payload.aborted) return false;
+  const hasClientIds = payload.clientIds === null || Array.isArray(payload.clientIds);
+  const hasMirrorIds = payload.mirrorOwnerIds === null || Array.isArray(payload.mirrorOwnerIds);
+  return hasClientIds && hasMirrorIds;
+}
+
+function isValidMirrorsContextPayload(payload) {
+  if (!isRecord(payload)) return false;
+  if (payload.error || payload.aborted) return false;
+  return typeof payload.mirrorModeEnabled === "boolean";
+}
+
+function buildInvalidBootstrapPayloadError(stage, message) {
+  const error = new Error(message);
+  error.code = INVALID_BOOTSTRAP_PAYLOAD_CODE;
+  error.status = 502;
+  error.stage = stage;
+  return error;
+}
+
+export function validateBootstrapPayload(payload) {
+  if (!isRecord(payload)) {
+    return {
+      ok: false,
+      stage: "context",
+      error: buildInvalidBootstrapPayloadError("context", "Payload inválido de /bootstrap."),
+    };
+  }
+
+  const context = payload.context;
+  if (!isRecord(context)) {
+    return {
+      ok: false,
+      stage: "context",
+      error: buildInvalidBootstrapPayloadError("context", "Resposta de /bootstrap sem contexto."),
+    };
+  }
+
+  const permissionContext = payload.permissionContext || context.permissionContext || null;
+  if (!isValidPermissionContextPayload(permissionContext)) {
+    return {
+      ok: false,
+      stage: "permissions",
+      error: buildInvalidBootstrapPayloadError(
+        "permissions",
+        "Resposta de /bootstrap sem permissionContext válido.",
+      ),
+    };
+  }
+
+  if (!isValidMePermissionsPayload(payload.mePermissions)) {
+    return {
+      ok: false,
+      stage: "permissions",
+      error: buildInvalidBootstrapPayloadError(
+        "permissions",
+        "Resposta de /bootstrap sem mePermissions válido.",
+      ),
+    };
+  }
+
+  if (!isValidMirrorsContextPayload(payload.mirrorsContext)) {
+    return {
+      ok: false,
+      stage: "context",
+      error: buildInvalidBootstrapPayloadError(
+        "context",
+        "Resposta de /bootstrap sem mirrorsContext válido.",
+      ),
+    };
+  }
+
+  return { ok: true, context, permissionContext };
+}
 
 function clearStoredPermissionSnapshot() {
   if (typeof window === "undefined") return;
@@ -369,6 +470,10 @@ export function TenantProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [initialising, setInitialising] = useState(!hasWarmPermissionSnapshot);
   const [error, setError] = useState(null);
+  const [bootstrapStatus, setBootstrapStatus] = useState(
+    stored?.token ? BOOTSTRAP_STATUS.loading : BOOTSTRAP_STATUS.ready,
+  );
+  const [bootstrapError, setBootstrapError] = useState(null);
   const [permissionContext, setPermissionContext] = useState(
     storedPermissionSnapshot?.permissionContext || {
       permissions: null,
@@ -539,6 +644,30 @@ export function TenantProvider({ children }) {
     [buildBootError, logBoot],
   );
 
+  const markBootstrapLoading = useCallback(() => {
+    setBootstrapStatus(BOOTSTRAP_STATUS.loading);
+    setBootstrapError(null);
+  }, []);
+
+  const markBootstrapReady = useCallback(() => {
+    setBootstrapStatus(BOOTSTRAP_STATUS.ready);
+    setBootstrapError(null);
+    setError(null);
+  }, []);
+
+  const failBootstrap = useCallback(
+    (stage, bootError, details = {}) => {
+      const resolved = reportBootError(stage, bootError, details);
+      setBootstrapStatus(BOOTSTRAP_STATUS.failed);
+      setBootstrapError(resolved);
+      setPermissionLoading(false);
+      setPermissionLoaded(false);
+      setPermissionError(resolved);
+      return resolved;
+    },
+    [reportBootError],
+  );
+
   const markApiUnavailable = useCallback((error) => {
     if (error?.code !== "API_UNREACHABLE") return false;
     apiUnavailableRef.current = { until: Date.now() + 8000 };
@@ -649,6 +778,7 @@ export function TenantProvider({ children }) {
     setPermissionOwnerClientId(ownerClientId ?? null);
     setPermissionLoaded(true);
     setPermissionLoading(false);
+    setPermissionError(null);
     if (currentUser?.id) {
       setStoredPermissionSnapshot({
         userId: currentUser.id,
@@ -918,17 +1048,9 @@ export function TenantProvider({ children }) {
       if (contextSwitchRef.current.id !== currentSeq) return;
       console.warn("[context] forçando fim do switch", { key: currentKey, seq: currentSeq });
       setContextSwitching(false);
-      setPermissionLoading(false);
-      setPermissionLoaded(true);
-      if (permissionTenantId === null || permissionTenantId === undefined) {
-        setPermissionTenantId(tenantId ?? null);
-      }
-      if (!permissionOwnerClientId && activeMirrorOwnerClientId) {
-        setPermissionOwnerClientId(activeMirrorOwnerClientId ?? null);
-      }
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [activeMirrorOwnerClientId, contextSwitching, permissionOwnerClientId, permissionTenantId, tenantId]);
+  }, [contextSwitching]);
 
   const beginContextSwitch = useCallback(
     (nextKey, reason = "manual") => {
@@ -1207,8 +1329,8 @@ export function TenantProvider({ children }) {
         setPermissionLoaded(false);
         setPermissionLoading(true);
       } else {
-        setPermissionLoading(false);
-        setPermissionLoaded(true);
+        setPermissionLoading(true);
+        setPermissionLoaded(false);
       }
       setPermissionError(null);
       setPermissionTenantId(resolvedTenantId ?? null);
@@ -1253,29 +1375,37 @@ export function TenantProvider({ children }) {
           mirrorOwnerClientId: resolvedOwnerId,
         });
         if (bootstrapResponse?.error) {
-          reportBootError("context", bootstrapResponse.error, {
+          failBootstrap("context", bootstrapResponse.error, {
             stage: "switchContext",
             status: bootstrapResponse.status ?? null,
             tenantId: resolvedTenantId ?? null,
           });
           if (contextSwitchRef.current.id === seq) {
-            finishContextSwitch(nextKey, seq, "timeout");
+            finishContextSwitch(nextKey, seq, "error");
+          }
+          return;
+        }
+        const bootstrapValidation = validateBootstrapPayload(bootstrapResponse);
+        if (!bootstrapValidation.ok) {
+          failBootstrap(bootstrapValidation.stage, bootstrapValidation.error, {
+            stage: "switchContext",
+            tenantId: resolvedTenantId ?? null,
+          });
+          if (contextSwitchRef.current.id === seq) {
+            finishContextSwitch(nextKey, seq, "invalid");
           }
           return;
         }
         if (contextSwitchRef.current.id !== seq) return;
-        const contextPayload = bootstrapResponse?.context || null;
-        const permissionPayload =
-          bootstrapResponse?.permissionContext || contextPayload?.permissionContext || null;
-        if (permissionPayload) {
-          applyPermissionContext(permissionPayload, resolvedTenantId ?? null, resolvedOwnerId ?? null);
-        }
+        const contextPayload = bootstrapValidation.context;
+        const permissionPayload = bootstrapValidation.permissionContext;
+        applyPermissionContext(permissionPayload, resolvedTenantId ?? null, resolvedOwnerId ?? null);
         setActiveMirror((current) => (areSameMirror(current, contextPayload?.mirror || null) ? current : (contextPayload?.mirror || null)));
         if (typeof contextPayload?.mirrorModeEnabled === "boolean") {
           setMirrorModeEnabled(contextPayload.mirrorModeEnabled);
         }
       } catch (switchError) {
-        reportBootError("context", switchError, {
+        failBootstrap("context", switchError, {
           stage: "switchContext",
           tenantId: resolvedTenantId ?? null,
         });
@@ -1293,9 +1423,9 @@ export function TenantProvider({ children }) {
       clearCachedRequests,
       fetchBootstrap,
       finishContextSwitch,
+      failBootstrap,
       logBoot,
       mirrorContextMode,
-      reportBootError,
       tenantId,
       token,
     ],
@@ -1476,6 +1606,8 @@ export function TenantProvider({ children }) {
     async function hydrateSession() {
       const seq = ++bootstrapSeqRef.current;
       if (!token) {
+        setBootstrapStatus(BOOTSTRAP_STATUS.ready);
+        setBootstrapError(null);
         setLoading(false);
         setInitialising(false);
         return;
@@ -1488,6 +1620,7 @@ export function TenantProvider({ children }) {
       lastTokenRef.current = token;
       hydratedRef.current = true;
       bootPermissionLoggedRef.current = false;
+      markBootstrapLoading();
       setLoading(true);
       setError(null);
       logBoot("boot:start", { token: Boolean(token) });
@@ -1536,31 +1669,29 @@ export function TenantProvider({ children }) {
         });
         if (cancelled) return;
         if (bootstrapResponse?.error) {
-          reportBootError("context", bootstrapResponse.error, {
+          failBootstrap("context", bootstrapResponse.error, {
             status: bootstrapResponse.status ?? null,
             clientId: resolvedClientId ?? null,
           });
-          setPermissionLoading(false);
-          setPermissionLoaded(false);
-          setPermissionTenantId(null);
-          setPermissionOwnerClientId(null);
+          return;
+        }
+        if (bootstrapResponse?.aborted) return;
+        const bootstrapValidation = validateBootstrapPayload(bootstrapResponse);
+        if (!bootstrapValidation.ok) {
+          failBootstrap(bootstrapValidation.stage, bootstrapValidation.error, {
+            clientId: resolvedClientId ?? null,
+          });
           return;
         }
         if (!bootstrapResponse?.aborted) {
           logBoot("boot:context ok", { clientId: bootstrapResponse?.context?.clientId ?? null });
         }
-        const bootstrapPayload = bootstrapResponse?.error ? null : bootstrapResponse;
-        const contextPayload = bootstrapPayload?.context || null;
-        const accessPayload = bootstrapPayload?.mePermissions || null;
-        const mirrorsPayload = bootstrapPayload?.mirrorsContext || null;
-        if (accessPayload?.error) {
-          logBoot("boot:access-scope error", {
-            code: accessPayload?.code || accessPayload?.error?.code || null,
-          }, "warn");
-        } else if (accessPayload && !accessPayload.aborted) {
-          applyAccessScope(accessPayload);
-          logBoot("boot:access-scope ok", {});
-        }
+        const bootstrapPayload = bootstrapResponse;
+        const contextPayload = bootstrapValidation.context;
+        const accessPayload = bootstrapPayload.mePermissions;
+        const mirrorsPayload = bootstrapPayload.mirrorsContext;
+        applyAccessScope(accessPayload);
+        logBoot("boot:access-scope ok", {});
         if (mirrorsPayload) {
           mirrorContextLoadedRef.current = true;
           if (typeof mirrorsPayload.mirrorModeEnabled === "boolean") {
@@ -1633,23 +1764,15 @@ export function TenantProvider({ children }) {
         setMirrorModeEnabled(
           typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
         );
-        const permissionPayload =
-          bootstrapPayload?.permissionContext || contextPayload?.permissionContext || null;
-        if (permissionPayload) {
-          applyPermissionContext(
-            permissionPayload,
-            contextPayload?.clientId || resolvedClientId,
-            contextPayload?.mirror?.ownerClientId ?? safeStoredMirrorOwnerClientId ?? null,
-          );
-          if (!bootPermissionLoggedRef.current) {
-            bootPermissionLoggedRef.current = true;
-            logBoot("boot:permissions ok", { source: "context" });
-          }
-        } else {
-          setPermissionLoading(false);
-          setPermissionLoaded(false);
-          setPermissionTenantId(null);
-          setPermissionOwnerClientId(null);
+        const permissionPayload = bootstrapValidation.permissionContext;
+        applyPermissionContext(
+          permissionPayload,
+          contextPayload?.clientId || resolvedClientId,
+          contextPayload?.mirror?.ownerClientId ?? safeStoredMirrorOwnerClientId ?? null,
+        );
+        if (!bootPermissionLoggedRef.current) {
+          bootPermissionLoggedRef.current = true;
+          logBoot("boot:permissions ok", { source: "context" });
         }
 
         if (nextUser) {
@@ -1663,6 +1786,7 @@ export function TenantProvider({ children }) {
           });
           setTenantId(nextTenantId);
         }
+        markBootstrapReady();
       } catch (sessionError) {
         if (cancelled) return;
         console.warn("Falha ao restaurar sessão", sessionError);
@@ -1672,12 +1796,14 @@ export function TenantProvider({ children }) {
           setTenants([]);
           setTenantId(null);
           clearStoredSession();
+          setBootstrapStatus(BOOTSTRAP_STATUS.ready);
+          setBootstrapError(null);
           if (typeof window !== "undefined") {
             window.location.assign("/login");
           }
           return;
         }
-        reportBootError("session", sessionError, {
+        failBootstrap("session", sessionError, {
           status: sessionError?.status || sessionError?.response?.status || null,
         });
         setUser(null);
@@ -1700,9 +1826,11 @@ export function TenantProvider({ children }) {
     applyAccessScope,
     contextAbortSignal,
     fetchBootstrap,
+    failBootstrap,
     hasStoredTenantId,
     logBoot,
-    reportBootError,
+    markBootstrapLoading,
+    markBootstrapReady,
     storedActiveMirrorOwnerClientId,
     storedTenantId,
     mirrorContextMode,
@@ -2147,39 +2275,35 @@ export function TenantProvider({ children }) {
             resetMirrorSelection("context-403");
             clearStoredTenantId("context-403");
           }
-          if (
-            payload?.code === "REQUEST_TIMEOUT" ||
-            payload?.code === "CLIENT_TIMEOUT" ||
-            payload?.code === "API_UNREACHABLE"
-          ) {
-            reportBootError("context", payload.error, {
-              stage: "refresh",
-              status: payload?.status ?? null,
-            });
-          }
-          const fallbackTenant = tenantsRef.current?.[0]?.id ?? currentUser.clientId ?? null;
-          if (fallbackTenant && fallbackTenant !== tenantId) {
-            setTenantId(fallbackTenant);
-          }
-          setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
-          setPermissionLoaded(false);
-          setPermissionTenantId(null);
-          setPermissionOwnerClientId(null);
-          setPermissionLoading(false);
-          if (payload?.code === "API_UNREACHABLE") {
-            return;
-          }
+          failBootstrap("context", payload.error, {
+            stage: "refresh",
+            status: payload?.status ?? null,
+            tenantId: tenantId ?? null,
+            ownerClientId: activeMirrorOwnerClientId ?? null,
+          });
           if (contextSwitching && contextSwitchRef.current.key === contextKey) {
             finishContextSwitch(contextKey, switchId, "error");
+          }
+          return;
+        }
+        const bootstrapValidation = validateBootstrapPayload(payload);
+        if (!bootstrapValidation.ok) {
+          failBootstrap(bootstrapValidation.stage, bootstrapValidation.error, {
+            stage: "refresh",
+            tenantId: tenantId ?? null,
+            ownerClientId: activeMirrorOwnerClientId ?? null,
+          });
+          if (contextSwitching && contextSwitchRef.current.key === contextKey) {
+            finishContextSwitch(contextKey, switchId, "invalid");
           }
           return;
         }
         setApiUnavailable(false);
         setApiUnavailableInfo(null);
         setError((current) => (current ? null : current));
-        const contextPayload = payload?.context || null;
+        const contextPayload = bootstrapValidation.context;
         const mirrorsPayload = payload?.mirrorsContext || null;
-        const permissionPayload = payload?.permissionContext || contextPayload?.permissionContext || null;
+        const permissionPayload = bootstrapValidation.permissionContext;
         const normalizedClients = normaliseClients(
           contextPayload?.clients || contextPayload?.client ? contextPayload : null,
           currentUser,
@@ -2214,19 +2338,11 @@ export function TenantProvider({ children }) {
         if (typeof contextPayload?.mirrorModeEnabled === "boolean") {
           setMirrorModeEnabled(contextPayload.mirrorModeEnabled);
         }
-        if (permissionPayload) {
-          applyPermissionContext(
-            permissionPayload,
-            contextPayload?.clientId || tenantId,
-            contextPayload?.mirror?.ownerClientId ?? activeMirrorOwnerClientId ?? null,
-          );
-        } else {
-          // Evita travar a UI em "Carregando permissões..." quando o contexto não traz permissões.
-          setPermissionLoading(false);
-          setPermissionLoaded(true);
-          setPermissionTenantId(tenantId ?? null);
-          setPermissionOwnerClientId(activeMirrorOwnerClientId ?? null);
-        }
+        applyPermissionContext(
+          permissionPayload,
+          contextPayload?.clientId || tenantId,
+          contextPayload?.mirror?.ownerClientId ?? activeMirrorOwnerClientId ?? null,
+        );
         lastContextSuccessRef.current = { key: contextKey, ts: Date.now() };
         if (contextSwitching && contextSwitchRef.current.key === contextKey) {
           finishContextSwitch(contextKey, switchId, "done");
@@ -2249,17 +2365,11 @@ export function TenantProvider({ children }) {
             return;
           }
           console.warn("Falha ao carregar contexto do tenant", contextError);
-          setPermissionLoading(false);
-          setPermissionLoaded(true);
-          setPermissionTenantId(tenantId ?? null);
-          setPermissionOwnerClientId(activeMirrorOwnerClientId ?? null);
-          if (markApiUnavailable(contextError)) {
-            setPermissionLoading(false);
-            if (contextSwitching && contextSwitchRef.current.key === contextKey) {
-              finishContextSwitch(contextKey, switchId, "api-unavailable");
-            }
-            return;
-          }
+          failBootstrap("context", contextError, {
+            stage: "refresh",
+            tenantId: tenantId ?? null,
+            ownerClientId: activeMirrorOwnerClientId ?? null,
+          });
           if (contextSwitching && contextSwitchRef.current.key === contextKey) {
             finishContextSwitch(contextKey, switchId, "error");
           }
@@ -2277,12 +2387,12 @@ export function TenantProvider({ children }) {
     clearStoredTenantId,
     contextAbortSignal,
     contextSwitching,
+    failBootstrap,
     fetchBootstrap,
     finishContextSwitch,
     homeClientId,
     mirrorContextMode,
     mirrorOwners,
-    reportBootError,
     resetMirrorSelection,
     tenantId,
     token,
@@ -2388,21 +2498,27 @@ export function TenantProvider({ children }) {
         if (cancelled || contextSwitchRef.current.id !== switchId) return;
         if (payload?.aborted) return;
         if (payload?.error) {
-          reportBootError("permissions", payload.error, {
+          failBootstrap("permissions", payload.error, {
             stage: "refresh",
             status: payload?.status ?? null,
+            tenantId: tenantId ?? null,
+            ownerClientId: resolvedOwnerId ?? null,
           });
-          const fallbackTenantId = tenantId ?? null;
-          const fallbackOwnerId = resolvedOwnerId ?? null;
-          const cachedPermission = permissionRequestRef.current?.data;
-          if (cachedPermission && !cachedPermission?.error && !cachedPermission?.aborted) {
-            applyPermissionContext(cachedPermission, fallbackTenantId, fallbackOwnerId);
-          } else {
-            setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
-            setPermissionLoaded(true);
-            setPermissionTenantId(fallbackTenantId);
-            setPermissionOwnerClientId(fallbackOwnerId);
-          }
+          return;
+        }
+        if (!isValidPermissionContextPayload(payload)) {
+          failBootstrap(
+            "permissions",
+            buildInvalidBootstrapPayloadError(
+              "permissions",
+              "Resposta inválida de /permissions/context.",
+            ),
+            {
+              stage: "refresh",
+              tenantId: tenantId ?? null,
+              ownerClientId: resolvedOwnerId ?? null,
+            },
+          );
           return;
         }
         applyPermissionContext(payload, tenantId ?? null, resolvedOwnerId ?? null);
@@ -2413,29 +2529,14 @@ export function TenantProvider({ children }) {
         if (status === 403) {
           resetMirrorSelection("permissions-403");
           clearStoredTenantId("permissions-403");
-          setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
-          setPermissionLoaded(false);
-          setPermissionTenantId(null);
-          setPermissionOwnerClientId(null);
-          const fallbackTenantId = resolveValidTenantId({
-            currentTenantId: null,
-            suggestedTenantId: user?.clientId ?? null,
-            tenants: tenantsRef.current,
-            isAdmin: user?.role === "admin",
-          });
-          if (
-            fallbackTenantId &&
-            String(fallbackTenantId ?? "") !== String(tenantId ?? "")
-          ) {
-            setTenantId(fallbackTenantId);
-            return;
-          }
         }
         console.warn("Falha ao carregar permissões", permissionError);
-        setPermissionContext({ permissions: null, isFull: false, permissionGroupId: null });
-        setPermissionLoaded(true);
-        setPermissionTenantId(tenantId ?? null);
-        setPermissionOwnerClientId(resolvedOwnerId ?? null);
+        failBootstrap("permissions", permissionError, {
+          stage: "refresh",
+          status,
+          tenantId: tenantId ?? null,
+          ownerClientId: resolvedOwnerId ?? null,
+        });
       } finally {
         if (permissionFetchRef.current === permissionKey) {
           permissionFetchRef.current = null;
@@ -2468,16 +2569,15 @@ export function TenantProvider({ children }) {
     contextAbortSignal,
     contextSwitching,
     clearStoredTenantId,
+    failBootstrap,
     fetchPermissionContext,
     mirrorContextMode,
-    reportBootError,
     permissionLoaded,
     permissionLoading,
     permissionTenantId,
     permissionContext?.permissionGroupId,
     permissionOwnerClientId,
     resetMirrorSelection,
-    setTenantId,
     tenantId,
     token,
     user,
@@ -2495,6 +2595,8 @@ export function TenantProvider({ children }) {
       setContextSwitching(false);
       setContextSwitchKey("init");
       setContextAbortSignal(null);
+      setBootstrapStatus(BOOTSTRAP_STATUS.ready);
+      setBootstrapError(null);
       setToken(null);
       setUser(null);
       setError(null);
@@ -2571,6 +2673,7 @@ export function TenantProvider({ children }) {
 
   const login = useCallback(async ({ username, password, remember = true }) => {
     const seq = ++bootstrapSeqRef.current;
+    markBootstrapLoading();
     setLoading(true);
     setError(null);
     bootPermissionLoggedRef.current = false;
@@ -2624,17 +2727,25 @@ export function TenantProvider({ children }) {
           signal: contextAbortSignal,
         });
         if (bootstrapResponse?.error) {
-          reportBootError("context", bootstrapResponse.error, {
+          failBootstrap("context", bootstrapResponse.error, {
             stage: "login",
             status: bootstrapResponse.status ?? null,
             clientId: resolvedClientId ?? null,
           });
           return responseUser;
         }
-        const bootstrapPayload = bootstrapResponse?.error ? null : bootstrapResponse;
-        const contextPayload = bootstrapPayload?.context || null;
-        const accessPayload = bootstrapPayload?.mePermissions || null;
-        const mirrorsPayload = bootstrapPayload?.mirrorsContext || null;
+        const bootstrapValidation = validateBootstrapPayload(bootstrapResponse);
+        if (!bootstrapValidation.ok) {
+          failBootstrap(bootstrapValidation.stage, bootstrapValidation.error, {
+            stage: "login",
+            clientId: resolvedClientId ?? null,
+          });
+          return responseUser;
+        }
+        const bootstrapPayload = bootstrapResponse;
+        const contextPayload = bootstrapValidation.context;
+        const accessPayload = bootstrapPayload.mePermissions;
+        const mirrorsPayload = bootstrapPayload.mirrorsContext;
         if (accessPayload?.error) {
           logBoot("boot:access-scope error", {
             code: accessPayload?.code || accessPayload?.error?.code || null,
@@ -2699,21 +2810,14 @@ export function TenantProvider({ children }) {
         setMirrorModeEnabled(
           typeof contextPayload?.mirrorModeEnabled === "boolean" ? contextPayload.mirrorModeEnabled : null,
         );
-        const permissionPayload =
-          bootstrapPayload?.permissionContext || contextPayload?.permissionContext || null;
-        if (permissionPayload) {
-          applyPermissionContext(
-            permissionPayload,
-            contextPayload?.clientId || resolvedClientId || resolvedTenantId,
-            contextPayload?.mirror?.ownerClientId ?? null,
-          );
-        } else {
-          setPermissionLoading(false);
-          setPermissionLoaded(false);
-          setPermissionTenantId(null);
-          setPermissionOwnerClientId(null);
-        }
+        const permissionPayload = bootstrapValidation.permissionContext;
+        applyPermissionContext(
+          permissionPayload,
+          contextPayload?.clientId || resolvedClientId || resolvedTenantId,
+          contextPayload?.mirror?.ownerClientId ?? null,
+        );
         setStoredSession({ token: responseToken, user: sessionUser });
+        markBootstrapReady();
       } catch (sessionError) {
         if (Number(sessionError?.status || sessionError?.response?.status) === 401) {
           clearStoredSession();
@@ -2724,10 +2828,12 @@ export function TenantProvider({ children }) {
           throw sessionError;
         }
         console.warn("Falha ao validar sessão após login", sessionError);
-        reportBootError("session", sessionError, { stage: "login" });
+        failBootstrap("session", sessionError, { stage: "login" });
       }
       return responseUser;
     } catch (loginError) {
+      setBootstrapStatus(BOOTSTRAP_STATUS.ready);
+      setBootstrapError(null);
       setError(loginError);
       throw loginError;
     } finally {
@@ -2740,10 +2846,12 @@ export function TenantProvider({ children }) {
     allowedMirrorOwnerIds,
     applyAccessScope,
     contextAbortSignal,
+    failBootstrap,
     fetchBootstrap,
     fetchAdminDirectory,
     logBoot,
-    reportBootError,
+    markBootstrapLoading,
+    markBootstrapReady,
     tenantId,
     mirrorContextMode,
   ]);
@@ -2789,6 +2897,8 @@ export function TenantProvider({ children }) {
       setContextSwitching(false);
       setContextSwitchKey("init");
       setContextAbortSignal(null);
+      setBootstrapStatus(BOOTSTRAP_STATUS.ready);
+      setBootstrapError(null);
       setToken(null);
       setUser(null);
       setError(null);
@@ -2889,6 +2999,7 @@ export function TenantProvider({ children }) {
     const relaxPermissionReady = permissionTimeoutRef.current.count > 0;
     const permissionsReady =
       Boolean(user) &&
+      bootstrapStatus === BOOTSTRAP_STATUS.ready &&
       !initialising &&
       !permissionLoading &&
       permissionLoaded &&
@@ -2953,6 +3064,8 @@ export function TenantProvider({ children }) {
       logout,
       loading,
       initialising,
+      bootstrapStatus,
+      bootstrapError,
       error,
       refreshClients,
       isAuthenticated: Boolean(token && user),
@@ -2995,6 +3108,8 @@ export function TenantProvider({ children }) {
     loading,
     error,
     initialising,
+    bootstrapError,
+    bootstrapStatus,
     refreshClients,
     mirrorOwners,
     activeMirror,
@@ -3030,6 +3145,7 @@ export function TenantProvider({ children }) {
       if (permissionError) setPermissionError(null);
       return;
     }
+    if (bootstrapStatus === BOOTSTRAP_STATUS.failed) return;
     if (permissionsReadyFlag) {
       if (permissionError) setPermissionError(null);
       if (permissionTimeoutRef.current.count) {
@@ -3071,6 +3187,7 @@ export function TenantProvider({ children }) {
     return () => clearTimeout(timer);
   }, [
     activeMirrorOwnerClientId,
+    bootstrapStatus,
     buildBootError,
     contextSwitching,
     initialising,
