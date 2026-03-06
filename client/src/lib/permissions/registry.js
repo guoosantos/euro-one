@@ -78,11 +78,11 @@ export const PERMISSION_REGISTRY = [
       },
       {
         pageKey: "trust-center",
-        label: "Segurança",
+        label: "Central de Segurança",
         subpages: [
-          { subKey: "activity", label: "Verificar ES Jammer" },
-          { subKey: "users", label: "Usuarios" },
-          { subKey: "counter-key", label: "Permissao / Contra-senha" },
+          { subKey: "users", label: "Usuários" },
+          { subKey: "activity", label: "Histórico" },
+          { subKey: "counter-key", label: "Contra-senha" },
         ],
       },
     ],
@@ -246,29 +246,11 @@ export const MENU_REGISTRY = [
         icon: ShieldCheck,
         permission: { menuKey: "primary", pageKey: "events" },
       },
-    ],
-  },
-  {
-    key: "seguranca",
-    title: "SEGURANÇA",
-    items: [
       {
-        to: "/trust-center/activity",
-        label: "Verificar ES Jammer",
+        to: "/trust-center",
+        label: "Central de Segurança",
         icon: Shield,
-        permission: { menuKey: "primary", pageKey: "trust-center", subKey: "activity" },
-      },
-      {
-        to: "/trust-center/users",
-        label: "Usuarios",
-        icon: User,
         permission: { menuKey: "primary", pageKey: "trust-center", subKey: "users" },
-      },
-      {
-        to: "/trust-center/counter-key",
-        label: "Permissao / Contra-senha",
-        icon: ShieldCheck,
-        permission: { menuKey: "primary", pageKey: "trust-center", subKey: "counter-key" },
       },
     ],
   },
