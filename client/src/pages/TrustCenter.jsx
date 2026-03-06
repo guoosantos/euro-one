@@ -696,10 +696,10 @@ function TrustCenter() {
     const confirmed = window.confirm(`Registrar uso da contra-senha ${row.counterKey}?`);
     if (!confirmed) return;
     try {
-      await api.post(API_ROUTES.trustCenter.counterKeyUse, {
+      await api.post(API_ROUTES.trustCenter.counterKeyUse(row.id), {
         clientId: resolvedClientId,
-        counterKey: row.counterKey,
-        usedBy: user?.id || undefined,
+        usedById: user?.id || undefined,
+        usedByName: user?.name || undefined,
       });
       loadCounterKeys();
       loadUsers();
