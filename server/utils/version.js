@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -8,9 +8,8 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const clientVersionPath = path.join(repoRoot, "client", "dist", "version.json");
 
 function resolveGitSha() {
-  if (process.env.GIT_SHA) return String(process.env.GIT_SHA).trim();
   try {
-    return execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   } catch (error) {
     console.warn("[version] falha ao resolver git sha", error?.message || error);
     return "unknown";
