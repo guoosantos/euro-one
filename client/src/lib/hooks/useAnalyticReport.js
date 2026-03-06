@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import safeApi from "../safe-api.js";
-import apiRoutes from "../api-routes.js";
+import API_ROUTES from "../api-routes.js";
 
 function normalizeAnalyticPayload(payload) {
   if (!payload) return { entries: [], positions: [], actions: [], meta: null };
@@ -56,7 +56,7 @@ export default function useAnalyticReport() {
   const [error, setError] = useState(null);
 
   const fetchPage = useCallback(async (params) => {
-    const { data: payload, error: requestError } = await safeApi.get(apiRoutes.reports.analytic, { params });
+    const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.reports.analytic, { params });
     if (requestError) throw requestError;
     return normalizeAnalyticPayload(payload);
   }, []);
@@ -78,7 +78,7 @@ export default function useAnalyticReport() {
 
   const startExportJob = useCallback(async (format, payload) => {
     const { data, error: requestError } = await safeApi.post(
-      apiRoutes.reports.analyticExport,
+      API_ROUTES.reports.analyticExport,
       { ...payload, format },
     );
     if (requestError) {
@@ -90,7 +90,7 @@ export default function useAnalyticReport() {
   const waitForExportJob = useCallback(async (jobId) => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < EXPORT_MAX_WAIT_MS) {
-      const { data, error: requestError } = await safeApi.get(apiRoutes.reports.analyticExportStatus(jobId));
+      const { data, error: requestError } = await safeApi.get(API_ROUTES.reports.analyticExportStatus(jobId));
       if (requestError) {
         throw requestError;
       }
@@ -109,7 +109,7 @@ export default function useAnalyticReport() {
 
   const downloadExportJob = useCallback(async (jobId) => {
     const { data, error: requestError, status, response } = await safeApi.get(
-      apiRoutes.reports.analyticExportDownload(jobId),
+      API_ROUTES.reports.analyticExportDownload(jobId),
       {
         responseType: "blob",
         timeout: 120_000,

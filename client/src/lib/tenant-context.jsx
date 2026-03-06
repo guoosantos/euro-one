@@ -3090,11 +3090,11 @@ export function TenantProvider({ children }) {
 }
 
 export function useTenant() {
-  const ctx = useContext(TenantContext);
   const isTestEnv = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
   if (isTestEnv && globalThis.__tenantOverride) {
     return globalThis.__tenantOverride;
   }
+  const ctx = useContext(TenantContext);
   if (!ctx) {
     throw new Error("useTenant deve ser usado dentro de TenantProvider");
   }

@@ -43,26 +43,22 @@ if (typeof document !== "undefined") {
   document.documentElement.dataset.theme = initialTheme;
 }
 
-const initialState = Object.assign(
-  {
-    sidebarOpen: false,
-    sidebarCollapsed: false,
-    theme: initialTheme,
-    locale: "pt-BR",
-    monitoringTopbarVisible: true,
-    geofencesTopbarVisible: true,
-    routesTopbarVisible: true,
-    selectedVehicleId: null,
-    selectedTelemetryDeviceId: null,
-    overlayCount: 0,
-  },
-  storedState,
-  {
-    selectedVehicleId: null,
-    selectedTelemetryDeviceId: null,
-    theme: initialTheme,
-  },
-);
+const initialState = {
+  sidebarOpen: false,
+  sidebarCollapsed: false,
+  theme: initialTheme,
+  locale: "pt-BR",
+  monitoringTopbarVisible: true,
+  geofencesTopbarVisible: true,
+  routesTopbarVisible: true,
+  selectedVehicleId: null,
+  selectedTelemetryDeviceId: null,
+  overlayCount: 0,
+  ...storedState,
+  selectedVehicleId: null,
+  selectedTelemetryDeviceId: null,
+  theme: initialTheme,
+};
 
 function persistNextState(nextState) {
   persistState({

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useUI } from "../store.js";
-import useVehiclesHook, { resetVehiclesCache } from "./useVehicles.js";
+import useVehicles, { resetVehiclesCache } from "./useVehicles.js";
 import { useTenant } from "../tenant-context.jsx";
 
 const normalizeId = (value) => {
@@ -15,7 +15,7 @@ const selectionKey = (vehicleId, deviceId) =>
 export default function useVehicleSelection({ syncQuery = true, allowQuerySelection = false } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { vehicles } = useVehiclesHook();
+  const { vehicles } = useVehicles();
   const { tenantId } = useTenant();
   const { selectedVehicleId, selectedTelemetryDeviceId, setVehicleSelection, clearVehicleSelection } = useUI();
   const lastAppliedQueryRef = useRef(null);
