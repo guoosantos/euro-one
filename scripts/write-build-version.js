@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -9,16 +9,11 @@ const outputPath = path.join(repoRoot, "client", "dist", "version.json");
 
 function resolveGitSha() {
   try {
-    return execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   } catch (error) {
     console.warn("[build] não foi possível resolver git sha", error?.message || error);
     return "unknown";
   }
-}
-
-function resolveHotfix() {
-  const hotfix = String(process.env.BUILD_HOTFIX || process.env.HOTFIX || "").trim();
-  return hotfix || null;
 }
 
 const payload = {
@@ -26,7 +21,7 @@ const payload = {
   builtAt: new Date().toISOString(),
 };
 
-const hotfix = resolveHotfix();
+const hotfix = String(process.env.BUILD_HOTFIX || process.env.HOTFIX || "").trim();
 if (hotfix) {
   payload.hotfix = hotfix;
 }

@@ -140,6 +140,7 @@ app.use("/api/admin", xdmAdminRoutes);
 app.use("/api", conditionalActionRoutes);
 app.use("/api", nt407Routes);
 app.use("/api", trustCenterRoutes);
+app.use("/api/core", trustCenterRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(
