@@ -1,30 +1,26 @@
 # Trust Center
 
-## Visão Geral
-O módulo **Trust Center** foi implementado como módulo novo e isolado no source do Euro One.
+## Visao geral
+Modulo dedicado para gestao de acesso de usuarios ESP32, auditoria de eventos e ciclo de contra-senha.
 
-- Rota base: `/trust-center`
-- Rotas internas:
-  - `/trust-center/users`
+- rota base: `/trust-center`
+- rotas internas:
+  - `/trust-center/users` (padrao)
   - `/trust-center/activity`
   - `/trust-center/counter-key`
-- Item de menu: **Trust Center** (ícone escudo)
+- item de menu: `Trust Center` (icone escudo)
 
 ## Frontend
 Arquivo principal:
 - `client/src/pages/trust-center/TrustCenterPage.jsx`
 
-Funcionalidades:
-- Layout padrão da aplicação (sidebar + topbar + container)
-- Tabs sincronizadas com URL
-- Aba **Usuários** com:
-  - toolbar de filtros
-  - tabela única principal
-  - ordenação e paginação
-  - seleção de colunas com persistência em `localStorage`
-  - drawer lateral de detalhes com abas Status e Histórico
-- Aba **Histórico** com filtros server-side e exportação CSV
-- Aba **Contra-senha** com criação, listagem server-side, uso e cancelamento
+Recursos:
+- layout padrao (sidebar, topbar e container principal)
+- tabs sincronizadas com URL
+- querystring para filtros, paginacao e ordenacao
+- aba `Usuarios` com tabela unica, selecao de colunas e painel lateral (Status/Historico)
+- aba `Historico` com filtros server-side e exportacao CSV
+- aba `Contra-senha` com criacao, listagem, uso e cancelamento
 
 ## Backend
 Arquivos:
@@ -32,40 +28,49 @@ Arquivos:
 - `server/services/trust-center.js`
 - `server/middleware/trust-center-permissions.js`
 
-Endpoints:
-- `GET /api/core/trust-center/users/options`
-- `GET /api/core/trust-center/users`
-- `GET /api/core/trust-center/users/:id/summary`
-- `POST /api/core/trust-center/challenge/rotate`
-- `POST /api/core/trust-center/counter-key/simulate`
-- `GET /api/core/trust-center/activity`
-- `GET /api/core/trust-center/activity/export`
-- `GET /api/core/trust-center/audit`
-- `GET /api/core/trust-center/counter-keys`
-- `POST /api/core/trust-center/counter-keys`
-- `POST /api/core/trust-center/counter-keys/:id/use`
-- `POST /api/core/trust-center/counter-keys/:id/cancel`
+Endpoints REST (montados em `/api` e tambem em `/api/core`):
+- `GET /trust-center/users/options`
+- `GET /trust-center/users`
+- `GET /trust-center/users/:id/summary`
+- `GET /trust-center/users/:id/history`
+- `GET /trust-center/activity`
+- `GET /trust-center/audit`
+- `GET /trust-center/activity/export`
+- `GET /trust-center/counter-keys`
+- `POST /trust-center/counter-keys`
+- `POST /trust-center/counter-keys/:id/use`
+- `POST /trust-center/counter-keys/:id/cancel`
+- `POST /trust-center/challenge/rotate`
+- `POST /trust-center/counter-key/simulate`
+- `POST /trust-center/counter-keys/simulate` (alias)
 
-## Permissões
-Validadas no backend:
+## Permissoes
 - `trust_center.view`
 - `trust_center.audit_view`
 - `trust_center.manage_counter_key`
 
-## Regras de Segurança
-- Senha base nunca é armazenada em texto puro (apenas hash SHA-256 com segredo de ambiente)
-- Ações sensíveis geram auditoria (`recordAuditEvent`)
+## Seguranca
+- senha base nunca e armazenada em texto simples
+- persistencia usa hash (`basePasswordHash`) e chave derivada no backend
+- acoes sensiveis registram auditoria
 
-## Variáveis de Ambiente
+## Expiracao e uso
+Configuracoes por ambiente:
 - `TRUST_CENTER_COUNTER_KEY_TTL_MINUTES` (default: `30`)
 - `TRUST_CENTER_COUNTER_KEY_MAX_USES` (default: `1`)
 - `TRUST_CENTER_COUNTER_KEY_SECRET` (default: `trust-center-secret`)
 
-## Migration
-Migration SQL adicionada em:
+## Banco de dados
+Migrations:
 - `prisma/migrations/20260305213300_add_trust_center_tables/migration.sql`
+- `prisma/migrations/20260306093000_add_trust_center_module/migration.sql`
 
-Inclui tabelas e índices:
-- `trust_center_user_access`
-- `trust_center_activity`
-- `trust_center_counter_keys`
+Tabelas principais:
+- `trust_center_user_state`
+- `trust_center_event`
+- `trust_center_counter_key`
+
+## Build/versao
+No build do frontend, `version.json` deve conter:
+- `builtAt`
+- `hotfix` (via `BUILD_HOTFIX` ou `HOTFIX`)

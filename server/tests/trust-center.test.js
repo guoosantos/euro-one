@@ -4,11 +4,14 @@ import assert from "node:assert/strict";
 import { __resetStorageForTests, loadCollection, saveCollection } from "../services/storage.js";
 import {
   createTrustCounterKey,
+  listTrustActivity,
   listTrustCounterKeys,
+  listTrustUserHistory,
   listTrustUserOptions,
   listTrustUsers,
   useTrustCounterKey,
 } from "../services/trust-center.js";
+import { canManageTrustCenterCounterKey } from "../middleware/trust-center-permissions.js";
 
 function seedBaseData() {
   saveCollection("users", [
@@ -98,4 +101,61 @@ test("create/use counter-key mantém senha base apenas em hash e atualiza status
 
   const listed = listTrustCounterKeys({ page: 1, pageSize: 20 });
   assert.equal(listed.items[0].status, "USADA");
+});
+
+test("listTrustActivity inclui eventos do próprio dia no filtro to=YYYY-MM-DD", () => {
+  __resetStorageForTests();
+  seedBaseData();
+
+  listTrustUsers({ page: 1, pageSize: 20 });
+  const all = listTrustActivity({ page: 1, pageSize: 200 });
+  assert.ok(all.items.length > 0);
+
+  const sameDay = String(all.items[0].date).slice(0, 10);
+  const filtered = listTrustActivity({
+    page: 1,
+    pageSize: 200,
+    filters: { to: sameDay },
+  });
+
+  assert.ok(filtered.items.length > 0);
+});
+
+test("listTrustActivity suporta pageSize=all", () => {
+  __resetStorageForTests();
+  seedBaseData();
+
+  listTrustUsers({ page: 1, pageSize: 20 });
+  const all = listTrustActivity({ page: 1, pageSize: "all" });
+
+  assert.equal(all.meta.pageSize, "all");
+  assert.equal(all.items.length, all.meta.totalItems);
+  assert.equal(all.meta.page, 1);
+  assert.equal(all.meta.totalPages, 1);
+});
+
+test("listTrustUserHistory retorna historico paginado por usuario", () => {
+  __resetStorageForTests();
+  seedBaseData();
+
+  const users = listTrustUsers({ page: 1, pageSize: 20 });
+  assert.ok(users.items.length > 0);
+
+  const first = users.items[0];
+  const history = listTrustUserHistory({
+    userId: first.id,
+    page: 1,
+    pageSize: 10,
+    sortBy: "date",
+    sortDir: "desc",
+  });
+
+  assert.ok(history);
+  assert.ok(Array.isArray(history.items));
+  assert.ok(history.meta.totalItems >= history.items.length);
+});
+
+test("manager pode gerenciar contra-senha no trust center", () => {
+  const allowed = canManageTrustCenterCounterKey({ user: { role: "manager" } });
+  assert.equal(allowed, true);
 });

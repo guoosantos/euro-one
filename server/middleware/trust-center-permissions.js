@@ -2,7 +2,7 @@ import createError from "http-errors";
 
 const VIEW_ROLES = new Set(["admin", "tenant_admin", "manager"]);
 const AUDIT_ROLES = new Set(["admin", "tenant_admin", "manager"]);
-const MANAGE_ROLES = new Set(["admin", "tenant_admin"]);
+const MANAGE_ROLES = new Set(["admin", "tenant_admin", "manager"]);
 
 function normalizeCode(value) {
   return String(value || "")

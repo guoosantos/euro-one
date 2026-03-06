@@ -112,6 +112,7 @@ export const CoreApi = {
   trustCenterUserOptions: (params) => apiHttp(API_ROUTES.trustCenter.userOptions, { params }),
   trustCenterListUsers: (params) => apiHttp(API_ROUTES.trustCenter.users, { params }),
   trustCenterUserSummary: (id, params) => apiHttp(API_ROUTES.trustCenter.userSummary(id), { params }),
+  trustCenterUserHistory: (id, params) => apiHttp(API_ROUTES.trustCenter.userHistory(id), { params }),
   trustCenterRotateChallenge: (payload) => apiHttp(API_ROUTES.trustCenter.challengeRotate, { method: "POST", payload }),
   trustCenterSimulateCounterKey: (payload) => apiHttp(API_ROUTES.trustCenter.simulate, { method: "POST", payload }),
   trustCenterListActivity: (params) => apiHttp(API_ROUTES.trustCenter.activity, { params }),

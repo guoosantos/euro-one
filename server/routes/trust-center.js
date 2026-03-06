@@ -11,6 +11,7 @@ import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import {
   listTrustUsers,
   listTrustUserOptions,
+  listTrustUserHistory,
   getTrustUserSummary,
   rotateTrustChallenge,
   simulateTrustCounterKey,
@@ -28,6 +29,11 @@ function toPositiveInteger(value, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.floor(parsed));
+}
+
+function resolvePageSize(value, fallback = 20) {
+  if (String(value || "").trim().toLowerCase() === "all") return "all";
+  return toPositiveInteger(value, fallback);
 }
 
 function resolveActor(req) {
@@ -77,7 +83,7 @@ router.get("/trust-center/users", requireTrustCenterView, async (req, res, next)
     const payload = listTrustUsers({
       clientId,
       page: toPositiveInteger(req.query?.page, 1),
-      pageSize: toPositiveInteger(req.query?.pageSize, 20),
+      pageSize: resolvePageSize(req.query?.pageSize, 20),
       sortBy: req.query?.sortBy || null,
       sortDir: req.query?.sortDir || "desc",
       filters: {
@@ -98,6 +104,26 @@ router.get("/trust-center/users/:id/summary", requireTrustCenterView, async (req
   try {
     const clientId = safeClientId(req);
     const payload = getTrustUserSummary({ userId: req.params.id, clientId });
+    if (!payload) {
+      return res.status(404).json({ message: "Usuário não encontrado" });
+    }
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/trust-center/users/:id/history", requireTrustCenterView, async (req, res, next) => {
+  try {
+    const clientId = safeClientId(req);
+    const payload = listTrustUserHistory({
+      userId: req.params.id,
+      clientId,
+      page: toPositiveInteger(req.query?.page, 1),
+      pageSize: resolvePageSize(req.query?.pageSize, 20),
+      sortBy: req.query?.sortBy || "date",
+      sortDir: req.query?.sortDir || "desc",
+    });
     if (!payload) {
       return res.status(404).json({ message: "Usuário não encontrado" });
     }
@@ -133,7 +159,7 @@ router.post("/trust-center/challenge/rotate", requireTrustCenterManage, async (r
   }
 });
 
-router.post("/trust-center/counter-key/simulate", requireTrustCenterManage, async (req, res, next) => {
+const simulateCounterKeyHandler = async (req, res, next) => {
   try {
     const clientId = safeClientId(req);
     const actor = resolveActor(req);
@@ -160,7 +186,10 @@ router.post("/trust-center/counter-key/simulate", requireTrustCenterManage, asyn
   } catch (error) {
     return next(error);
   }
-});
+};
+
+router.post("/trust-center/counter-key/simulate", requireTrustCenterManage, simulateCounterKeyHandler);
+router.post("/trust-center/counter-keys/simulate", requireTrustCenterManage, simulateCounterKeyHandler);
 
 router.get("/trust-center/activity", requireTrustCenterAuditView, async (req, res, next) => {
   try {
@@ -168,7 +197,7 @@ router.get("/trust-center/activity", requireTrustCenterAuditView, async (req, re
     const payload = listTrustActivity({
       clientId,
       page: toPositiveInteger(req.query?.page, 1),
-      pageSize: toPositiveInteger(req.query?.pageSize, 20),
+      pageSize: resolvePageSize(req.query?.pageSize, 20),
       sortBy: req.query?.sortBy || "date",
       sortDir: req.query?.sortDir || "desc",
       filters: {
@@ -194,7 +223,7 @@ router.get("/trust-center/audit", requireTrustCenterAuditView, async (req, res, 
     const payload = listTrustActivity({
       clientId,
       page: toPositiveInteger(req.query?.page, 1),
-      pageSize: toPositiveInteger(req.query?.pageSize, 20),
+      pageSize: resolvePageSize(req.query?.pageSize, 20),
       sortBy: req.query?.sortBy || "date",
       sortDir: req.query?.sortDir || "desc",
       filters: {
@@ -247,7 +276,7 @@ router.get("/trust-center/counter-keys", requireTrustCenterManage, async (req, r
     const payload = listTrustCounterKeys({
       clientId,
       page: toPositiveInteger(req.query?.page, 1),
-      pageSize: toPositiveInteger(req.query?.pageSize, 20),
+      pageSize: resolvePageSize(req.query?.pageSize, 20),
       sortBy: req.query?.sortBy || "createdAt",
       sortDir: req.query?.sortDir || "desc",
       filters: {

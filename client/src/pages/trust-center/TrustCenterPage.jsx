@@ -223,8 +223,24 @@ function UsersTab() {
       setDrawerOpen(true);
       setDrawerTab("status");
       try {
-        const payload = await CoreApi.trustCenterUserSummary(record.id, { clientId: scopedClientId || undefined });
-        setSelectedSummary(payload || null);
+        const [summaryPayload, historyPayload] = await Promise.all([
+          CoreApi.trustCenterUserSummary(record.id, { clientId: scopedClientId || undefined }),
+          CoreApi.trustCenterUserHistory(record.id, {
+            clientId: scopedClientId || undefined,
+            page: 1,
+            pageSize: 50,
+            sortBy: "date",
+            sortDir: "desc",
+          }),
+        ]);
+        setSelectedSummary({
+          ...(summaryPayload || {}),
+          history: Array.isArray(historyPayload?.items)
+            ? historyPayload.items
+            : Array.isArray(summaryPayload?.history)
+              ? summaryPayload.history
+              : [],
+        });
       } catch (_error) {
         setSelectedSummary(null);
       }

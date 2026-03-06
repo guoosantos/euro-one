@@ -51,18 +51,21 @@ function clampPage(page, totalPages) {
 }
 
 function paginate(list, page = 1, pageSize = 20) {
-  const safePageSize = Math.min(200, parsePositiveInteger(pageSize, 20));
+  const wantsAll = String(pageSize || "").trim().toLowerCase() === "all";
+  const safePageSize = wantsAll
+    ? Math.max(1, list.length || 1)
+    : Math.min(200, parsePositiveInteger(pageSize, 20));
   const totalItems = list.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
-  const safePage = clampPage(parsePositiveInteger(page, 1), totalPages);
-  const start = (safePage - 1) * safePageSize;
-  const items = list.slice(start, start + safePageSize);
+  const totalPages = wantsAll ? 1 : Math.max(1, Math.ceil(totalItems / safePageSize));
+  const safePage = wantsAll ? 1 : clampPage(parsePositiveInteger(page, 1), totalPages);
+  const start = wantsAll ? 0 : (safePage - 1) * safePageSize;
+  const items = wantsAll ? [...list] : list.slice(start, start + safePageSize);
 
   return {
     items,
     meta: {
       page: safePage,
-      pageSize: safePageSize,
+      pageSize: wantsAll ? "all" : safePageSize,
       totalItems,
       totalPages,
     },
@@ -108,6 +111,17 @@ function toEventDate(value) {
 function toTimestamp(value) {
   const date = new Date(value || 0).getTime();
   return Number.isFinite(date) ? date : 0;
+}
+
+function toFilterTimestamp(value, { endOfDay = false } = {}) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const suffix = endOfDay ? "T23:59:59.999Z" : "T00:00:00.000Z";
+    return toTimestamp(`${raw}${suffix}`);
+  }
+  return toTimestamp(raw);
 }
 
 function getStateTimestamp(record) {
@@ -459,15 +473,63 @@ export function listTrustUserOptions({ clientId } = {}) {
   return { users: userOptions, vehicles };
 }
 
-export function getTrustUserSummary({ userId, clientId } = {}) {
+function resolveTrustUserRecord({ userId, clientId } = {}) {
   if (!userId) return null;
   const users = filterByClient(readUsers(), clientId);
-  const record = users.find((item) => String(item.id) === String(userId) || String(item.userId) === String(userId));
+  return users.find((item) => String(item.id) === String(userId) || String(item.userId) === String(userId)) || null;
+}
+
+export function listTrustUserHistory({
+  userId,
+  clientId,
+  page = 1,
+  pageSize = 20,
+  sortBy = "date",
+  sortDir = "desc",
+} = {}) {
+  const record = resolveTrustUserRecord({ userId, clientId });
   if (!record) return null;
 
+  const direction = normalizeText(sortDir) === "asc" ? "asc" : "desc";
   const history = readActivity()
     .filter((item) => String(item.userId || "") === String(record.userId || ""))
-    .sort((left, right) => toTimestamp(right.date) - toTimestamp(left.date));
+    .sort((left, right) => {
+      const leftValue = resolveSortValue(left, sortBy || "date");
+      const rightValue = resolveSortValue(right, sortBy || "date");
+      const byField = compareValues(leftValue, rightValue, direction);
+      if (byField !== 0) return byField;
+      return toTimestamp(right.date) - toTimestamp(left.date);
+    });
+
+  const payload = paginate(history, page, pageSize);
+  return {
+    ...payload,
+    items: payload.items.map((item) => ({
+      id: item.id,
+      date: item.date,
+      action: item.action,
+      result: item.result,
+      method: item.method,
+      created_by: item.created_by,
+      used_by: item.used_by,
+      extra: item.extra || {},
+    })),
+  };
+}
+
+export function getTrustUserSummary({ userId, clientId } = {}) {
+  const record = resolveTrustUserRecord({ userId, clientId });
+  if (!record) return null;
+
+  const historyPayload = listTrustUserHistory({
+    userId: record.id,
+    clientId,
+    page: 1,
+    pageSize: "all",
+    sortBy: "date",
+    sortDir: "desc",
+  });
+  const history = Array.isArray(historyPayload?.items) ? historyPayload.items : [];
 
   return {
     summary: {
@@ -490,16 +552,7 @@ export function getTrustUserSummary({ userId, clientId } = {}) {
       lastAttemptAt: record.lastAttemptAt,
       lastAccessAt: record.lastAccessAt,
     },
-    history: history.map((item) => ({
-      id: item.id,
-      date: item.date,
-      action: item.action,
-      result: item.result,
-      method: item.method,
-      created_by: item.created_by,
-      used_by: item.used_by,
-      extra: item.extra || {},
-    })),
+    history,
   };
 }
 
@@ -600,8 +653,8 @@ export function listTrustActivity({
   sortDir = "desc",
   filters = {},
 } = {}) {
-  const fromTs = filters.from ? toTimestamp(filters.from) : null;
-  const toTs = filters.to ? toTimestamp(filters.to) : null;
+  const fromTs = toFilterTimestamp(filters.from, { endOfDay: false });
+  const toTs = toFilterTimestamp(filters.to, { endOfDay: true });
 
   const list = filterByClient(readActivity(), clientId).filter((event) => {
     const eventTs = toTimestamp(event.date);
@@ -937,6 +990,7 @@ export function cancelTrustCounterKey({ id, actor = null, clientId = null } = {}
 export default {
   listTrustUsers,
   listTrustUserOptions,
+  listTrustUserHistory,
   getTrustUserSummary,
   rotateTrustChallenge,
   simulateTrustCounterKey,
