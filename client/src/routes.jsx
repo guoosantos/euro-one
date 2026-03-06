@@ -71,6 +71,7 @@ import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
 import Appointments from "./pages/Appointments.jsx";
+import TrustCenter from "./pages/TrustCenter.jsx";
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -222,6 +223,28 @@ export const routeConfig = [
   { path: "/clients/:id", element: ClientDetailsPage, title: "Detalhes do cliente", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/mirrors/received", element: MirrorReceivers, title: "Espelhamento", requireTenant: true, permission: { menuKey: "admin", pageKey: "mirrors" } },
   { path: "/users", element: Users, title: "Usuários", permission: { menuKey: "admin", pageKey: "users" } },
+  { path: "/trust-center", element: TrustCenter, title: "Trust Center", requireTenant: true, permission: { menuKey: "admin", pageKey: "trust-center" } },
+  {
+    path: "/trust-center/users",
+    element: TrustCenter,
+    title: "Trust Center",
+    requireTenant: true,
+    permission: { menuKey: "admin", pageKey: "trust-center", subKey: "users" },
+  },
+  {
+    path: "/trust-center/activity",
+    element: TrustCenter,
+    title: "Trust Center",
+    requireTenant: true,
+    permission: { menuKey: "admin", pageKey: "trust-center", subKey: "activity" },
+  },
+  {
+    path: "/trust-center/counter-key",
+    element: TrustCenter,
+    title: "Trust Center",
+    requireTenant: true,
+    permission: { menuKey: "admin", pageKey: "trust-center", subKey: "counter-key", requireFull: true },
+  },
   { path: "/technicians", element: Technicians, title: "Técnico", hideTitle: true, roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "fleet", pageKey: "services", subKey: "technicians" } },
   { path: "/crm", element: Crm, title: "CRM", requireTenant: true, permission: { menuKey: "business", pageKey: "crm" } },
   { path: "/crm/:section", element: Crm, title: "CRM", requireTenant: true, permission: { menuKey: "business", pageKey: "crm" } },

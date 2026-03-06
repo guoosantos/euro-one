@@ -8,7 +8,6 @@ const repoRoot = path.resolve(__dirname, "..");
 const outputPath = path.join(repoRoot, "client", "dist", "version.json");
 
 function resolveGitSha() {
-  if (process.env.GIT_SHA) return String(process.env.GIT_SHA).trim();
   try {
     return execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
   } catch (error) {
@@ -17,10 +16,20 @@ function resolveGitSha() {
   }
 }
 
+function resolveHotfix() {
+  const hotfix = String(process.env.BUILD_HOTFIX || process.env.HOTFIX || "").trim();
+  return hotfix || null;
+}
+
 const payload = {
   gitSha: resolveGitSha(),
   builtAt: new Date().toISOString(),
 };
+
+const hotfix = resolveHotfix();
+if (hotfix) {
+  payload.hotfix = hotfix;
+}
 
 try {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
