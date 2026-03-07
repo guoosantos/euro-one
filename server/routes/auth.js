@@ -41,6 +41,142 @@ const AUTH_ERROR_CODES = {
   invalidRequest: "INVALID_REQUEST",
 };
 
+const DATA_URI_BASE64_PATTERN = /^data:[^;]+;base64,/i;
+const BASE64ISH_PATTERN = /^[a-z0-9+/=\s]+$/i;
+const MEDIA_LIKE_KEY_PATTERN = /(icon|logo|avatar|image|picture|photo|thumb|thumbnail|banner|signature|media|base64|svg)/i;
+const MAX_SESSION_STRING_BYTES = Number(process.env.AUTH_SESSION_MAX_STRING_BYTES || 8 * 1024);
+const MAX_SESSION_ATTRIBUTES_BYTES = Number(process.env.AUTH_SESSION_MAX_ATTRIBUTES_BYTES || 64 * 1024);
+const SESSION_PRUNE_MAX_DEPTH = 8;
+const SESSION_PRUNE_MAX_ARRAY_ITEMS = 500;
+const SESSION_ATTRIBUTE_FALLBACK_KEYS = new Set([
+  "locale",
+  "timezone",
+  "units",
+  "theme",
+  "companyName",
+  "segment",
+  "clientType",
+  "brandColor",
+  "brand_color",
+  "accentColor",
+  "accent_color",
+  "permissionGroupId",
+  "modules",
+  "modulePermissions",
+  "claims",
+  "capabilities",
+  "userAccess",
+  "clientProfile",
+  "deviceLimit",
+  "userLimit",
+  "homeClientId",
+  "allowedMirrorOwnerIds",
+]);
+
+function estimateJsonBytes(value) {
+  try {
+    return Buffer.byteLength(JSON.stringify(value ?? null));
+  } catch (_error) {
+    return 0;
+  }
+}
+
+function shouldDropSessionString(value, key) {
+  if (typeof value !== "string") return false;
+  const bytes = Buffer.byteLength(value);
+  if (DATA_URI_BASE64_PATTERN.test(value)) return true;
+  if (bytes <= MAX_SESSION_STRING_BYTES) return false;
+  if (MEDIA_LIKE_KEY_PATTERN.test(String(key || ""))) return true;
+  if (BASE64ISH_PATTERN.test(value) && value.length >= 1024) return true;
+  return false;
+}
+
+function pruneSessionValue(value, path = [], depth = 0) {
+  if (depth > SESSION_PRUNE_MAX_DEPTH) return undefined;
+  if (typeof value === "string") {
+    const key = path[path.length - 1];
+    return shouldDropSessionString(value, key) ? undefined : value;
+  }
+  if (Array.isArray(value)) {
+    const out = [];
+    const limit = Math.min(value.length, SESSION_PRUNE_MAX_ARRAY_ITEMS);
+    for (let index = 0; index < limit; index += 1) {
+      const item = pruneSessionValue(value[index], path.concat(String(index)), depth + 1);
+      if (typeof item !== "undefined") out.push(item);
+    }
+    return out;
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, entryValue] of Object.entries(value)) {
+      const item = pruneSessionValue(entryValue, path.concat(key), depth + 1);
+      if (typeof item !== "undefined") {
+        out[key] = item;
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+function pickSessionFallbackAttributes(attributes) {
+  if (!attributes || typeof attributes !== "object") return {};
+  const fallback = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    if (!SESSION_ATTRIBUTE_FALLBACK_KEYS.has(key)) continue;
+    const next = pruneSessionValue(value, [key], 0);
+    if (typeof next !== "undefined") {
+      fallback[key] = next;
+    }
+  }
+  return fallback;
+}
+
+function sanitizeSessionAttributes(attributes) {
+  if (!attributes || typeof attributes !== "object") {
+    return {};
+  }
+  const pruned = pruneSessionValue(attributes, ["attributes"], 0);
+  const normalized = pruned && typeof pruned === "object" ? pruned : {};
+  if (estimateJsonBytes(normalized) <= MAX_SESSION_ATTRIBUTES_BYTES) {
+    return normalized;
+  }
+  const fallback = pickSessionFallbackAttributes(normalized);
+  if (estimateJsonBytes(fallback) <= MAX_SESSION_ATTRIBUTES_BYTES) {
+    return fallback;
+  }
+  return {};
+}
+
+function sanitizeSessionUser(user) {
+  if (!user || typeof user !== "object") return user;
+  if (!Object.prototype.hasOwnProperty.call(user, "attributes")) return { ...user };
+  return {
+    ...user,
+    attributes: sanitizeSessionAttributes(user.attributes),
+  };
+}
+
+function sanitizeSessionClient(client) {
+  if (!client || typeof client !== "object") return client;
+  if (!Object.prototype.hasOwnProperty.call(client, "attributes")) return { ...client };
+  return {
+    ...client,
+    attributes: sanitizeSessionAttributes(client.attributes),
+  };
+}
+
+function sanitizeSessionPayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const next = { ...payload };
+  if (next.user) next.user = sanitizeSessionUser(next.user);
+  if (next.client) next.client = sanitizeSessionClient(next.client);
+  if (Array.isArray(next.clients)) {
+    next.clients = next.clients.map((client) => sanitizeSessionClient(client));
+  }
+  return next;
+}
+
 function buildDatabaseUnavailableError(error) {
   const unavailable = createError(503, "Banco de dados indisponível ou mal configurado");
   unavailable.code = error?.code || "DATABASE_UNAVAILABLE";
@@ -73,6 +209,12 @@ function buildAuthCookieOptions(remember) {
     secure: process.env.NODE_ENV === "production",
     ...(remember === false ? {} : { maxAge: 7 * 24 * 60 * 60 * 1000 }),
   };
+}
+
+function buildTokenAttributes(attributes) {
+  const permissionGroupId = attributes?.permissionGroupId ?? null;
+  if (!permissionGroupId) return {};
+  return { permissionGroupId };
 }
 
 function normaliseAuthError(error, defaultStatus = 500) {
@@ -301,8 +443,9 @@ const handleLogin = async (req, res, next) => {
         clients: [],
       };
     }
-    const sessionUser = sessionPayload.user || sanitizedUser;
-    const resolvedClientId = sessionPayload?.client?.id ?? sessionUser.clientId ?? null;
+    const safeSessionPayload = sanitizeSessionPayload(sessionPayload);
+    const sessionUser = safeSessionPayload.user || sanitizedUser;
+    const resolvedClientId = safeSessionPayload?.client?.id ?? sessionUser.clientId ?? null;
     if (!resolvedClientId) {
       console.warn("[auth] usuário sem tenant associado", { userId: sessionUser.id, login: userLogin });
       const tenantError = buildAuthError(403, "Usuário sem tenant associado", AUTH_ERROR_CODES.missingTenant);
@@ -316,7 +459,7 @@ const handleLogin = async (req, res, next) => {
       name: sessionUser.name,
       email: sessionUser.email,
       username: sessionUser.username ?? null,
-      attributes: sessionUser.attributes ?? {},
+      attributes: buildTokenAttributes(sessionUser.attributes),
     };
     try {
       const token = signSessionFn(tokenPayload);
@@ -339,9 +482,9 @@ const handleLogin = async (req, res, next) => {
       return res.json({
         token,
         user: { ...sessionUser, clientId: tokenPayload.clientId },
-        client: sessionPayload.client,
+        client: safeSessionPayload.client,
         clientId: tokenPayload.clientId,
-        clients: sessionPayload.clients,
+        clients: safeSessionPayload.clients,
       });
     } catch (error) {
       const shouldLogStack =
@@ -374,7 +517,7 @@ router.post("/auth/login", handleLogin);
 
 const handleRefresh = async (req, res, next) => {
   try {
-    const sessionPayload = await buildSessionPayload(req.user.id);
+    const sessionPayload = sanitizeSessionPayload(await buildSessionPayload(req.user.id));
     const sessionUser = sessionPayload.user;
     const resolvedClientId = sessionPayload?.client?.id ?? sessionUser?.clientId ?? null;
     if (!resolvedClientId) {
@@ -390,7 +533,7 @@ const handleRefresh = async (req, res, next) => {
       name: sessionUser.name,
       email: sessionUser.email,
       username: sessionUser.username ?? null,
-      attributes: sessionUser.attributes ?? {},
+      attributes: buildTokenAttributes(sessionUser.attributes),
     };
     const token = signSession(tokenPayload);
     const cookieOptions = buildAuthCookieOptions(req.body?.remember);
@@ -418,10 +561,11 @@ const handleRefresh = async (req, res, next) => {
 
 const handleSession = async (req, res, next) => {
   try {
-    const payload = await buildSessionPayload(req.user.id, req.user.role);
+    const payload = sanitizeSessionPayload(await buildSessionPayload(req.user.id, req.user.role));
     console.info("[auth] sessão restaurada", {
       userId: payload?.user?.id || req.user?.id,
       clientId: payload?.clientId ?? payload?.client?.id ?? payload?.user?.clientId ?? null,
+      bytes: estimateJsonBytes(payload),
     });
     return res.json(payload);
   } catch (error) {

@@ -84,6 +84,7 @@ const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
 const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.monitoring;
+const NON_DEFAULT_MONITORING_MAP_LAYERS = new Set(["satellite", "hybrid", "google-satellite", "google-hybrid"]);
 const DEFAULT_COLUMN_WIDTH = 120;
 const DEFAULT_COLUMN_MIN_WIDTH = 60;
 const COLUMN_MIN_WIDTHS = {
@@ -775,6 +776,13 @@ export default function Monitoring() {
     () => `${MAP_LAYER_STORAGE_KEY}:${userMonitoringStorageKey}`,
     [userMonitoringStorageKey],
   );
+  const resolveInitialMapLayer = useCallback((candidateLayerKey) => {
+    const validLayerKey = getValidMapLayer(candidateLayerKey);
+    if (NON_DEFAULT_MONITORING_MAP_LAYERS.has(validLayerKey)) {
+      return DEFAULT_MAP_LAYER_KEY;
+    }
+    return validLayerKey;
+  }, []);
   const columnStorageKey = useMemo(
     () => `monitoring.table.columns:${userMonitoringStorageKey}`,
     [userMonitoringStorageKey],
@@ -1252,19 +1260,19 @@ export default function Monitoring() {
     if (loadingPreferences || mapLayerHydratedRef.current) return;
     const remoteKey = preferences?.monitoringMapLayerKey;
     if (remoteKey) {
-      setMapLayerKey(getValidMapLayer(remoteKey));
+      setMapLayerKey(resolveInitialMapLayer(remoteKey));
       mapLayerHydratedRef.current = true;
       return;
     }
     try {
       const storedLayer = localStorage.getItem(mapLayerStorageKey) || localStorage.getItem(MAP_LAYER_STORAGE_KEY);
-      setMapLayerKey(getValidMapLayer(storedLayer));
+      setMapLayerKey(resolveInitialMapLayer(storedLayer));
     } catch (_error) {
       // ignore
     } finally {
       mapLayerHydratedRef.current = true;
     }
-  }, [loadingPreferences, mapLayerStorageKey, preferences?.monitoringMapLayerKey]);
+  }, [loadingPreferences, mapLayerStorageKey, preferences?.monitoringMapLayerKey, resolveInitialMapLayer]);
 
   useEffect(() => {
     if (!mapLayerHydratedRef.current) return;
