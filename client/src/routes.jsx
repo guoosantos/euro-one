@@ -44,8 +44,6 @@ import SecurityAnalytics from "./pages/Analytics/Security.jsx";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
-import Trainings from "./pages/Trainings.jsx";
-import Sla from "./pages/Sla.jsx";
 import Clients from "./pages/Clients";
 import ClientDetailsPage from "./pages/ClientDetailsPage.jsx";
 import MirrorReceivers from "./pages/MirrorReceivers.jsx";
@@ -73,7 +71,6 @@ import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
 import Appointments from "./pages/Appointments.jsx";
-import TrustCenterPage, { TrustCenterRedirect } from "./pages/trust-center/TrustCenterPage.jsx";
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -208,10 +205,6 @@ export const routeConfig = [
   { path: "/itineraries", element: Itineraries, title: "Embarcar Itinerários", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "itineraries" } },
   { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
   { path: "/conditional-actions", element: ConditionalActions, title: "Ação Condicional", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "events" } },
-  { path: "/trust-center", element: TrustCenterRedirect, title: "Segurança", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "users" } },
-  { path: "/trust-center/users", element: TrustCenterPage, title: "Segurança", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "users" } },
-  { path: "/trust-center/activity", element: TrustCenterPage, title: "Segurança", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "activity" } },
-  { path: "/trust-center/counter-key", element: TrustCenterPage, title: "Segurança", requireTenant: true, permission: { menuKey: "primary", pageKey: "trust-center", subKey: "counter-key" } },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "videos" } },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "face" } },
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true, permission: { menuKey: "telemetry", pageKey: "euro-view", subKey: "live" } },
@@ -224,8 +217,6 @@ export const routeConfig = [
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
-  { path: "/trainings", element: Trainings, title: "Treinamentos", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
-  { path: "/sla", element: Sla, title: "SLA de Atendimento", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/clients", element: Clients, title: "Clientes", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/clients/:id", element: ClientDetailsPage, title: "Detalhes do cliente", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },

@@ -162,20 +162,6 @@ export const API_ROUTES = {
     telemetryMappings: "tracker/mappings/telemetry",
     eventMappings: "tracker/mappings/events",
   },
-  trustCenter: {
-    userOptions: "trust-center/users/options",
-    users: "trust-center/users",
-    userSummary: (userId) => `trust-center/users/${userId}/summary`,
-    userHistory: (userId) => `trust-center/users/${userId}/history`,
-    activity: "trust-center/activity",
-    activityExport: "trust-center/activity/export",
-    audit: "trust-center/audit",
-    counterKeys: "trust-center/counter-keys",
-    counterKeyUse: (id) => `trust-center/counter-keys/${id}/use`,
-    counterKeyCancel: (id) => `trust-center/counter-keys/${id}/cancel`,
-    challengeRotate: "trust-center/challenge/rotate",
-    simulate: "trust-center/counter-key/simulate",
-  },
 };
 
 export default API_ROUTES;

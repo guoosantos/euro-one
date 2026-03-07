@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, BookOpenCheck, LogOut, Settings, Timer, User } from "lucide-react";
+import { Bell, LogOut, Settings, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../lib/i18n.js";
@@ -38,14 +38,6 @@ export function UserMenuItems({
       <button type="button" role="menuitem" className={baseItemClass} onClick={() => handleNavigate("/settings")}> 
         <Settings size={16} />
         <span>{t("userMenu.settings")}</span>
-      </button>
-      <button type="button" role="menuitem" className={baseItemClass} onClick={() => handleNavigate("/trainings")}> 
-        <BookOpenCheck size={16} />
-        <span>Treinamentos</span>
-      </button>
-      <button type="button" role="menuitem" className={baseItemClass} onClick={() => handleNavigate("/sla")}> 
-        <Timer size={16} />
-        <span>SLA de Atendimento</span>
       </button>
       {showNotifications && (
         <button type="button" role="menuitem" className={baseItemClass} onClick={() => handleNavigate("/notifications")}> 

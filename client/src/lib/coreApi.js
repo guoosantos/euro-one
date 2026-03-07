@@ -10,12 +10,6 @@ async function http(path, { method = "GET", params, payload, headers } = {}) {
   return response?.data ?? null;
 }
 
-async function apiHttp(path, { method = "GET", params, payload, headers } = {}) {
-  const url = path.startsWith("http") ? path : path.replace(/^\/+/, "");
-  const response = await api.request({ method, url, params, data: payload, headers });
-  return response?.data ?? null;
-}
-
 async function crmHttp(path, { method = "GET", params, payload, headers } = {}) {
   const url = path.startsWith("http") ? path : `${CRM_BASE}/${path.replace(/^\/+/, "")}`;
   const response = await api.request({ method, url, params, data: payload, headers });
@@ -109,18 +103,6 @@ export const CoreApi = {
   createEquipmentTransfer: (payload) => http("equipment-transfers", { method: "POST", payload }),
   listTechnicianInventory: (params) => http("technician-inventory", { params }).then((data) => data?.items || []),
   importEuroXlsx: (payload) => http("euro/import-xlsx", { method: "POST", payload }),
-  trustCenterUserOptions: (params) => apiHttp(API_ROUTES.trustCenter.userOptions, { params }),
-  trustCenterListUsers: (params) => apiHttp(API_ROUTES.trustCenter.users, { params }),
-  trustCenterUserSummary: (id, params) => apiHttp(API_ROUTES.trustCenter.userSummary(id), { params }),
-  trustCenterUserHistory: (id, params) => apiHttp(API_ROUTES.trustCenter.userHistory(id), { params }),
-  trustCenterRotateChallenge: (payload) => apiHttp(API_ROUTES.trustCenter.challengeRotate, { method: "POST", payload }),
-  trustCenterSimulateCounterKey: (payload) => apiHttp(API_ROUTES.trustCenter.simulate, { method: "POST", payload }),
-  trustCenterListActivity: (params) => apiHttp(API_ROUTES.trustCenter.activity, { params }),
-  trustCenterExportActivityCsv: (params) => apiHttp(API_ROUTES.trustCenter.activityExport, { params }),
-  trustCenterListCounterKeys: (params) => apiHttp(API_ROUTES.trustCenter.counterKeys, { params }),
-  trustCenterCreateCounterKey: (payload) => apiHttp(API_ROUTES.trustCenter.counterKeys, { method: "POST", payload }),
-  trustCenterUseCounterKey: (id, payload) => apiHttp(API_ROUTES.trustCenter.counterKeyUse(id), { method: "POST", payload }),
-  trustCenterCancelCounterKey: (id, payload) => apiHttp(API_ROUTES.trustCenter.counterKeyCancel(id), { method: "POST", payload }),
   // tasks
   listTasks: (paramsOrOptions) => {
     const hasOptions =
