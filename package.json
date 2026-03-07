@@ -21,7 +21,8 @@
     "start:server": "npm run start --workspace server",
     "dev:all": "node scripts/dev-all.js",
     "provision:playwright": "node server/scripts/install-playwright.js",
-    "check:page-headers": "node scripts/check-page-headers.js"
+    "check:page-headers": "node scripts/check-page-headers.js",
+    "check:menu-routes": "node scripts/check-menu-route-parity.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

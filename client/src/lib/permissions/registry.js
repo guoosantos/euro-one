@@ -22,7 +22,6 @@ import {
   Target,
   Terminal,
   UploadCloud,
-  User,
   UserCog,
   Users,
   Video,
@@ -151,6 +150,14 @@ export const PERMISSION_REGISTRY = [
         subpages: [
           { subKey: "reports-positions", label: "Relatório de Posições" },
           { subKey: "reports-analytic", label: "Relatório Analítico" },
+          { subKey: "reports-speed", label: "Relatório de Velocidade" },
+          { subKey: "reports-km", label: "Relatório de KM Percorrido" },
+          { subKey: "reports-events", label: "Relatório de Eventos" },
+          { subKey: "reports-commands", label: "Relatório de Comandos" },
+          { subKey: "reports-itinerary", label: "Relatório de Itinerário" },
+          { subKey: "reports-movement-stops", label: "Relatório de Deslocamento e Parada" },
+          { subKey: "reports-vehicle", label: "Relatório do Veículo" },
+          { subKey: "reports-charts", label: "Relatório em Gráfico" },
         ],
       },
       {
@@ -230,12 +237,6 @@ export const MENU_REGISTRY = [
         ],
       },
       { to: "/events", label: "Eventos", icon: Video, permission: { menuKey: "primary", pageKey: "events" } },
-      {
-        to: "/conditional-actions",
-        label: "Ação Condicional",
-        icon: ShieldCheck,
-        permission: { menuKey: "primary", pageKey: "events" },
-      },
     ],
   },
   {
@@ -243,15 +244,6 @@ export const MENU_REGISTRY = [
     title: "FROTAS",
     items: [
       { to: "/vehicles", label: "Veículos", icon: Car, permission: { menuKey: "fleet", pageKey: "vehicles" } },
-      {
-        key: "documentos",
-        label: "Documentos",
-        icon: FileText,
-        children: [
-          { to: "/drivers", label: "Motorista", icon: UserCog, permission: { menuKey: "fleet", pageKey: "documents", subKey: "drivers" } },
-          { to: "/documents", label: "Contratos", icon: FileText, permission: { menuKey: "fleet", pageKey: "documents", subKey: "contracts" } },
-        ],
-      },
       {
         key: "servicos",
         label: "Serviços",
@@ -297,6 +289,22 @@ export const MENU_REGISTRY = [
           { to: "/maintenance", label: "Manutenção", icon: Wrench, permission: { menuKey: "telemetry", pageKey: "euro-can", subKey: "maintenance" } },
         ],
       },
+      {
+        to: "/trainings",
+        label: "Treinamentos",
+        icon: Medal,
+      },
+      {
+        to: "/sla",
+        label: "SLA de Atendimento",
+        icon: CalendarClock,
+      },
+      {
+        to: "/conditional-actions",
+        label: "Ação Condicional",
+        icon: ShieldCheck,
+        permission: { menuKey: "primary", pageKey: "events" },
+      },
     ],
   },
   {
@@ -310,6 +318,14 @@ export const MENU_REGISTRY = [
         children: [
           { to: "/reports/positions", label: "Relatório de Posições", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
           { to: "/reports/analytic", label: "Relatório Analítico", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
+          { to: "/reports/speed", label: "Relatório de Velocidade", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-speed" } },
+          { to: "/reports/km", label: "Relatório de KM Percorrido", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-km" } },
+          { to: "/reports/events", label: "Relatório de Eventos", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-events" } },
+          { to: "/reports/commands", label: "Relatório de Comandos", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-commands" } },
+          { to: "/reports/itinerary", label: "Relatório de Itinerário", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-itinerary" } },
+          { to: "/reports/movement-stops", label: "Relatório de Deslocamento e Parada", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-movement-stops" } },
+          { to: "/reports/vehicle", label: "Relatório do Veículo", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-vehicle" } },
+          { to: "/reports/charts", label: "Relatório em Gráfico", icon: FileBarChart, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-charts" } },
         ],
       },
       {
@@ -320,7 +336,15 @@ export const MENU_REGISTRY = [
           { to: "/analytics/heatmap", label: "Mapa de Calor", icon: BarChart3, permission: { menuKey: "admin", pageKey: "analytics", subKey: "analytics-heatmap" } },
           { to: "/ranking", label: "Ranking", icon: Medal, permission: { menuKey: "admin", pageKey: "analytics", subKey: "ranking" } },
           { to: "/analytics/risk-area", label: "Área de Risco", icon: Map, permission: { menuKey: "admin", pageKey: "analytics", subKey: "risk-area" } },
-          { to: "/analytics/security", label: "Segurança", icon: ShieldCheck, permission: { menuKey: "admin", pageKey: "analytics", subKey: "security-events" } },
+        ],
+      },
+      {
+        key: "documentos",
+        label: "Documentos",
+        icon: FileText,
+        children: [
+          { to: "/drivers", label: "Motorista", icon: UserCog, permission: { menuKey: "fleet", pageKey: "documents", subKey: "drivers" } },
+          { to: "/documents", label: "Contratos", icon: FileText, permission: { menuKey: "fleet", pageKey: "documents", subKey: "contracts" } },
         ],
       },
       {
@@ -329,13 +353,6 @@ export const MENU_REGISTRY = [
         icon: Users,
         permission: { menuKey: "admin", pageKey: "clients" },
         isVisible: ({ canManageUsers, isMirrorReceiver }) => canManageUsers && !isMirrorReceiver,
-      },
-      {
-        to: "/users",
-        label: "Usuários",
-        icon: User,
-        permission: { menuKey: "admin", pageKey: "users" },
-        isVisible: ({ canManageUsers }) => canManageUsers,
       },
       {
         to: "/mirrors/received",

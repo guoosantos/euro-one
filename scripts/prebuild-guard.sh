@@ -6,3 +6,5 @@ TARGET_DIR="$CLIENT_DIR/src/pages"
 if grep -RIl --include='Vehicles.jsx' -E '<\s*CommBuckets\s*/>' "$TARGET_DIR" >/dev/null 2>&1; then
   echo "❌ Guard: Remova <CommBuckets /> de $TARGET_DIR/Vehicles.jsx"; exit 2
 fi
+
+node "$ROOT_DIR/scripts/check-menu-route-parity.js"

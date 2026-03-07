@@ -38,12 +38,22 @@ import Fatigue from "./pages/Fatigue";
 import Ranking from "./pages/Ranking";
 import ReportsPositions from "./pages/ReportsPositions.jsx";
 import ReportsAnalytic from "./pages/ReportsAnalytic.jsx";
+import ReportsSpeed from "./pages/ReportsSpeed.jsx";
+import ReportsKm from "./pages/ReportsKm.jsx";
+import ReportsEvents from "./pages/ReportsEvents.jsx";
+import ReportsCommands from "./pages/ReportsCommands.jsx";
+import ReportsItinerary from "./pages/ReportsItinerary.jsx";
+import ReportsMovementStops from "./pages/ReportsMovementStops.jsx";
+import ReportsVehicle from "./pages/ReportsVehicle.jsx";
+import ReportsCharts from "./pages/ReportsCharts.jsx";
 import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
 import RiskArea from "./pages/Analytics/RiskArea.jsx";
 import SecurityAnalytics from "./pages/Analytics/Security.jsx";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
+import Trainings from "./pages/Trainings.jsx";
+import Sla from "./pages/SlaAttendance.jsx";
 import Clients from "./pages/Clients";
 import ClientDetailsPage from "./pages/ClientDetailsPage.jsx";
 import MirrorReceivers from "./pages/MirrorReceivers.jsx";
@@ -215,8 +225,18 @@ export const routeConfig = [
   { path: "/analytics/security", element: SecurityAnalytics, title: "Segurança", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "security-events" } },
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
+  { path: "/reports/speed", element: ReportsSpeed, title: "Relatório de Velocidade", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-speed" } },
+  { path: "/reports/km", element: ReportsKm, title: "Relatório de KM Percorrido", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-km" } },
+  { path: "/reports/events", element: ReportsEvents, title: "Relatório de Eventos", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-events" } },
+  { path: "/reports/commands", element: ReportsCommands, title: "Relatório de Comandos", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-commands" } },
+  { path: "/reports/itinerary", element: ReportsItinerary, title: "Relatório de Itinerário", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-itinerary" } },
+  { path: "/reports/movement-stops", element: ReportsMovementStops, title: "Relatório de Deslocamento e Parada", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-movement-stops" } },
+  { path: "/reports/vehicle", element: ReportsVehicle, title: "Relatório do Veículo", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-vehicle" } },
+  { path: "/reports/charts", element: ReportsCharts, title: "Relatório em Gráfico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-charts" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
+  { path: "/trainings", element: Trainings, title: "Treinamentos", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user", "technician"] },
+  { path: "/sla", element: Sla, title: "SLA de Atendimento", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user", "technician"] },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/clients", element: Clients, title: "Clientes", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
   { path: "/clients/:id", element: ClientDetailsPage, title: "Detalhes do cliente", roles: ["admin", "manager", "tenant_admin"], permission: { menuKey: "admin", pageKey: "clients" } },
