@@ -336,7 +336,7 @@ export function Topbar({ title, hideTenantSwitch = false }) {
           persistAdminScope(ADMIN_SCOPE_ALL);
           setStoredMirrorOwnerId(null);
           switchClientAndReset({
-            nextTenantId: ADMIN_ALL_OPTION_ID,
+            nextTenantId: null,
             nextOwnerClientId: null,
             nextMirrorMode: "self",
           });
