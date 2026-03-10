@@ -54,6 +54,7 @@ export default function MonitoringColumnSelector({
   };
 
   const handleDrop = (fromKey, toKey) => {
+    if (lockedSet.has(fromKey) || lockedSet.has(toKey)) return;
     setWorking((prev) => ({
       ...prev,
       order: reorder(prev.order, fromKey, toKey),
@@ -113,6 +114,7 @@ export default function MonitoringColumnSelector({
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault();
+                if (column.fixed || lockedSet.has(column.key)) return;
                 const fromKey = event.dataTransfer?.getData("text/column-key") || event.currentTarget.dataset.dragKey;
                 if (fromKey && fromKey !== column.key) {
                   handleDrop(fromKey, column.key);

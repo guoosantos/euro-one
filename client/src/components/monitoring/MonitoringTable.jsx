@@ -288,9 +288,10 @@ export default function MonitoringTable({
                   : null;
               const allowFilter = filtersEnabled && col.key !== "actions";
               const filterActive = allowFilter && isFilterActive(col.key);
+              const isHighlightedHeader = filterActive || Boolean(isActiveSort);
               const headerClassName = `relative border-r px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] last:border-r-0 ${
-                filterActive
-                  ? "border-primary/40 bg-primary/15 text-white shadow-[inset_2px_0_0_0_rgba(59,130,246,0.75),inset_-2px_0_0_0_rgba(59,130,246,0.75),inset_0_-2px_0_0_rgba(59,130,246,0.45)]"
+                isHighlightedHeader
+                  ? "z-[1] border-transparent bg-primary/[0.14] text-primary shadow-[inset_2px_0_0_0_var(--primary),inset_-2px_0_0_0_var(--primary),inset_0_2px_0_0_var(--primary),inset_0_-2px_0_0_var(--primary)]"
                   : "border-white/5 text-white/60"
               }`;
               return (
@@ -307,12 +308,24 @@ export default function MonitoringTable({
                     <button
                       type="button"
                       onClick={() => onSortChange?.(col.key)}
-                      className="flex min-w-0 items-center gap-1 text-left text-white/70 transition hover:text-white"
+                      className={`flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left transition ${
+                        isHighlightedHeader
+                          ? "border border-primary/50 bg-primary/[0.17] text-primary shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.7)]"
+                          : "text-white/70 hover:text-white"
+                      }`}
                       title={`Ordenar por ${columnTitle}`}
                     >
                       <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis">{col.label}</span>
                       {sortIndicator && (
-                        <span className={`text-[10px] ${isActiveSort ? "text-white" : "text-white/40"}`}>
+                        <span
+                          className={`text-[10px] ${
+                            isActiveSort
+                              ? "text-primary font-semibold"
+                              : isHighlightedHeader
+                                ? "text-primary/80"
+                                : "text-white/40"
+                          }`}
+                        >
                           {sortIndicator}
                         </span>
                       )}
@@ -361,7 +374,26 @@ export default function MonitoringTable({
               </td>
             </tr>
           ) : (
-            rows.map((row) => (
+            rows.map((row, rowIndex) => {
+              const hasPendingAlert = row.hasPendingAlert || row.statusBadge === "alert";
+              const rowBgClass = row.hasConjugatedAlert
+                ? "bg-red-600/24 hover:bg-red-600/30"
+                : hasPendingAlert
+                  ? "bg-orange-500/12 hover:bg-orange-500/18"
+                  : "hover:bg-white/[0.03]";
+              const borderLeftClass = row.hasConjugatedAlert
+                ? "border-l-red-500 shadow-[inset_2px_0_0_rgba(239,68,68,0.75)]"
+                : hasPendingAlert
+                  ? "border-l-orange-400 shadow-[inset_2px_0_0_rgba(251,146,60,0.75)]"
+                  : "border-l-transparent shadow-none";
+              const rowCellTint = row.hasConjugatedAlert
+                ? "bg-red-600/20 group-hover:bg-red-600/26"
+                : hasPendingAlert
+                  ? "bg-orange-500/10 group-hover:bg-orange-500/14"
+                  : "";
+              const selectedRowClass = selectedDeviceId === row.deviceId ? "ring-1 ring-primary/45" : "";
+              const nearbyRowClass = row.isNearby && !hasPendingAlert && !row.hasConjugatedAlert ? "bg-cyan-500/5" : "";
+              return (
               <tr
                 key={row.key}
                 ref={(el) => {
@@ -373,11 +405,16 @@ export default function MonitoringTable({
                   onSelect?.(row.deviceId, row);
                   onRowClick?.(row);
                 }}
-                className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
+                className={`group cursor-pointer border-l-4 transition-colors ${borderLeftClass} ${rowBgClass} ${selectedRowClass} ${nearbyRowClass}`}
               >
                 {normalizedColumns.map((col) => {
                   let cellValue = col.render ? col.render(row) : row[col.key];
                   const isFilteredColumn = activeFilterColumns.has(col.key);
+                  const isSortedColumn = sortKey === col.key && (sortDir === "asc" || sortDir === "desc");
+                  const isHighlightedCell = isFilteredColumn || isSortedColumn;
+                  const highlightedCellClass = rowIndex === rows.length - 1
+                    ? "relative z-[1] border-r border-transparent text-primary shadow-[inset_2px_0_0_0_var(--primary),inset_-2px_0_0_0_var(--primary),inset_0_-2px_0_0_var(--primary)]"
+                    : "relative z-[1] border-r border-transparent text-primary shadow-[inset_2px_0_0_0_var(--primary),inset_-2px_0_0_0_var(--primary),inset_0_-1px_0_0_rgba(59,130,246,0.28)]";
 
                   const isAddressColumn = col.key === "address" || col.key === "endereco";
 
@@ -420,22 +457,25 @@ export default function MonitoringTable({
                       key={`${row.key}-${col.key}`}
                       style={getWidthStyle(col.key)}
                       className={`px-2 py-1 text-[11px] leading-tight last:border-r-0 ${
-                        isFilteredColumn
-                          ? "border-r border-primary/35 bg-primary/[0.06] text-white shadow-[inset_2px_0_0_0_rgba(59,130,246,0.65),inset_-2px_0_0_0_rgba(59,130,246,0.65)]"
-                          : "border-r border-white/5 text-white/80"
+                        isHighlightedCell
+                          ? highlightedCellClass
+                          : `border-r border-white/5 text-white/80 ${rowCellTint}`
                       }`}
                     >
                       <div
-                        className={`${contentClass} min-w-0`}
+                        className={`${contentClass} min-w-0 ${isHighlightedCell ? "text-primary" : ""}`}
                         title={tooltipValue}
                       >
-                        {displayValue}
+                        <span className={isHighlightedCell ? "inline-flex max-w-full min-w-0 items-center border-b border-primary pb-[1px]" : ""}>
+                          {displayValue}
+                        </span>
                       </div>
                     </td>
                   );
                 })}
               </tr>
-            ))
+            );
+            })
           )}
         </tbody>
       </table>
@@ -469,26 +509,32 @@ export default function MonitoringTable({
               <div
                 className={`rounded-lg border px-2 py-2 ${
                   activeSortDirection
-                    ? "border-primary/65 bg-primary/[0.14] shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.85)]"
+                    ? "border-primary/75 bg-primary/[0.18] shadow-[inset_0_1px_0_0_rgba(147,197,253,0.16),inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
                     : "border-white/10 bg-white/[0.02]"
                 }`}
               >
                 <div className="mb-2 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em]">
-                  <span className={activeSortDirection ? "text-primary/90" : "text-white/50"}>Ordenação</span>
+                  <span className={activeSortDirection ? "text-white" : "text-white/50"}>Ordenação</span>
                   {activeSortDirection ? (
-                    <span className="rounded-full border border-primary/55 bg-primary/25 px-2 py-0.5 text-[9px] font-semibold text-blue-100">
-                      Ativo
+                    <span className="rounded-full border border-primary/75 bg-[#1f3f66] px-2 py-0.5 text-[9px] font-semibold text-white shadow-[inset_0_-1px_0_0_rgba(147,197,253,0.92)]">
+                      Ativo azul
                     </span>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div
+                  className={`flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5 ${
+                    activeSortDirection
+                      ? "border-primary/70 bg-[#0d1f36] shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
+                      : "border-white/10 bg-[#0f172a]/45"
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => onSortChange(filterMenu.key, "asc")}
                     className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
                       activeSortDirection === "asc"
-                        ? "border-primary/70 bg-primary/30 text-blue-100 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
-                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/50 hover:text-white"
+                        ? "border-primary bg-[#1f3f66] text-white shadow-[inset_0_-2px_0_0_rgba(147,197,253,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/75 hover:border-primary/60 hover:bg-[#163152] hover:text-white"
                     }`}
                   >
                     <ArrowUp size={12} />
@@ -499,8 +545,8 @@ export default function MonitoringTable({
                     onClick={() => onSortChange(filterMenu.key, "desc")}
                     className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
                       activeSortDirection === "desc"
-                        ? "border-primary/70 bg-primary/30 text-blue-100 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.95)]"
-                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/50 hover:text-white"
+                        ? "border-primary bg-[#1f3f66] text-white shadow-[inset_0_-2px_0_0_rgba(147,197,253,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/75 hover:border-primary/60 hover:bg-[#163152] hover:text-white"
                     }`}
                   >
                     <ArrowDown size={12} />
@@ -511,7 +557,7 @@ export default function MonitoringTable({
                     onClick={() => onSortChange(filterMenu.key, "clear")}
                     className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
                       activeSortDirection
-                        ? "border-primary/45 text-blue-100/85 hover:border-primary/65 hover:text-blue-100"
+                        ? "border-primary/60 bg-[#143251] text-white/90 shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.7)] hover:border-primary hover:text-white"
                         : "border-white/10 text-white/50 hover:border-white/40"
                     }`}
                   >
