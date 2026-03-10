@@ -200,7 +200,11 @@ export default function MonitoringLayoutSelector({
                     setWorkingSortDir("asc");
                   }
                 }}
-                className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/60 focus:outline-none"
+                className={`mt-1 w-full rounded-md border px-3 py-2 text-sm text-white focus:outline-none ${
+                  workingSortKey
+                    ? "border-primary/70 bg-[#112746] shadow-[inset_0_-2px_0_0_rgba(59,130,246,0.92)] focus:border-primary"
+                    : "border-white/10 bg-white/5 focus:border-primary/60"
+                }`}
               >
                 <option value="">Selecione uma coluna</option>
                 {sortOptions.map((option) => (
@@ -218,11 +222,11 @@ export default function MonitoringLayoutSelector({
                     onClick={() => setWorkingSortDir("asc")}
                     className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
                       workingSortDir === "asc"
-                        ? "border-primary/60 bg-primary/20 text-white"
-                        : "border-white/10 text-white/60 hover:border-white/30"
+                        ? "border-primary bg-[#1f3f66] text-white shadow-[inset_0_-2px_0_0_rgba(147,197,253,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/55 hover:bg-[#163152] hover:text-white"
                     }`}
                   >
-                    Crescente
+                    Ascendente
                   </button>
                   <button
                     type="button"
@@ -230,11 +234,11 @@ export default function MonitoringLayoutSelector({
                     onClick={() => setWorkingSortDir("desc")}
                     className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
                       workingSortDir === "desc"
-                        ? "border-primary/60 bg-primary/20 text-white"
-                        : "border-white/10 text-white/60 hover:border-white/30"
+                        ? "border-primary bg-[#1f3f66] text-white shadow-[inset_0_-2px_0_0_rgba(147,197,253,0.95)]"
+                        : "border-white/10 bg-[#111827]/75 text-white/70 hover:border-primary/55 hover:bg-[#163152] hover:text-white"
                     }`}
                   >
-                    Decrescente
+                    Descendente
                   </button>
                 </div>
                 <button
