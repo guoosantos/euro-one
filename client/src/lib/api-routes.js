@@ -83,6 +83,16 @@ export const API_ROUTES = {
   analytics: {
     eventsHeatmap: "events/heatmap",
   },
+  ai: {
+    tools: "ai/tools",
+    chat: "ai/chat",
+    summarizeEvent: "ai/summarize-event",
+    investigateVehicle: "ai/investigate-vehicle",
+    prioritizeAlert: "ai/prioritize-alert",
+    learning: "ai/learning",
+    learningQuestions: "ai/learning/questions",
+    history: (contextId) => `ai/history/${contextId}`,
+  },
   clients: "clients",
   users: "users",
   userAudit: (userId) => `users/${userId}/audit`,

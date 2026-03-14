@@ -8,6 +8,16 @@ const META = {
     subtitle: "Arraste, redimensione e salve sua visão. Preferências ficam atreladas ao seu perfil e tenant.",
   },
   "/home": { title: "Visão geral" },
+  "/sentinel": {
+    title: "SENTINEL",
+    kicker: "Centro Operacional IA",
+    subtitle: "Resumo operacional, riscos e briefing inteligente em uma tela dedicada.",
+  },
+  "/sentinel/learning": {
+    title: "Modo aprendizado",
+    kicker: "SENTINEL",
+    subtitle: "Curadoria supervisionada das regras, nomenclaturas e exibicao do copiloto operacional.",
+  },
   "/monitoring": { title: "Monitoramento" },
   "/monitoramento": { title: "Mapa em tempo real" },
   "/trips": { title: "Trajetos" },

@@ -41,6 +41,18 @@ function normaliseBaseUrl(value) {
 
 export const config = {
   port: toNumber(process.env.PORT, 3001),
+  ai: {
+    assistantName: process.env.OPENAI_ASSISTANT_NAME || "SENTINEL",
+    apiKey: process.env.OPENAI_API_KEY || null,
+    baseUrl: normaliseBaseUrl(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
+    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    temperature: toNumber(process.env.OPENAI_TEMPERATURE, 0.2),
+    maxToolSteps: toNumber(process.env.OPENAI_MAX_TOOL_STEPS, 4),
+    pricing: {
+      inputPer1k: toNumber(process.env.OPENAI_INPUT_COST_PER_1K_TOKENS, 0),
+      outputPer1k: toNumber(process.env.OPENAI_OUTPUT_COST_PER_1K_TOKENS, 0),
+    },
+  },
   traccar: {
     baseUrl: normaliseTraccarBaseUrl(process.env.TRACCAR_BASE_URL),
     adminUser: process.env.TRACCAR_ADMIN_USER || null,

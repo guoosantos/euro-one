@@ -7,6 +7,8 @@ import RequireRole from "./components/RequireRole.jsx";
 import RequireTenant from "./components/RequireTenant.jsx";
 import RequirePermission from "./components/RequirePermission.jsx";
 import Home from "./pages/Home";
+import SentinelPage from "./pages/Sentinel.jsx";
+import SentinelLearningPage from "./pages/SentinelLearning.jsx";
 import Dashboard from "./pages/Dashboard";
 import Monitoring from "./pages/Monitoring";
 import Monitoramento from "./pages/Monitoramento";
@@ -77,6 +79,8 @@ const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "t
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true, requireTenant: true, permission: { menuKey: "business", pageKey: "dashboard" } },
   { path: "/home", element: Home, title: "Visão geral", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "home" } },
+  { path: "/sentinel", element: SentinelPage, title: "SENTINEL", requireTenant: true, permission: { menuKey: "primary", pageKey: "monitoring" } },
+  { path: "/sentinel/learning", element: SentinelLearningPage, title: "Modo aprendizado", requireTenant: true, permission: { menuKey: "primary", pageKey: "monitoring" } },
   { path: "/monitoring", element: Monitoring, title: "Monitoramento", requireTenant: true, permission: { menuKey: "primary", pageKey: "monitoring" } },
   { path: "/monitoramento", element: Monitoramento, title: "Mapa em tempo real", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "monitoring" } },
   { path: "/trips", element: Trips, title: "Trajetos", hideTitle: true, requireTenant: true, permission: { menuKey: "primary", pageKey: "trips" } },

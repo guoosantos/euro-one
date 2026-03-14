@@ -10,6 +10,7 @@ import { resolveCanManageUsers, usePermissions } from "../lib/permissions/permis
 import { MENU_REGISTRY } from "../lib/permissions/registry";
 import { useUI } from "../lib/store";
 import { useTranslation } from "../lib/i18n.js";
+import useAdminGeneralAccess from "../lib/hooks/useAdminGeneralAccess.js";
 import { UserMenuItems } from "./popovers/UserMenuPopover.jsx";
 
 // Discovery note (Epic A): sidebar navigation will be reorganized into
@@ -27,6 +28,7 @@ const DEFAULT_SUBMENUS_OPEN = {
   dispositivos: false,
   documentos: false,
   servicos: false,
+  sentinel: false,
   "euro-view": false,
   "euro-can": false,
   relatorios: false,
@@ -154,6 +156,7 @@ export default function Sidebar() {
     role,
   } = useTenant();
   const { getPermission } = usePermissions();
+  const { isAdminGeneral } = useAdminGeneralAccess();
   const { t } = useTranslation();
   const allClientsLabel = t("topbar.allClients");
   const accentColor = homeClient?.brandColor || ACCENT_FALLBACK;
@@ -237,7 +240,7 @@ export default function Sidebar() {
         if (!children.length) return null;
         return { ...item, children };
       }
-      if (item.isVisible && !item.isVisible({ canManageUsers, isEuroImportEnabled, role, isMirrorReceiver })) {
+      if (item.isVisible && !item.isVisible({ canManageUsers, isEuroImportEnabled, role, isMirrorReceiver, isAdminGeneral })) {
         return null;
       }
       if (!item.permission) {
@@ -245,7 +248,7 @@ export default function Sidebar() {
       }
       return canAccess(item.permission) ? item : null;
     },
-    [canAccess, canManageUsers, isEuroImportEnabled, isMirrorReceiver, role],
+    [canAccess, canManageUsers, isAdminGeneral, isEuroImportEnabled, isMirrorReceiver, role],
   );
 
   useEffect(() => {

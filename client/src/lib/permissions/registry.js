@@ -19,6 +19,7 @@ import {
   Package,
   Radio,
   ShieldCheck,
+  Sparkles,
   Target,
   Terminal,
   UploadCloud,
@@ -215,6 +216,21 @@ export const MENU_REGISTRY = [
     title: "PRINCIPAIS",
     items: [
       { to: "/home", label: "Home", icon: Home, permission: { menuKey: "primary", pageKey: "home" } },
+      {
+        key: "sentinel",
+        label: "SENTINEL",
+        icon: ShieldCheck,
+        children: [
+          { to: "/sentinel", label: "Painel operacional", icon: ShieldCheck, permission: { menuKey: "primary", pageKey: "monitoring" } },
+          {
+            to: "/sentinel/learning",
+            label: "Modo aprendizado",
+            icon: Sparkles,
+            permission: { menuKey: "primary", pageKey: "monitoring" },
+            isVisible: ({ isAdminGeneral }) => Boolean(isAdminGeneral),
+          },
+        ],
+      },
       { to: "/monitoring", label: "Monitoramento", icon: MapPinned, permission: { menuKey: "primary", pageKey: "monitoring" } },
       { to: "/trips", label: "Trajetos / Replay", icon: MapPinned, permission: { menuKey: "primary", pageKey: "trips" } },
       {

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Languages, Menu, Moon, Search, Sun } from "lucide-react";
+import { Languages, Menu, Moon, Search, ShieldCheck, Sun } from "lucide-react";
 
 import { useUI } from "../lib/store";
 import { useTenant, setStoredMirrorOwnerId } from "../lib/tenant-context";
@@ -14,6 +14,7 @@ import { isAdminGeneralClientName, normalizeAdminClientName } from "../lib/admin
 import NotificationsPopover from "./popovers/NotificationsPopover.jsx";
 import UserMenuPopover from "./popovers/UserMenuPopover.jsx";
 import TenantCombobox from "./inputs/TenantCombobox.jsx";
+import { useOperationalAI } from "../features/ai/OperationalAIProvider.jsx";
 
 function normalizePlateValue(value) {
   if (value === null || value === undefined) return "";
@@ -163,6 +164,7 @@ export function Topbar({ title, hideTenantSwitch = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { locale, t } = useTranslation();
+  const { setOpen: openOperationalAI } = useOperationalAI();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -730,6 +732,17 @@ export function Topbar({ title, hideTenantSwitch = false }) {
               <option value="en-US">English</option>
             </select>
           </div>
+
+          <button
+            className="btn hidden items-center gap-2 md:inline-flex"
+            type="button"
+            title="Abrir chat do SENTINEL"
+            aria-label="Abrir chat do SENTINEL"
+            onClick={() => openOperationalAI(true)}
+          >
+            <ShieldCheck size={18} />
+            <span className="text-sm font-medium">SENTINEL Chat</span>
+          </button>
 
           <button
             className="btn hidden md:inline-flex"

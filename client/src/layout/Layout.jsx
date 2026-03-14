@@ -8,6 +8,7 @@ import DeviceModalGlobal from "../components/DeviceModalGlobal";
 import { useUI } from "../lib/store";
 import { useTenant } from "../lib/tenant-context";
 import { usePageMeta } from "../lib/page-meta";
+import OperationalAIPanel from "../features/ai/OperationalAIPanel.jsx";
 
 export default function Layout({ children, title, hideTitle = false }) {
   const location = useLocation();
@@ -172,6 +173,7 @@ export default function Layout({ children, title, hideTitle = false }) {
         </div>
       )}
       <DeviceModalGlobal />
+      <OperationalAIPanel />
     </div>
   );
 }

@@ -42,6 +42,7 @@ import xdmAdminRoutes from "./routes/xdm-admin.js";
 import mirrorRoutes from "./routes/mirrors.js";
 import conditionalActionRoutes from "./routes/conditional-actions.js";
 import nt407Routes from "./routes/nt407.js";
+import aiRoutes from "./ai/controllers/ai-routes.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { formatVersionText, getVersionInfo } from "./utils/version.js";
 
@@ -138,6 +139,7 @@ app.use("/api/core", serviceOrderRoutes);
 app.use("/api/admin", xdmAdminRoutes);
 app.use("/api", conditionalActionRoutes);
 app.use("/api", nt407Routes);
+app.use("/api", aiRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(

@@ -5,6 +5,7 @@ import { DevicesProvider } from "./DevicesContext.jsx";
 import { EventsProvider } from "./EventsContext.jsx";
 import { VehicleAccessProvider } from "./VehicleAccessContext.jsx";
 import ConjugatedAlertsModalHost from "../components/alerts/ConjugatedAlertsModalHost.jsx";
+import { OperationalAIProvider } from "../features/ai/OperationalAIProvider.jsx";
 
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
 const MIN_POLL_INTERVAL_MS = 3_000;
@@ -22,16 +23,18 @@ export function AppDataProviders({ children }) {
 
   return (
     <VehicleAccessProvider>
-      <TelemetryProvider interval={telemetryInterval}>
-        <LivePositionsProvider interval={livePositionsInterval}>
-          <DevicesProvider>
-            <EventsProvider>
-              {children}
-              <ConjugatedAlertsModalHost />
-            </EventsProvider>
-          </DevicesProvider>
-        </LivePositionsProvider>
-      </TelemetryProvider>
+      <OperationalAIProvider>
+        <TelemetryProvider interval={telemetryInterval}>
+          <LivePositionsProvider interval={livePositionsInterval}>
+            <DevicesProvider>
+              <EventsProvider>
+                {children}
+                <ConjugatedAlertsModalHost />
+              </EventsProvider>
+            </DevicesProvider>
+          </LivePositionsProvider>
+        </TelemetryProvider>
+      </OperationalAIProvider>
     </VehicleAccessProvider>
   );
 }
