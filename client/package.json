@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "bash ../scripts/prebuild-guard.sh && vite build && node ../scripts/write-build-version.js",
-    "build:00h22": "bash ../scripts/prebuild-guard.sh && node ../scripts/rebuild-00h22-improved.js && node ../scripts/postbuild-00h22-security-page.js && node ../scripts/postbuild-00h22-monitoring-fixes.js && node ../scripts/postbuild-00h22-report-fixes.js && node ../scripts/postbuild-00h22-runtime-fixes.js && node ../scripts/postbuild-00h22-sentinel.js && node ../scripts/postbuild-00h22-cache-bust.js && node ../scripts/write-build-version.js",
+    "build:00h22": "bash ../scripts/prebuild-guard.sh && node ../scripts/rebuild-00h22-improved.js && node ../scripts/postbuild-00h22-security-page.js && node ../scripts/postbuild-00h22-monitoring-fixes.js && node ../scripts/postbuild-00h22-report-fixes.js && node ../scripts/postbuild-00h22-runtime-fixes.js && node ../scripts/postbuild-00h22-sentinel.js && node ../scripts/postbuild-00h22-cache-bust.js && node ../scripts/postbuild-00h22-sentinel.js && node ../scripts/write-build-version.js",
     "preview": "vite preview --port 5173 --strictPort",
     "e2e": "playwright test",
     "test": "NODE_ENV=test node --test --loader ./tests/jsx-loader.js",

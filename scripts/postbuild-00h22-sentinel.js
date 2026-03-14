@@ -9,6 +9,8 @@ const assetsRoot = path.join(distRoot, "assets");
 const sentinelRouteBaseName = "Sentinel-00h22.js";
 const sentinelAppBaseName = "sentinel-00h22-app.js";
 const sentinelHtmlBaseName = "sentinel-00h22.html";
+const sentinelMenuVisibilityGuard =
+  '()=>{try{const e=window.localStorage.getItem("euro-one.session.user"),t=e?JSON.parse(e):null,n=String(t?.client?.name||t?.clientName||t?.tenantName||t?.attributes?.companyName||t?.attributes?.tenantName||"").trim().toUpperCase();return t?.role==="admin"&&n==="EURO ONE"}catch{return!1}}';
 
 function read(filePath) {
   return fs.readFileSync(filePath, "utf8");
@@ -26,10 +28,15 @@ function writeSentinelRouteChunk(targetPath, mainAsset) {
   const source = `import { j as runtime } from "./${mainAsset}";
 
 const { jsx } = runtime;
-const frameSrc = "/assets/${sentinelHtmlBaseName}";
 const RESIZE_EVENT_TYPE = "euro-one:sentinel:resize";
 const OPEN_CHAT_EVENT_TYPE = "euro-one:sentinel:open-chat";
 const FRAME_ID = "sentinel-00h22-frame";
+
+function resolveFrameSrc() {
+  if (typeof window === "undefined") return "/assets/${sentinelHtmlBaseName}";
+  const learningMode = window.location.pathname.endsWith("/learning");
+  return learningMode ? "/assets/${sentinelHtmlBaseName}?mode=learning" : "/assets/${sentinelHtmlBaseName}";
+}
 
 if (typeof window !== "undefined" && !window.__euroOneSentinelBridgeBound) {
   window.__euroOneSentinelBridgeBound = true;
@@ -50,10 +57,10 @@ if (typeof window !== "undefined" && !window.__euroOneSentinelBridgeBound) {
 
 export default function Sentinel00h22Frame() {
   return jsx("div", {
-    className: "overflow-hidden rounded-[28px] border border-white/10 bg-[#07111a]/60 shadow-2xl",
+    className: "rounded-[28px] border border-white/10 bg-[#07111a]/60 shadow-2xl",
     children: jsx("iframe", {
       id: FRAME_ID,
-      src: frameSrc,
+      src: resolveFrameSrc(),
       title: "SENTINEL",
       loading: "lazy",
       style: {
@@ -178,12 +185,38 @@ function patchMainBundle(mainPath) {
     }
   }
 
-  if (!source.includes('to:"/sentinel",label:"SENTINEL"')) {
+  if (!source.includes('path:"/sentinel/learning"')) {
+    source = source.replace(
+      '{path:"/sentinel",element:Sentinel00h22,title:"SENTINEL",requireTenant:!0,permission:{menuKey:"primary",pageKey:"monitoring"}},{path:"/monitoring",element:t4,title:"Monitoramento",requireTenant:!0,permission:{menuKey:"primary",pageKey:"monitoring"}}',
+      '{path:"/sentinel",element:Sentinel00h22,title:"SENTINEL",requireTenant:!0,permission:{menuKey:"primary",pageKey:"monitoring"}},{path:"/sentinel/learning",element:Sentinel00h22,title:"Modo aprendizado",requireTenant:!0,permission:{menuKey:"primary",pageKey:"monitoring"}},{path:"/monitoring",element:t4,title:"Monitoramento",requireTenant:!0,permission:{menuKey:"primary",pageKey:"monitoring"}}',
+    );
+  }
+
+  if (source.includes('sD={dispositivos:!1,documentos:!1,servicos:!1,"euro-view":!1,"euro-can":!1,relatorios:!1,analises:!1}')) {
+    source = source.replace(
+      'sD={dispositivos:!1,documentos:!1,servicos:!1,"euro-view":!1,"euro-can":!1,relatorios:!1,analises:!1}',
+      'sD={sentinel:!1,dispositivos:!1,documentos:!1,servicos:!1,"euro-view":!1,"euro-can":!1,relatorios:!1,analises:!1}',
+    );
+  }
+
+  const sentinelFlatMenuItem = '{to:"/sentinel",label:"SENTINEL",icon:t0,permission:{menuKey:"primary",pageKey:"monitoring"}}';
+  const sentinelNestedMenuItem = `{key:"sentinel",label:"SENTINEL",icon:t0,children:[{to:"/sentinel",label:"Painel operacional",icon:t0,permission:{menuKey:"primary",pageKey:"monitoring"}},{to:"/sentinel/learning",label:"Modo aprendizado",icon:t0,permission:{menuKey:"primary",pageKey:"monitoring"},isVisible:${sentinelMenuVisibilityGuard}}]}`;
+
+  if (source.includes(sentinelFlatMenuItem)) {
+    source = source.replace(sentinelFlatMenuItem, sentinelNestedMenuItem);
+  } else if (!source.includes('to:"/sentinel",label:"SENTINEL"')) {
     const primaryMenuPattern =
       /\{to:"\/home",label:"Home",icon:([^,]+),permission:\{menuKey:"primary",pageKey:"home"\}\},\{to:"\/monitoring",label:"Monitoramento",icon:([^,]+),permission:\{menuKey:"primary",pageKey:"monitoring"\}\}/;
     source = source.replace(
       primaryMenuPattern,
       '{to:"/home",label:"Home",icon:$1,permission:{menuKey:"primary",pageKey:"home"}},{to:"/sentinel",label:"SENTINEL",icon:$2,permission:{menuKey:"primary",pageKey:"monitoring"}},{to:"/monitoring",label:"Monitoramento",icon:$2,permission:{menuKey:"primary",pageKey:"monitoring"}}',
+    );
+  }
+
+  if (!source.includes('children:"SENTINEL Chat"')) {
+    source = source.replace(
+      'k.jsx("button",{className:"btn hidden md:inline-flex",type:"button",title:N("topbar.toggleTheme"),"aria-label":N("topbar.toggleTheme"),onClick:s,children:i==="dark"?k.jsx(TN,{size:18}):k.jsx(wN,{size:18})}),',
+      'k.jsx("button",{className:"btn hidden md:inline-flex",type:"button",title:"Abrir SENTINEL","aria-label":"Abrir SENTINEL",onClick:()=>window.location.assign("/sentinel"),children:"SENTINEL Chat"}),k.jsx("button",{className:"btn hidden md:inline-flex",type:"button",title:N("topbar.toggleTheme"),"aria-label":N("topbar.toggleTheme"),onClick:s,children:i==="dark"?k.jsx(TN,{size:18}):k.jsx(wN,{size:18})}),',
     );
   }
 
