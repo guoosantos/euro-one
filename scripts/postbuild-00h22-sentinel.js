@@ -178,6 +178,15 @@ function patchMainBundle(mainPath) {
     }
   }
 
+  if (!source.includes('to:"/sentinel",label:"SENTINEL"')) {
+    const primaryMenuPattern =
+      /\{to:"\/home",label:"Home",icon:([^,]+),permission:\{menuKey:"primary",pageKey:"home"\}\},\{to:"\/monitoring",label:"Monitoramento",icon:([^,]+),permission:\{menuKey:"primary",pageKey:"monitoring"\}\}/;
+    source = source.replace(
+      primaryMenuPattern,
+      '{to:"/home",label:"Home",icon:$1,permission:{menuKey:"primary",pageKey:"home"}},{to:"/sentinel",label:"SENTINEL",icon:$2,permission:{menuKey:"primary",pageKey:"monitoring"}},{to:"/monitoring",label:"Monitoramento",icon:$2,permission:{menuKey:"primary",pageKey:"monitoring"}}',
+    );
+  }
+
   write(mainPath, source);
 }
 
