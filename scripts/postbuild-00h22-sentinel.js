@@ -158,11 +158,16 @@ function buildStandaloneSentinelApp(appJsPath, appHtmlPath, mainCssAsset) {
 
 function patchMainBundle(mainPath) {
   let source = read(mainPath);
+  const sentinelLazyImport = `Sentinel00h22=ye.lazy(()=>import("./${sentinelRouteBaseName}"))`;
+  const sentinelLazyImportPattern =
+    /Sentinel00h22=ye\.lazy\(\(\)=>import\("\.\/Sentinel-00h22(?:-[^"]+)?\.js"\)\)(?:,Sentinel00h22=ye\.lazy\(\(\)=>import\("\.\/Sentinel-00h22(?:-[^"]+)?\.js"\)\))*/g;
 
-  if (!source.includes(`import("./${sentinelRouteBaseName}")`)) {
+  if (sentinelLazyImportPattern.test(source)) {
+    source = source.replace(sentinelLazyImportPattern, sentinelLazyImport);
+  } else if (!source.includes(`import("./${sentinelRouteBaseName}")`)) {
     const replaced = source.replace(
       ',dF=[{path:"/dashboard"',
-      `,Sentinel00h22=ye.lazy(()=>import("./${sentinelRouteBaseName}")),dF=[{path:"/dashboard"`,
+      `,${sentinelLazyImport},dF=[{path:"/dashboard"`,
     );
     if (replaced !== source) {
       source = replaced;
