@@ -25,40 +25,40 @@ function findAssetByPattern(pattern) {
 function writeSentinelRouteChunk(targetPath, mainAsset) {
   const source = `import { j as runtime } from "./${mainAsset}";
 
-const { jsx, useEffect, useState } = runtime;
+const { jsx } = runtime;
 const frameSrc = "/assets/${sentinelHtmlBaseName}";
 const RESIZE_EVENT_TYPE = "euro-one:sentinel:resize";
 const OPEN_CHAT_EVENT_TYPE = "euro-one:sentinel:open-chat";
+const FRAME_ID = "sentinel-00h22-frame";
+
+if (typeof window !== "undefined" && !window.__euroOneSentinelBridgeBound) {
+  window.__euroOneSentinelBridgeBound = true;
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const frame = document.getElementById(FRAME_ID);
+    if (event.data?.type === RESIZE_EVENT_TYPE && frame) {
+      const nextHeight = Number(event.data?.height);
+      if (Number.isFinite(nextHeight) && nextHeight > 0) {
+        frame.style.height = Math.max(720, Math.min(nextHeight, 5000)) + "px";
+      }
+    }
+    if (event.data?.type === OPEN_CHAT_EVENT_TYPE) {
+      window.dispatchEvent(new CustomEvent("euro-one:open-operational-ai"));
+    }
+  });
+}
 
 export default function Sentinel00h22Frame() {
-  const [frameHeight, setFrameHeight] = useState(960);
-
-  useEffect(() => {
-    const handleMessage = (event) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === RESIZE_EVENT_TYPE) {
-        const nextHeight = Number(event.data?.height);
-        if (Number.isFinite(nextHeight) && nextHeight > 0) {
-          setFrameHeight(Math.max(720, Math.min(nextHeight, 5000)));
-        }
-      }
-      if (event.data?.type === OPEN_CHAT_EVENT_TYPE) {
-        window.dispatchEvent(new CustomEvent("euro-one:open-operational-ai"));
-      }
-    };
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
-
   return jsx("div", {
     className: "overflow-hidden rounded-[28px] border border-white/10 bg-[#07111a]/60 shadow-2xl",
     children: jsx("iframe", {
+      id: FRAME_ID,
       src: frameSrc,
       title: "SENTINEL",
       loading: "lazy",
       style: {
         width: "100%",
-        height: frameHeight + "px",
+        height: "960px",
         minHeight: "calc(100vh - 12rem)",
         border: "0",
         display: "block",
