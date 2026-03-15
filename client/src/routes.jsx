@@ -73,6 +73,8 @@ import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
 import Appointments from "./pages/Appointments.jsx";
+import Trainings from "./pages/Trainings.jsx";
+import Sla from "./pages/Sla.jsx";
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -191,11 +193,17 @@ export const routeConfig = [
   { path: "/drivers", element: Drivers, title: "Motoristas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "documents", subKey: "drivers" } },
   { path: "/documents", element: Docs, title: "Documentos", requireTenant: true, permission: { menuKey: "fleet", pageKey: "documents", subKey: "contracts" } },
   { path: "/services", element: Services, title: "Ordem de Serviço", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
+  { path: "/servicos", element: Services, title: "Ordem de Serviço", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
   { path: "/services/new", element: ServiceOrderNew, title: "Nova Ordem de Serviço", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
   { path: "/services/import", element: ServiceOrderImport, title: "Importar OS", requireTenant: true, roles: ["admin"], permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders", requireFull: true } },
   { path: "/services/:id", element: ServiceOrderDetails, title: "Detalhes da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
   { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-orders" } },
   { path: "/service-requests", element: ServiceRequests, title: "Solicitações", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
+  { path: "/servicos/solicitacoes", element: ServiceRequests, title: "Solicitações", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
+  { path: "/services/trainings", element: Trainings, title: "Treinamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
+  { path: "/servicos/treinamentos", element: Trainings, title: "Treinamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
+  { path: "/services/sla", element: Sla, title: "SLA", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
+  { path: "/servicos/sla", element: Sla, title: "SLA", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "service-requests" } },
   { path: "/appointments", element: Appointments, title: "Agendamentos", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "appointments" } },
   { path: "/var", element: VarLive, title: "Auditoria do Serviço", hideTitle: true, requireTenant: true, permission: { menuKey: "fleet", pageKey: "services", subKey: "var-live" } },
   { path: "/deliveries", element: Deliveries, title: "Entregas", requireTenant: true, permission: { menuKey: "fleet", pageKey: "deliveries" } },
@@ -219,6 +227,8 @@ export const routeConfig = [
   { path: "/analytics/security", element: SecurityAnalytics, title: "Segurança", requireTenant: true, permission: { menuKey: "admin", pageKey: "analytics", subKey: "security-events" } },
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
   { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
+  { path: "/relatorios/posicoes", element: ReportsPositions, title: "Relatório de posições", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-positions" } },
+  { path: "/relatorios/analitico", element: ReportsAnalytic, title: "Relatório Analítico", hideTitle: true, requireTenant: true, permission: { menuKey: "admin", pageKey: "reports", subKey: "reports-analytic" } },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true, roles: ["admin", "tenant_admin", "manager", "user"] },
